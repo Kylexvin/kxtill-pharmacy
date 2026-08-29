@@ -1,0 +1,6 @@
+.dashboard {
+  height: 100%;
+  padding: 0;  /* CHANGE from 24px to 0 */
+  background: var(--bg-primary);
+  overflow-y: auto;
+}

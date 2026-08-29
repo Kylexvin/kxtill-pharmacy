@@ -1,0 +1,575 @@
+/* ============================================================
+   Select Branch — Full page (matching suite UI)
+   ============================================================ */
+
+.page {
+  --bg: #0e0f13;
+  --panel: #16171d;
+  --raised: #1b1c23;
+  --raised-hi: #24252e;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #eceef2;
+  --text-muted: #a3a5b0;
+  --text-faint: #62636e;
+  --accent: #ff6a2b;
+  --accent-glow: #ff8c42;
+  --danger: #ef5350;
+  --gold: #d9a84e;
+  --success: #22c55e;
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(180deg, rgba(14, 15, 19, 0.82), rgba(14, 15, 19, 0.92));
+  background-color: var(--bg);
+  padding: 32px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+/* ---------- ambient glow ---------- */
+
+.page::before,
+.page::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.page::before {
+  width: 460px;
+  height: 460px;
+  top: -140px;
+  right: 10%;
+  background: radial-gradient(circle, rgba(217, 168, 78, 0.18) 0%, rgba(255, 106, 43, 0.06) 55%, transparent 75%);
+}
+
+.page::after {
+  width: 420px;
+  height: 420px;
+  bottom: -160px;
+  left: 10%;
+  background: radial-gradient(circle, rgba(76, 122, 94, 0.14) 0%, rgba(76, 122, 94, 0.04) 55%, transparent 75%);
+}
+
+/* ================= GLASS CARD ================= */
+
+.glassCard {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(27, 28, 35, 0.72), rgba(22, 23, 29, 0.6));
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 2px 0 rgba(255, 255, 255, 0.03) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.4) inset;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Top Row ===== */
+
+.cardTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logoMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--accent-glow), var(--accent));
+  border-radius: 8px;
+  color: #17181d;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 3px 10px rgba(255, 106, 43, 0.35);
+}
+
+.brandName {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.userChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 20px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-glow), var(--accent));
+  color: #17181d;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.userNameText {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ===== Header ===== */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 24px 8px;
+}
+
+.backButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+
+.backButton:hover {
+  background: var(--raised-hi);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.headerContent {
+  flex: 1;
+}
+
+.iconWrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 106, 43, 0.12);
+  border-radius: 12px;
+  color: var(--accent-glow);
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 2px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ===== Error ===== */
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 24px 0;
+  padding: 10px 14px;
+  border-radius: 11px;
+  background: rgba(239, 83, 80, 0.1);
+  border: 1px solid rgba(239, 83, 80, 0.25);
+  color: #ff8b87;
+  font-size: 13px;
+}
+
+.retryBtn {
+  margin-left: auto;
+  padding: 4px 14px;
+  border-radius: 6px;
+  background: rgba(239, 83, 80, 0.2);
+  border: none;
+  color: #ff8b87;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retryBtn:hover {
+  background: rgba(239, 83, 80, 0.3);
+}
+
+/* ===== Branch List ===== */
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 24px 8px;
+}
+
+.list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.list::-webkit-scrollbar-thumb {
+  background: var(--raised-hi);
+  border-radius: 3px;
+}
+
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ===== Branch Item ===== */
+
+.branchItem {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--raised);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.3), -2px -2px 6px rgba(255, 255, 255, 0.02);
+}
+
+.branchItem:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--raised-hi);
+  transform: translateX(4px);
+}
+
+.branchItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.branchItem.selected {
+  border-color: var(--accent);
+  background: rgba(255, 106, 43, 0.08);
+  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.12), 3px 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.branchIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  background: rgba(255, 106, 43, 0.1);
+  border-radius: 10px;
+  color: var(--accent-glow);
+}
+
+.branchItem.selected .branchIcon {
+  background: rgba(255, 106, 43, 0.2);
+}
+
+.branchInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.branchNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.branchName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.branchAddress {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.branchPhone {
+  display: block;
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+/* ===== Badges ===== */
+
+.badgeDefault {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.badgeInactive {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: rgba(239, 83, 80, 0.15);
+  color: var(--danger);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.branchAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+}
+
+.checkIcon {
+  color: var(--accent);
+}
+
+.chevronIcon {
+  color: var(--text-faint);
+}
+
+/* ===== Empty State ===== */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+  gap: 8px;
+}
+
+.emptyState svg {
+  color: var(--text-faint);
+}
+
+.emptyState h3 {
+  color: var(--text);
+  font-size: 18px;
+  margin: 8px 0 0;
+}
+
+.emptyState p {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ===== Footer ===== */
+
+.footer {
+  display: flex;
+  justify-content: center;
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.logoutButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.logoutButton:hover {
+  color: var(--danger);
+  background: rgba(239, 83, 80, 0.08);
+}
+
+/* ===== Loading ===== */
+
+.loadingCard {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 48px 32px;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(27, 28, 35, 0.72), rgba(22, 23, 29, 0.6));
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  min-width: 200px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loadingCard p {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.spinnerSmall {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+.glowAmber {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  top: -100px;
+  right: -100px;
+  background: radial-gradient(circle, rgba(217, 168, 78, 0.12), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glowMoss {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  bottom: -100px;
+  left: -100px;
+  background: radial-gradient(circle, rgba(76, 122, 94, 0.08), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ===== Responsive ===== */
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+
+  .glassCard {
+    max-height: 95vh;
+    border-radius: 20px;
+  }
+
+  .cardTopRow {
+    padding: 14px 16px 10px;
+  }
+
+  .header {
+    padding: 12px 16px 4px;
+  }
+
+  .list {
+    padding: 8px 16px 4px;
+  }
+
+  .title {
+    font-size: 19px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+  }
+
+  .branchItem {
+    padding: 12px 14px;
+  }
+
+  .branchName {
+    font-size: 14px;
+  }
+
+  .footer {
+    padding: 10px 16px 16px;
+  }
+}
+
+@media (max-width: 400px) {
+  .userNameText {
+    display: none;
+  }
+
+  .userChip {
+    padding: 4px 6px;
+  }
+}

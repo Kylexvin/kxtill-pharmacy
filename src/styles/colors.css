@@ -1,0 +1,28 @@
+/* src/styles/colors.css */
+
+/* Color utility classes */
+.bg-primary { background: var(--bg-primary); }
+.bg-secondary { background: var(--bg-secondary); }
+.bg-panel { background: var(--bg-panel); }
+.bg-raised { background: var(--bg-raised); }
+.bg-raised-hi { background: var(--bg-raised-hi); }
+
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted { color: var(--text-muted); }
+.text-faint { color: var(--text-faint); }
+
+.border-color { border-color: var(--border); }
+.border-strong { border-color: var(--border-strong); }
+
+.accent { color: var(--accent); }
+.accent-glow { color: var(--accent-glow); }
+.danger { color: var(--danger); }
+.success { color: var(--success); }
+.warning { color: var(--warning); }
+
+.bg-accent { background: var(--accent); }
+.bg-accent-glow { background: var(--accent-glow); }
+.bg-danger { background: var(--danger); }
+.bg-success { background: var(--success); }
+.bg-warning { background: var(--warning); }
