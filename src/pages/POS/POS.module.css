@@ -52,6 +52,9 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .categoryBtn:hover {
@@ -62,13 +65,14 @@
 .categoryBtn.active {
   border-color: var(--accent);
   background: rgba(255, 106, 43, 0.1);
+  color: var(--accent-glow);
 }
 
 /* Products Grid */
 .productsGrid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 12px;
   overflow-y: auto;
   padding: 4px 2px;
@@ -98,7 +102,10 @@
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
-  min-height: 140px;
+  min-height: 84px;
+  width: 100%;
+  text-align: left;
+  position: relative;
 }
 
 .productCard:hover {
@@ -111,23 +118,37 @@
   transform: scale(0.98);
 }
 
-.productImage {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-}
-
 .productInfo {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  justify-content: space-between;
   gap: 4px;
+}
+
+.productTopText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.productBottomRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .productName {
   height: 14px;
   width: 70%;
+  border-radius: 4px;
+  background: var(--bg-panel);
+}
+
+.productSkuBar {
+  height: 10px;
+  width: 45%;
   border-radius: 4px;
   background: var(--bg-panel);
 }
@@ -166,13 +187,6 @@
   flex-shrink: 0;
 }
 
-.cartTitle {
-  width: 60px;
-  height: 20px;
-  border-radius: 4px;
-  background: var(--bg-panel);
-}
-
 .cartActions {
   display: flex;
   gap: 8px;
@@ -186,11 +200,16 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .clearBtn:hover {
   border-color: var(--danger);
   background: rgba(239, 83, 80, 0.1);
+  color: var(--danger);
 }
 
 /* Cart Items */
@@ -216,78 +235,6 @@
   border-radius: 999px;
 }
 
-.cartItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  border-radius: 10px;
-  gap: 12px;
-}
-
-.cartItemInfo {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.cartItemName {
-  height: 14px;
-  width: 60%;
-  border-radius: 4px;
-  background: var(--bg-raised);
-}
-
-.cartItemPrice {
-  height: 12px;
-  width: 35%;
-  border-radius: 4px;
-  background: var(--bg-raised);
-}
-
-.cartItemQty {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.qtyBtn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  background: var(--bg-raised);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.qtyBtn:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-raised-hi);
-}
-
-.qtyBtn:active {
-  transform: scale(0.95);
-}
-
-.qtyText {
-  width: 24px;
-  height: 18px;
-  border-radius: 4px;
-  background: var(--bg-panel);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 /* Cart Footer */
 .cartFooter {
   display: flex;
@@ -300,22 +247,8 @@
 
 .cartTotal {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.totalLabel {
-  width: 50px;
-  height: 18px;
-  border-radius: 4px;
-  background: var(--bg-panel);
-}
-
-.totalAmount {
-  width: 80px;
-  height: 22px;
-  border-radius: 4px;
-  background: var(--bg-panel);
+  flex-direction: column;
+  gap: 4px;
 }
 
 .cartButtons {
@@ -323,42 +256,35 @@
   gap: 10px;
 }
 
-.holdBtn {
-  flex: 1;
-  height: 44px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.holdBtn:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-raised-hi);
-}
-
-.holdBtn:active {
-  transform: scale(0.98);
-}
-
 .checkoutBtn {
-  flex: 2;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   height: 44px;
   border: none;
   background: var(--accent);
   border-radius: 10px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.checkoutBtn:hover {
+.checkoutBtn:hover:not(:disabled) {
   background: var(--accent-glow);
   box-shadow: 0 4px 16px rgba(255, 106, 43, 0.3);
 }
 
-.checkoutBtn:active {
+.checkoutBtn:active:not(:disabled) {
   transform: scale(0.98);
+}
+
+.checkoutBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ============================================================
@@ -432,4 +358,574 @@
     width: 50px;
     height: 28px;
   }
+}
+
+/* ============================================================
+   EMPTY STATE — no org/branch selected yet
+   ============================================================ */
+
+.noBranch {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.noBranch svg {
+  color: var(--text-faint);
+}
+
+/* Search Bar */
+.searchBar {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--accent);
+}
+
+/* Barcode scan field — visually distinct from the text search so a
+   cashier can tell at a glance which field the scanner is aimed at */
+.barcodeForm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  width: 200px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  transition: border-color 0.15s ease;
+}
+
+.barcodeForm:focus-within {
+  border-color: var(--accent);
+}
+
+.barcodeIcon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.barcodeInput {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  min-width: 0;
+}
+
+/* Empty State */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 200px;
+  color: var(--text-muted);
+}
+
+.emptyState svg {
+  color: var(--text-faint);
+}
+
+.emptyState p {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.emptyState span {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+/* Skeleton Loading */
+.skeleton .productName {
+  background: var(--border);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton .productSkuBar {
+  background: var(--border);
+  animation: pulse 1.5s ease-in-out infinite;
+  animation-delay: 0.1s;
+}
+
+.skeleton .productPrice {
+  background: var(--border);
+  animation: pulse 1.5s ease-in-out infinite;
+  animation-delay: 0.2s;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+/* Product Card Enhancements */
+.productCardWrap {
+  position: relative;
+}
+
+.productCard.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 106, 43, 0.2);
+}
+
+.disabledCard {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.disabledCard:hover {
+  transform: none;
+  border-color: var(--border);
+  background: var(--bg-raised);
+}
+
+.lowStockBadge {
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  padding: 2px 7px;
+  background: var(--danger);
+  border: 2px solid var(--bg-primary);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+/* Real (non-skeleton) product text — kept distinct from the
+   loading-bar .productName/.productPrice classes above */
+.productNameText {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.productSku {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.productPriceText {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--accent-glow);
+}
+
+.unitsHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* Unit picker — overlays directly on top of the exact card that was
+   clicked, rather than floating above/below it. Anchoring here means it
+   can never end up clipped by the grid's scroll bounds or land on a
+   neighboring card where a cashier might miss it. */
+.unitPopover {
+  position: absolute;
+  inset: -4px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--bg-raised-hi);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 106, 43, 0.12);
+  transform-origin: center;
+  animation: unitPopIn 0.14s ease-out;
+}
+
+@keyframes unitPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.unitPopoverLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 6px 6px;
+  border: none;
+  background: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.unitPopoverLabel:hover {
+  color: var(--text-secondary);
+}
+
+.unitOption {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: var(--bg-panel);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 12.5px;
+}
+
+.unitOption:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.unitPrice {
+  color: var(--accent-glow);
+  font-weight: 600;
+}
+
+/* Cart Enhancements */
+.cartTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cartCount {
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 12px;
+}
+
+.customerSection {
+  flex-shrink: 0;
+}
+
+.customerBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 106, 43, 0.08);
+  border: 1px solid rgba(255, 106, 43, 0.2);
+  border-radius: 8px;
+  color: var(--accent-glow);
+  font-size: 13px;
+}
+
+.customerBadge button {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.customerBadge button:hover {
+  color: var(--danger);
+}
+
+.addCustomerBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13px;
+}
+
+.addCustomerBtn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.emptyCart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 150px;
+  color: var(--text-muted);
+}
+
+.emptyCart svg {
+  color: var(--text-faint);
+}
+
+.emptyCart p {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.emptyCart span {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.cartItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.cartItemInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cartItemName {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cartItemUnit {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.cartItemPrice {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cartItemQty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.qtyBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.qtyBtn:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-raised-hi);
+  color: var(--text-primary);
+}
+
+.qtyText {
+  min-width: 24px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.removeBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.removeBtn:hover {
+  background: rgba(239, 83, 80, 0.08);
+  color: var(--danger);
+}
+
+/* Total Rows */
+.totalRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.grandTotal {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.grandTotal span:last-child {
+  color: var(--accent-glow);
+}
+/* Loading states */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  color: var(--text-muted);
+}
+
+.loadingState p {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.syncBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.syncBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.syncBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.emptyStateFull {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.emptyStateFull p {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 8px 0 0 0;
+}
+
+.syncBtnLarge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  margin-top: 12px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent-glow), var(--accent));
+  color: #17181d;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.syncBtnLarge:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(255, 106, 43, 0.35);
+}
+
+.syncBtnLarge:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

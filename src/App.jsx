@@ -1,11 +1,11 @@
 // src/App.jsx
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Toaster } from './components/Common/Toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { ThemeProvider } from './contexts/ThemeContext';  // ADD THIS
+import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login/Login';
 import SelectOrg from './pages/SelectOrg/SelectOrg';
@@ -15,17 +15,14 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import Inventory from './pages/Inventory/Inventory';
 import Reports from './pages/Reports/Reports';
 import Settings from './pages/Settings/Settings';
+import { initDb } from './db/sqlite';
 import './App.css';
-import './styles/globals.css';  // ADD THIS - import global styles
+import './styles/globals.css';
 
-// ============================================================
-// ROOT AXIOS CONFIGURATION (Match suite pattern)
-// ============================================================
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
-// Request interceptor
 axios.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
@@ -37,13 +34,11 @@ axios.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor with refresh
 axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
     
-    // CRITICAL FIX: If the refresh request itself fails with a 401, kill the cycle instantly
     if (originalRequest.url === '/auth/refresh' || originalRequest.url?.endsWith('/auth/refresh')) {
       localStorage.clear();
       window.location.href = '/login';
@@ -81,7 +76,6 @@ axios.interceptors.response.use(
   }
 );
 
-// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { accessToken } = useAuth();
   if (!accessToken) {
@@ -91,8 +85,41 @@ const ProtectedRoute = ({ children }) => {
 };
 
 function App() {
+  const [dbReady, setDbReady] = useState(false);
+
+  useEffect(() => {
+    const initDatabase = async () => {
+      try {
+        await initDb();
+        console.log('SQLite database initialized');
+        setDbReady(true);
+      } catch (error) {
+        console.error('Failed to initialize SQLite database:', error);
+        // Retry after 2 seconds
+        setTimeout(initDatabase, 2000);
+      }
+    };
+    initDatabase();
+  }, []);
+
+  if (!dbReady) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        fontSize: '16px',
+        color: 'var(--text-muted)',
+        background: 'var(--bg-app)'
+      }}>
+        Loading database...
+      </div>
+    );
+  }
+
   return (
-    <ThemeProvider>  {/* WRAP EVERYTHING WITH ThemeProvider */}
+    <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
           <Toaster />

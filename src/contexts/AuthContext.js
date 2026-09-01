@@ -27,6 +27,7 @@ export function AuthProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(() => safeLocalStorageGet('refreshToken', null));
   const [organizations, setOrganizations] = useState(() => safeLocalStorageGet('organizations', []));
   const [branches, setBranches] = useState(() => safeLocalStorageGet('branches', []));
+  const [settings, setSettings] = useState(() => safeLocalStorageGet('settings', null));
   const [activeOrganization, setActiveOrganizationState] = useState(() => 
     safeLocalStorageGet('activeOrganization', null)
   );
@@ -34,6 +35,7 @@ export function AuthProvider({ children }) {
     safeLocalStorageGet('activeBranch', null)
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
   const [error, setError] = useState(null);
   const authInitialized = useRef(false);
 
@@ -47,6 +49,7 @@ export function AuthProvider({ children }) {
     const storedRefresh = localStorage.getItem('refreshToken');
     const storedOrgs = localStorage.getItem('organizations');
     const storedBranches = localStorage.getItem('branches');
+    const storedSettings = localStorage.getItem('settings');
     const storedActive = localStorage.getItem('activeOrganization');
     const storedActiveBranch = localStorage.getItem('activeBranch');
 
@@ -61,6 +64,9 @@ export function AuthProvider({ children }) {
     if (storedBranches) {
       try { setBranches(JSON.parse(storedBranches)); } catch {}
     }
+    if (storedSettings) {
+      try { setSettings(JSON.parse(storedSettings)); } catch {}
+    }
     if (storedActive) {
       try { setActiveOrganizationState(JSON.parse(storedActive)); } catch {}
     }
@@ -68,6 +74,64 @@ export function AuthProvider({ children }) {
       try { setActiveBranchState(JSON.parse(storedActiveBranch)); } catch {}
     }
   }, []);
+
+  // Check pending sales from SQLite
+  const checkPendingSales = async () => {
+    try {
+      // Dynamically import to avoid circular dependency
+      const { getPendingSales } = await import('../db/sqlite');
+      const pending = await getPendingSales();
+      return pending;
+    } catch (err) {
+      console.error('Failed to check pending sales:', err);
+      return [];
+    }
+  };
+
+  // Clear offline data with pending sale check
+  const clearOfflineData = async (force = false) => {
+    try {
+      const pending = await checkPendingSales();
+      
+      if (pending.length > 0 && !force) {
+        // Check if pending sales are for the current branch
+        const currentBranchId = activeBranch?.id;
+        const pendingForCurrentBranch = pending.filter(s => s.branchId === currentBranchId);
+        
+        if (pendingForCurrentBranch.length > 0) {
+          // There are pending sales for current branch - warn user
+          return {
+            hasPendingSales: true,
+            pendingCount: pendingForCurrentBranch.length,
+            message: `You have ${pendingForCurrentBranch.length} pending sale(s) that haven't been synced. Switching will clear them.`
+          };
+        }
+        
+        // Pending sales are for a different branch - we can safely clear
+        if (pending.length > 0 && pendingForCurrentBranch.length === 0) {
+          console.log('Pending sales exist but for different branch, safe to clear');
+        }
+      }
+      
+      // Clear the database
+      localStorage.removeItem('kxtill_db');
+      
+      // Clear sync flags
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('initialSyncDone:')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      return { hasPendingSales: false };
+    } catch (err) {
+      console.error('Failed to clear offline data:', err);
+      // Force clear even on error
+      localStorage.removeItem('kxtill_db');
+      return { hasPendingSales: false };
+    }
+  };
 
   // Login
   const login = async (email, password) => {
@@ -89,7 +153,7 @@ export function AuthProvider({ children }) {
 
       // Auto-select if only one organization
       if (organizations && organizations.length === 1) {
-        await setActiveOrganization(organizations[0].id);
+        await setActiveOrganization(organizations[0].id, true);
       }
 
       return { hasOrganizations: organizations && organizations.length > 0 };
@@ -102,13 +166,25 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Logout
-  const logout = () => {
+  // Logout - clear everything including database
+  const logout = async () => {
+    // Check for pending sales before logout
+    try {
+      const pending = await checkPendingSales();
+      if (pending.length > 0) {
+        // Store pending sales info before clearing
+        console.warn(`Logging out with ${pending.length} pending sale(s)`);
+      }
+    } catch (err) {
+      console.error('Failed to check pending sales on logout:', err);
+    }
+    
     setUser(null);
     setAccessToken(null);
     setRefreshToken(null);
     setOrganizations([]);
     setBranches([]);
+    setSettings(null);
     setActiveOrganizationState(null);
     setActiveBranchState(null);
     setError(null);
@@ -118,18 +194,71 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('organizations');
     localStorage.removeItem('branches');
+    localStorage.removeItem('settings');
     localStorage.removeItem('activeOrganization');
     localStorage.removeItem('activeBranch');
+    
+    // Clear offline database
+    localStorage.removeItem('kxtill_db');
+    
+    // Clear all sync flags
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('initialSyncDone:')) {
+        localStorage.removeItem(key);
+      }
+    });
   };
 
-  // Set Active Organization
-  const setActiveOrganization = async (orgId) => {
+  // Fetch Settings
+  const fetchSettings = async () => {
+    if (!activeOrganization) return null;
+    
+    try {
+      const response = await axios.get(
+        `/organizations/${activeOrganization.id}/kxtill/settings`
+      );
+      const data = response.data.settings;
+      setSettings(data);
+      localStorage.setItem('settings', JSON.stringify(data));
+      return data;
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+      return null;
+    }
+  };
+
+  // Set Active Organization - with pending sale handling
+  const setActiveOrganization = async (orgId, isLogin = false) => {
     setIsLoading(true);
+    setIsSwitching(true);
     setError(null);
+    
     try {
       const org = organizations.find(o => o.id === orgId);
       if (!org) {
         throw new Error('Organization not found');
+      }
+
+      // Check for pending sales before switching
+      if (!isLogin) {
+        const pendingResult = await clearOfflineData(false);
+        if (pendingResult.hasPendingSales) {
+          // Show warning to user
+          const confirmSwitch = window.confirm(
+            `${pendingResult.message}\n\nAre you sure you want to switch? All unsynced sales will be lost.`
+          );
+          if (!confirmSwitch) {
+            setIsSwitching(false);
+            setIsLoading(false);
+            return;
+          }
+          // User confirmed, force clear
+          await clearOfflineData(true);
+        }
+      } else {
+        // On login, force clear
+        await clearOfflineData(true);
       }
 
       setActiveOrganizationState(org);
@@ -142,7 +271,7 @@ export function AuthProvider({ children }) {
       setBranches(fetchedBranches);
       localStorage.setItem('branches', JSON.stringify(fetchedBranches));
 
-      // Auto-select first active branch
+      // Only set active branch if user has access to at least one
       if (fetchedBranches.length > 0) {
         const active = fetchedBranches.find(b => b.isActive !== false) || fetchedBranches[0];
         setActiveBranchState(active);
@@ -152,6 +281,11 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('activeBranch');
       }
 
+      await fetchSettings();
+
+      // Force page reload to re-sync with new org
+      window.location.reload();
+
       return fetchedBranches;
     } catch (err) {
       const message = err.response?.data?.message || 'Failed to load organization';
@@ -159,17 +293,44 @@ export function AuthProvider({ children }) {
       throw new Error(message);
     } finally {
       setIsLoading(false);
+      setIsSwitching(false);
     }
   };
 
-  // Set Active Branch
-  const setActiveBranch = (branch) => {
-    setActiveBranchState(branch);
-    if (branch) {
-      localStorage.setItem('activeBranch', JSON.stringify(branch));
-    } else {
+  // Set Active Branch - with pending sale handling
+  const setActiveBranch = async (branch) => {
+    if (!branch) {
+      setActiveBranchState(null);
       localStorage.removeItem('activeBranch');
+      return;
     }
+    
+    // Verify user has access to this branch
+    const hasAccess = branches.some(b => b.id === branch.id);
+    if (!hasAccess) {
+      console.warn('User does not have access to branch:', branch.id);
+      return;
+    }
+    
+    // Check for pending sales before switching
+    const pendingResult = await clearOfflineData(false);
+    if (pendingResult.hasPendingSales) {
+      // Show warning to user
+      const confirmSwitch = window.confirm(
+        `${pendingResult.message}\n\nAre you sure you want to switch branches? All unsynced sales for the current branch will be lost.`
+      );
+      if (!confirmSwitch) {
+        return;
+      }
+      // User confirmed, force clear
+      await clearOfflineData(true);
+    }
+    
+    setActiveBranchState(branch);
+    localStorage.setItem('activeBranch', JSON.stringify(branch));
+
+    // Force page reload to re-sync with new branch
+    window.location.reload();
   };
 
   // Load Branches - can be called from anywhere
@@ -197,9 +358,11 @@ export function AuthProvider({ children }) {
     refreshToken,
     organizations,
     branches,
+    settings,
     activeOrganization,
     activeBranch,
     isLoading,
+    isSwitching,
     error,
     login,
     logout,
@@ -207,7 +370,10 @@ export function AuthProvider({ children }) {
     setActiveBranch,
     setBranches,
     loadBranches,
+    fetchSettings,
     clearError,
+    clearOfflineData,
+    checkPendingSales,
     isAuthenticated,
   };
 

@@ -1,0 +1,174 @@
+/* src/pages/POS/ReceiptModal.module.css */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  padding: 16px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 380px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.successIcon {
+  color: var(--success);
+}
+
+.closeBtn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--bg-panel);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.closeBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-raised-hi);
+}
+
+.receiptArea {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+  background: var(--bg-panel);
+}
+
+.receiptArea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.receiptArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.receiptArea::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.receiptText {
+  margin: 0;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.footer {
+  display: flex;
+  gap: 10px;
+  padding: 16px 18px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.printBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 0;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.printBtn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.newSaleBtn {
+  flex: 1;
+  padding: 12px 0;
+  border: none;
+  background: var(--accent);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.newSaleBtn:hover {
+  background: var(--accent-glow);
+}
+
+/* Print only the receipt text itself, not the modal chrome */
+@media print {
+  .overlay {
+    position: static;
+    background: none;
+    backdrop-filter: none;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: none;
+    max-height: none;
+    border: none;
+    background: #fff;
+  }
+
+  .header,
+  .footer {
+    display: none;
+  }
+
+  .receiptArea {
+    background: #fff;
+    padding: 0;
+  }
+
+  .receiptText {
+    color: #000;
+  }
+}

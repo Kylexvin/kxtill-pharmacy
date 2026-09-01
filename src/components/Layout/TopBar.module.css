@@ -633,3 +633,139 @@
     height: 28px;
   }
 }
+/* ============================================================
+   SYNC INDICATOR
+   ============================================================ */
+
+.syncIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.syncBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.syncBtn:hover {
+  background: var(--bg-raised-hi);
+}
+
+.syncBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.syncBtn.online {
+  color: var(--success);
+}
+
+.syncBtn.offline {
+  color: var(--text-faint);
+}
+
+.syncBtn.sync {
+  color: var(--accent-glow);
+}
+
+.syncBtn.success {
+  color: var(--success);
+}
+
+.syncBtn.error {
+  color: var(--danger);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.syncStatusText {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.syncStatusText.online {
+  color: var(--success);
+}
+
+.syncStatusText.offline {
+  color: var(--text-faint);
+}
+
+.syncStatusText.sync {
+  color: var(--accent-glow);
+}
+
+.syncStatusText.success {
+  color: var(--success);
+}
+
+.syncStatusText.error {
+  color: var(--danger);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .syncIndicator {
+    padding: 2px 4px;
+  }
+  
+  .syncStatusText {
+    display: none;
+  }
+  
+  .syncBtn {
+    width: 32px;
+    height: 32px;
+  }
+}
+/* Pending badge next to sync status */
+.pendingBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: #f59e0b;
+  color: #17181d;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+/* Pending notification item */
+.pendingItem {
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.notifIconPending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
