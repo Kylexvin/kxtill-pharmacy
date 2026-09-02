@@ -1,3 +1,5 @@
+// src/contexts/AuthContext.jsx
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
@@ -78,7 +80,6 @@ export function AuthProvider({ children }) {
   // Check pending sales from SQLite
   const checkPendingSales = async () => {
     try {
-      // Dynamically import to avoid circular dependency
       const { getPendingSales } = await import('../db/sqlite');
       const pending = await getPendingSales();
       return pending;
@@ -94,12 +95,10 @@ export function AuthProvider({ children }) {
       const pending = await checkPendingSales();
       
       if (pending.length > 0 && !force) {
-        // Check if pending sales are for the current branch
         const currentBranchId = activeBranch?.id;
         const pendingForCurrentBranch = pending.filter(s => s.branchId === currentBranchId);
         
         if (pendingForCurrentBranch.length > 0) {
-          // There are pending sales for current branch - warn user
           return {
             hasPendingSales: true,
             pendingCount: pendingForCurrentBranch.length,
@@ -107,16 +106,13 @@ export function AuthProvider({ children }) {
           };
         }
         
-        // Pending sales are for a different branch - we can safely clear
         if (pending.length > 0 && pendingForCurrentBranch.length === 0) {
           console.log('Pending sales exist but for different branch, safe to clear');
         }
       }
       
-      // Clear the database
       localStorage.removeItem('kxtill_db');
       
-      // Clear sync flags
       const keys = Object.keys(localStorage);
       keys.forEach(key => {
         if (key.startsWith('initialSyncDone:')) {
@@ -127,7 +123,6 @@ export function AuthProvider({ children }) {
       return { hasPendingSales: false };
     } catch (err) {
       console.error('Failed to clear offline data:', err);
-      // Force clear even on error
       localStorage.removeItem('kxtill_db');
       return { hasPendingSales: false };
     }
@@ -151,7 +146,6 @@ export function AuthProvider({ children }) {
       localStorage.setItem('refreshToken', refreshToken);
       localStorage.setItem('organizations', JSON.stringify(organizations || []));
 
-      // Auto-select if only one organization
       if (organizations && organizations.length === 1) {
         await setActiveOrganization(organizations[0].id, true);
       }
@@ -166,13 +160,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Logout - clear everything including database
+  // Logout
   const logout = async () => {
-    // Check for pending sales before logout
     try {
       const pending = await checkPendingSales();
       if (pending.length > 0) {
-        // Store pending sales info before clearing
         console.warn(`Logging out with ${pending.length} pending sale(s)`);
       }
     } catch (err) {
@@ -197,11 +189,8 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('settings');
     localStorage.removeItem('activeOrganization');
     localStorage.removeItem('activeBranch');
-    
-    // Clear offline database
     localStorage.removeItem('kxtill_db');
     
-    // Clear all sync flags
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
       if (key.startsWith('initialSyncDone:')) {
@@ -228,7 +217,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Set Active Organization - with pending sale handling
+  // Set Active Organization
   const setActiveOrganization = async (orgId, isLogin = false) => {
     setIsLoading(true);
     setIsSwitching(true);
@@ -240,11 +229,9 @@ export function AuthProvider({ children }) {
         throw new Error('Organization not found');
       }
 
-      // Check for pending sales before switching
       if (!isLogin) {
         const pendingResult = await clearOfflineData(false);
         if (pendingResult.hasPendingSales) {
-          // Show warning to user
           const confirmSwitch = window.confirm(
             `${pendingResult.message}\n\nAre you sure you want to switch? All unsynced sales will be lost.`
           );
@@ -253,25 +240,21 @@ export function AuthProvider({ children }) {
             setIsLoading(false);
             return;
           }
-          // User confirmed, force clear
           await clearOfflineData(true);
         }
       } else {
-        // On login, force clear
         await clearOfflineData(true);
       }
 
       setActiveOrganizationState(org);
       localStorage.setItem('activeOrganization', JSON.stringify(org));
 
-      // Load branches for this organization
       const response = await axios.get(`/organizations/${orgId}/branches/my`);
       const fetchedBranches = response.data.branches || [];
       
       setBranches(fetchedBranches);
       localStorage.setItem('branches', JSON.stringify(fetchedBranches));
 
-      // Only set active branch if user has access to at least one
       if (fetchedBranches.length > 0) {
         const active = fetchedBranches.find(b => b.isActive !== false) || fetchedBranches[0];
         setActiveBranchState(active);
@@ -282,9 +265,6 @@ export function AuthProvider({ children }) {
       }
 
       await fetchSettings();
-
-      // Force page reload to re-sync with new org
-      window.location.reload();
 
       return fetchedBranches;
     } catch (err) {
@@ -297,7 +277,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Set Active Branch - with pending sale handling
+  // Set Active Branch
   const setActiveBranch = async (branch) => {
     if (!branch) {
       setActiveBranchState(null);
@@ -305,35 +285,28 @@ export function AuthProvider({ children }) {
       return;
     }
     
-    // Verify user has access to this branch
     const hasAccess = branches.some(b => b.id === branch.id);
     if (!hasAccess) {
       console.warn('User does not have access to branch:', branch.id);
       return;
     }
     
-    // Check for pending sales before switching
     const pendingResult = await clearOfflineData(false);
     if (pendingResult.hasPendingSales) {
-      // Show warning to user
       const confirmSwitch = window.confirm(
         `${pendingResult.message}\n\nAre you sure you want to switch branches? All unsynced sales for the current branch will be lost.`
       );
       if (!confirmSwitch) {
         return;
       }
-      // User confirmed, force clear
       await clearOfflineData(true);
     }
     
     setActiveBranchState(branch);
     localStorage.setItem('activeBranch', JSON.stringify(branch));
-
-    // Force page reload to re-sync with new branch
-    window.location.reload();
   };
 
-  // Load Branches - can be called from anywhere
+  // Load Branches
   const loadBranches = async (orgId) => {
     try {
       const response = await axios.get(`/organizations/${orgId}/branches/my`);
