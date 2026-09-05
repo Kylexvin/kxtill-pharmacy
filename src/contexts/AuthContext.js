@@ -1,11 +1,10 @@
 // src/contexts/AuthContext.jsx
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 export const AuthContext = createContext(null);
 
-// Helper for localStorage
 function safeLocalStorageGet(key, defaultValue) {
   if (typeof window === 'undefined') return defaultValue;
   const stored = localStorage.getItem(key);
@@ -41,44 +40,17 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null);
   const authInitialized = useRef(false);
 
-  // Load from localStorage on mount
+  // Set axios header when token changes
   useEffect(() => {
-    if (authInitialized.current) return;
-    authInitialized.current = true;
-
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('accessToken');
-    const storedRefresh = localStorage.getItem('refreshToken');
-    const storedOrgs = localStorage.getItem('organizations');
-    const storedBranches = localStorage.getItem('branches');
-    const storedSettings = localStorage.getItem('settings');
-    const storedActive = localStorage.getItem('activeOrganization');
-    const storedActiveBranch = localStorage.getItem('activeBranch');
-
-    if (storedToken) setAccessToken(storedToken);
-    if (storedRefresh) setRefreshToken(storedRefresh);
-    if (storedUser) {
-      try { setUser(JSON.parse(storedUser)); } catch {}
+    if (accessToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+    } else {
+      delete axios.defaults.headers.common['Authorization'];
     }
-    if (storedOrgs) {
-      try { setOrganizations(JSON.parse(storedOrgs)); } catch {}
-    }
-    if (storedBranches) {
-      try { setBranches(JSON.parse(storedBranches)); } catch {}
-    }
-    if (storedSettings) {
-      try { setSettings(JSON.parse(storedSettings)); } catch {}
-    }
-    if (storedActive) {
-      try { setActiveOrganizationState(JSON.parse(storedActive)); } catch {}
-    }
-    if (storedActiveBranch) {
-      try { setActiveBranchState(JSON.parse(storedActiveBranch)); } catch {}
-    }
-  }, []);
+  }, [accessToken]);
 
   // Check pending sales from SQLite
-  const checkPendingSales = async () => {
+  const checkPendingSales = useCallback(async () => {
     try {
       const { getPendingSales } = await import('../db/sqlite');
       const pending = await getPendingSales();
@@ -87,10 +59,10 @@ export function AuthProvider({ children }) {
       console.error('Failed to check pending sales:', err);
       return [];
     }
-  };
+  }, []);
 
   // Clear offline data with pending sale check
-  const clearOfflineData = async (force = false) => {
+  const clearOfflineData = useCallback(async (force = false) => {
     try {
       const pending = await checkPendingSales();
       
@@ -126,81 +98,10 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('kxtill_db');
       return { hasPendingSales: false };
     }
-  };
-
-  // Login
-  const login = async (email, password) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await axios.post('/auth/login', { email, password });
-      const { user, accessToken, refreshToken, organizations } = response.data;
-
-      setUser(user);
-      setAccessToken(accessToken);
-      setRefreshToken(refreshToken);
-      setOrganizations(organizations || []);
-
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
-      localStorage.setItem('organizations', JSON.stringify(organizations || []));
-
-      if (organizations && organizations.length === 1) {
-        await setActiveOrganization(organizations[0].id, true);
-      }
-
-      return { hasOrganizations: organizations && organizations.length > 0 };
-    } catch (err) {
-      const message = err.response?.data?.message || 'Login failed';
-      setError(message);
-      throw new Error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Logout
-  const logout = async () => {
-    try {
-      const pending = await checkPendingSales();
-      if (pending.length > 0) {
-        console.warn(`Logging out with ${pending.length} pending sale(s)`);
-      }
-    } catch (err) {
-      console.error('Failed to check pending sales on logout:', err);
-    }
-    
-    setUser(null);
-    setAccessToken(null);
-    setRefreshToken(null);
-    setOrganizations([]);
-    setBranches([]);
-    setSettings(null);
-    setActiveOrganizationState(null);
-    setActiveBranchState(null);
-    setError(null);
-    
-    localStorage.removeItem('user');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('organizations');
-    localStorage.removeItem('branches');
-    localStorage.removeItem('settings');
-    localStorage.removeItem('activeOrganization');
-    localStorage.removeItem('activeBranch');
-    localStorage.removeItem('kxtill_db');
-    
-    const keys = Object.keys(localStorage);
-    keys.forEach(key => {
-      if (key.startsWith('initialSyncDone:')) {
-        localStorage.removeItem(key);
-      }
-    });
-  };
+  }, [activeBranch, checkPendingSales]);
 
   // Fetch Settings
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     if (!activeOrganization) return null;
     
     try {
@@ -215,10 +116,24 @@ export function AuthProvider({ children }) {
       console.error('Failed to fetch settings:', err);
       return null;
     }
-  };
+  }, [activeOrganization]);
+
+  // Load Branches
+  const loadBranches = useCallback(async (orgId) => {
+    try {
+      const response = await axios.get(`/organizations/${orgId}/branches/my`);
+      const fetchedBranches = response.data.branches || [];
+      setBranches(fetchedBranches);
+      localStorage.setItem('branches', JSON.stringify(fetchedBranches));
+      return fetchedBranches;
+    } catch (err) {
+      console.error('Failed to load branches:', err);
+      throw err;
+    }
+  }, []);
 
   // Set Active Organization
-  const setActiveOrganization = async (orgId, isLogin = false) => {
+  const setActiveOrganization = useCallback(async (orgId, isLogin = false) => {
     setIsLoading(true);
     setIsSwitching(true);
     setError(null);
@@ -275,10 +190,10 @@ export function AuthProvider({ children }) {
       setIsLoading(false);
       setIsSwitching(false);
     }
-  };
+  }, [organizations, clearOfflineData, fetchSettings]);
 
   // Set Active Branch
-  const setActiveBranch = async (branch) => {
+  const setActiveBranch = useCallback(async (branch) => {
     if (!branch) {
       setActiveBranchState(null);
       localStorage.removeItem('activeBranch');
@@ -304,24 +219,165 @@ export function AuthProvider({ children }) {
     
     setActiveBranchState(branch);
     localStorage.setItem('activeBranch', JSON.stringify(branch));
-  };
+  }, [branches, clearOfflineData]);
 
-  // Load Branches
-  const loadBranches = async (orgId) => {
+  // Login
+  const login = useCallback(async (email, password) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const response = await axios.get(`/organizations/${orgId}/branches/my`);
-      const fetchedBranches = response.data.branches || [];
-      setBranches(fetchedBranches);
-      localStorage.setItem('branches', JSON.stringify(fetchedBranches));
-      return fetchedBranches;
+      const response = await axios.post('/auth/login', { email, password });
+      const { user, accessToken, refreshToken, organizations } = response.data;
+
+      setUser(user);
+      setAccessToken(accessToken);
+      setRefreshToken(refreshToken);
+      setOrganizations(organizations || []);
+
+      localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('organizations', JSON.stringify(organizations || []));
+
+      axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+
+      if (organizations && organizations.length === 1) {
+        await setActiveOrganization(organizations[0].id, true);
+      }
+
+      return { hasOrganizations: organizations && organizations.length > 0 };
     } catch (err) {
-      console.error('Failed to load branches:', err);
-      throw err;
+      const message = err.response?.data?.error || err.response?.data?.message || 'Login failed';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [setActiveOrganization]);
+
+  // Logout handler
+  const handleLogout = useCallback(async () => {
+    try {
+      if (refreshToken) {
+        await axios.post('/auth/logout', { refreshToken });
+      }
+    } catch (err) {
+      // Ignore errors on logout
+    } finally {
+      setUser(null);
+      setAccessToken(null);
+      setRefreshToken(null);
+      setOrganizations([]);
+      setBranches([]);
+      setSettings(null);
+      setActiveOrganizationState(null);
+      setActiveBranchState(null);
+      setError(null);
+      
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('organizations');
+      localStorage.removeItem('branches');
+      localStorage.removeItem('settings');
+      localStorage.removeItem('activeOrganization');
+      localStorage.removeItem('activeBranch');
+      localStorage.removeItem('kxtill_db');
+      
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('initialSyncDone:')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      delete axios.defaults.headers.common['Authorization'];
+    }
+  }, [refreshToken]);
+
+  // ============================================================
+  // SET AUTH DATA (for OAuth callback)
+  // ============================================================
+  
+  const setAuthData = useCallback((user, accessToken, refreshToken, organizations) => {
+    setUser(user);
+    setAccessToken(accessToken);
+    setRefreshToken(refreshToken);
+    setOrganizations(organizations || []);
+
+    localStorage.setItem('user', JSON.stringify(user));
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('organizations', JSON.stringify(organizations || []));
+
+    axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+  }, []);
+
+  // Validate session on mount
+  useEffect(() => {
+    if (authInitialized.current) return;
+    authInitialized.current = true;
+
+    const validateSession = async () => {
+      const token = localStorage.getItem('accessToken');
+      const refresh = localStorage.getItem('refreshToken');
+      
+      if (!token || !refresh) {
+        return;
+      }
+
+      try {
+        await axios.get('/auth/me');
+      } catch (error) {
+        try {
+          const response = await axios.post('/auth/refresh', { refreshToken: refresh });
+          const { accessToken: newToken } = response.data;
+          localStorage.setItem('accessToken', newToken);
+          setAccessToken(newToken);
+          axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+        } catch (refreshError) {
+          handleLogout();
+        }
+      }
+    };
+
+    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('accessToken');
+    const storedRefresh = localStorage.getItem('refreshToken');
+    const storedOrgs = localStorage.getItem('organizations');
+    const storedBranches = localStorage.getItem('branches');
+    const storedSettings = localStorage.getItem('settings');
+    const storedActive = localStorage.getItem('activeOrganization');
+    const storedActiveBranch = localStorage.getItem('activeBranch');
+
+    if (storedToken) setAccessToken(storedToken);
+    if (storedRefresh) setRefreshToken(storedRefresh);
+    if (storedUser) {
+      try { setUser(JSON.parse(storedUser)); } catch {}
+    }
+    if (storedOrgs) {
+      try { setOrganizations(JSON.parse(storedOrgs)); } catch {}
+    }
+    if (storedBranches) {
+      try { setBranches(JSON.parse(storedBranches)); } catch {}
+    }
+    if (storedSettings) {
+      try { setSettings(JSON.parse(storedSettings)); } catch {}
+    }
+    if (storedActive) {
+      try { setActiveOrganizationState(JSON.parse(storedActive)); } catch {}
+    }
+    if (storedActiveBranch) {
+      try { setActiveBranchState(JSON.parse(storedActiveBranch)); } catch {}
+    }
+
+    if (storedToken) {
+      validateSession();
+    }
+  }, [handleLogout]);
 
   // Clear error
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
 
   const isAuthenticated = !!user && !!accessToken;
 
@@ -338,7 +394,7 @@ export function AuthProvider({ children }) {
     isSwitching,
     error,
     login,
-    logout,
+    logout: handleLogout,
     setActiveOrganization,
     setActiveBranch,
     setBranches,
@@ -348,6 +404,7 @@ export function AuthProvider({ children }) {
     clearOfflineData,
     checkPendingSales,
     isAuthenticated,
+    setAuthData,
   };
 
   return (

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login/Login';
+import OAuthCallback from './pages/OAuthCallback/OAuthCallback';
 import SelectOrg from './pages/SelectOrg/SelectOrg';
 import SelectBranch from './pages/SelectBranch/SelectBranch';
 import POS from './pages/POS/POS';
@@ -23,6 +24,22 @@ axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
+// Request queue for concurrent requests during refresh
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(promise => {
+    if (error) {
+      promise.reject(error);
+    } else {
+      promise.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Request interceptor - attach token
 axios.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
@@ -34,20 +51,36 @@ axios.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Response interceptor - handle token refresh
 axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
     
-    if (originalRequest.url === '/auth/refresh' || originalRequest.url?.endsWith('/auth/refresh')) {
+    // Don't retry refresh, login, or register endpoints
+    if (originalRequest.url === '/auth/refresh' || 
+        originalRequest.url?.endsWith('/auth/refresh') ||
+        originalRequest.url === '/auth/login' ||
+        originalRequest.url === '/auth/register') {
       localStorage.clear();
       window.location.href = '/login';
       return Promise.reject(error);
     }
     
     if (error.response?.status === 401 && !originalRequest._retry) {
+      // If already refreshing, queue the request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return axios(originalRequest);
+        }).catch(err => Promise.reject(err));
+      }
+
       originalRequest._retry = true;
-      
+      isRefreshing = true;
+
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (!refreshToken) {
@@ -56,19 +89,27 @@ axios.interceptors.response.use(
         
         const response = await axios.post('/auth/refresh', { refreshToken });
         const { accessToken } = response.data;
+        
         localStorage.setItem('accessToken', accessToken);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+        
+        processQueue(null, accessToken);
         
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return axios(originalRequest);
       } catch (refreshError) {
+        processQueue(refreshError, null);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         localStorage.removeItem('organizations');
         localStorage.removeItem('activeOrganization');
         localStorage.removeItem('activeBranch');
+        delete axios.defaults.headers.common['Authorization'];
         window.location.href = '/login';
         return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
     
@@ -95,7 +136,6 @@ function App() {
         setDbReady(true);
       } catch (error) {
         console.error('Failed to initialize SQLite database:', error);
-        // Retry after 2 seconds
         setTimeout(initDatabase, 2000);
       }
     };
@@ -125,6 +165,7 @@ function App() {
           <Toaster />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/oauth/callback" element={<OAuthCallback />} />
             <Route path="/select-org" element={<SelectOrg />} />
             <Route path="/select-branch" element={<SelectBranch />} />
             <Route

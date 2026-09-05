@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { Store, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,14 +11,67 @@ export default function LoginPage() {
   const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
+
+  // Load remembered email on mount
+  useEffect(() => {
+    const remembered = localStorage.getItem('rememberedEmail');
+    if (remembered) {
+      setEmail(remembered);
+      setRememberMe(true);
+    }
+
+    // Check for OAuth error
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('error');
+    if (oauthError) {
+      setError(oauthError === 'google_failed' || oauthError === 'github_failed'
+        ? 'Social login failed. Please try again.'
+        : 'Login failed');
+    }
+  }, []);
+
+  // Validate input before API call
+  const validate = () => {
+    const trimmedEmail = email.trim();
+    
+    if (!trimmedEmail) {
+      setError('Email is required');
+      return false;
+    }
+    
+    if (!trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
+      setError('Please enter a valid email address');
+      return false;
+    }
+    
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return false;
+    }
+    
+    return true;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
+    if (!validate()) {
+      return;
+    }
+
     try {
       const result = await login(email, password);
+      
+      // Save email if "Remember me" is checked
+      if (rememberMe) {
+        localStorage.setItem('rememberedEmail', email);
+      } else {
+        localStorage.removeItem('rememberedEmail');
+      }
+      
       if (result.hasOrganizations) {
         navigate('/select-org');
       } else {
@@ -26,7 +79,17 @@ export default function LoginPage() {
       }
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.message || 'Invalid email or password');
+        if (err.code === 'ERR_NETWORK') {
+          setError('Network error. Please check your connection.');
+        } else if (err.response?.status === 429) {
+          setError('Too many login attempts. Please try again after 15 minutes.');
+        } else if (err.response?.status === 401) {
+          setError('Invalid email or password.');
+        } else if (err.response?.status === 403) {
+          setError('Account disabled or email not verified.');
+        } else {
+          setError(err.response?.data?.error || err.response?.data?.message || 'Login failed');
+        }
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -36,13 +99,13 @@ export default function LoginPage() {
   };
 
   const handleSocialLogin = (provider) => {
-    window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1'}/auth/${provider}`;
+    const redirectUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1'}/auth/${provider}`;
+    window.location.href = redirectUrl;
   };
 
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        {/* LEFT SIDE - Brand & Hero */}
         <div className={styles.leftPanel}>
           <div className={styles.brand}>
             <div className={styles.logoMark}>
@@ -74,7 +137,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* RIGHT SIDE - Form */}
         <div className={styles.rightPanel}>
           <div className={styles.formContainer}>
             <h2>Sign in</h2>
@@ -152,11 +214,16 @@ export default function LoginPage() {
 
               <div className={styles.formOptions}>
                 <label className={styles.rememberMe}>
-                  <input type="checkbox" /> Remember me
+                  <input 
+                    type="checkbox" 
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  Remember me
                 </label>
-                <a href="/forgot-password" className={styles.forgotLink}>
+                <Link to="/forgot-password" className={styles.forgotLink}>
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               <button type="submit" className={styles.submitBtn} disabled={isLoading}>
@@ -165,7 +232,7 @@ export default function LoginPage() {
             </form>
 
             <p className={styles.signupLink}>
-              Don't have an account? <a href="/signup">Create one</a>
+              Don't have an account? <Link to="/signup">Create one</Link>
             </p>
           </div>
         </div>

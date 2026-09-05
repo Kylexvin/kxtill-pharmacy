@@ -1,3 +1,5 @@
+// src/pages/SelectOrg/SelectOrg.jsx
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -16,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { showToast } from '../../components/Common/Toast';
+import { initializeKxTill } from '../../initializer';
 import styles from './SelectOrg.module.css';
 
 // API error helper
@@ -67,7 +70,6 @@ export default function SelectOrganizationPage() {
       if (!user) return;
 
       try {
-        // Load organizations, invites, and archived
         const [invitesRes, archivedRes] = await Promise.all([
           axios.get('/organizations'),
           axios.get('/invitations/my').catch(() => ({ data: { invitations: [] } })),
@@ -118,7 +120,8 @@ export default function SelectOrganizationPage() {
       setRedirecting(true);
       
       setActiveOrganization(org.id)
-        .then(() => {
+        .then(async () => {
+          await initializeKxTill(org.id);
           navigate('/select-branch');
         })
         .catch((err) => {
@@ -139,27 +142,27 @@ export default function SelectOrganizationPage() {
     navigate('/login');
   };
 
-const handleSelect = useCallback(async (orgId) => {
-  setError('');
-  setRedirecting(true);
-  try {
-    const org = organizations.find((o) => o.id === orgId);
-    if (!org) {
-      showToast.error('Organization not found');
-      setRedirecting(false);
-      return;
-    }
+  const handleSelect = useCallback(async (orgId) => {
+    setError('');
+    setRedirecting(true);
+    try {
+      const org = organizations.find((o) => o.id === orgId);
+      if (!org) {
+        showToast.error('Organization not found');
+        setRedirecting(false);
+        return;
+      }
 
-    await setActiveOrganization(orgId);
-    // branches will be loaded by setActiveOrganization
-    navigate('/select-branch');
-  } catch (err) {
-    const message = getErrorMessage(err, 'Failed to select organization');
-    showToast.error(message);
-    console.error(err);
-    setRedirecting(false);
-  }
-}, [organizations, setActiveOrganization, navigate]);
+      await setActiveOrganization(orgId);
+      await initializeKxTill(orgId);
+      navigate('/select-branch');
+    } catch (err) {
+      const message = getErrorMessage(err, 'Failed to select organization');
+      showToast.error(message);
+      console.error(err);
+      setRedirecting(false);
+    }
+  }, [organizations, setActiveOrganization, navigate]);
 
   const handleRestoreOrganization = useCallback(async (orgId) => {
     setRestoring(orgId);
@@ -235,6 +238,7 @@ const handleSelect = useCallback(async (orgId) => {
 
       setRedirecting(true);
       await setActiveOrganization(organization.id);
+      await initializeKxTill(organization.id);
       navigate('/select-branch');
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to create organization');
