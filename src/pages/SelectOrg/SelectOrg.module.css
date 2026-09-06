@@ -143,13 +143,13 @@
   gap: 9px;
 }
 
-.logoMark {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  object-fit: cover;
-  /* box-shadow: 0 3px 10px rgba(255, 106, 43, 0.35); */
+.logoImage {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
 }
+
 
 .brandName {
   font-size: 12.5px;
@@ -196,7 +196,388 @@
 .logoutBtn {
   display: none;
 }
+/* ============================================================
+   ADDITIONS FOR SKELETON, TOOLTIP, CONFIRMATION, NOTIFICATION
+   ============================================================ */
 
+/* ---------- SKELETON LOADERS ---------- */
+.skeleton {
+  background: linear-gradient(90deg, 
+    var(--raised) 25%, 
+    var(--raised-hi) 50%, 
+    var(--raised) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeletonText {
+  height: 14px;
+  width: 100%;
+  composes: skeleton;
+  margin-bottom: 4px;
+}
+
+.skeletonAvatar {
+  width: 36px;
+  height: 36px;
+  composes: skeleton;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.skeletonBadge {
+  width: 50px;
+  height: 20px;
+  composes: skeleton;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.skeletonChevron {
+  width: 16px;
+  height: 16px;
+  composes: skeleton;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.skeletonButton {
+  height: 26px;
+  flex: 1;
+  composes: skeleton;
+  border-radius: 9px;
+}
+
+/* ---------- TOOLTIP ---------- */
+.tooltipWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  background: var(--raised-hi);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10000000;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: tooltipFade 0.2s ease;
+}
+
+.tooltip.top {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tooltip.top::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--raised-hi);
+}
+
+.tooltip.bottom {
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tooltip.bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--raised-hi);
+}
+
+.tooltip.left {
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tooltip.left::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: var(--raised-hi);
+}
+
+.tooltip.right {
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tooltip.right::after {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-right-color: var(--raised-hi);
+}
+
+@keyframes tooltipFade {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.tooltip.top,
+.tooltip.bottom {
+  animation: tooltipFade 0.2s ease;
+}
+
+/* ---------- CONFIRMATION DIALOG (Sweet Alert Style) ---------- */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: overlayFade 0.25s ease;
+}
+
+@keyframes overlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dialog {
+  background: var(--panel);
+  border-radius: 24px;
+  padding: 36px 40px 30px;
+  max-width: 420px;
+  width: 90%;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  animation: dialogPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes dialogPop {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.dialogIcon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.dialogTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+
+.dialogMessage {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+.dialogActions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.dialogCancel,
+.dialogConfirm {
+  padding: 10px 24px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 650;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 100px;
+}
+
+.dialogCancel {
+  background: var(--raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.dialogCancel:hover {
+  background: var(--raised-hi);
+  color: var(--text);
+}
+
+.dialogConfirm {
+  color: #17181e;
+}
+
+.dialogConfirm.warning {
+  background: linear-gradient(150deg, var(--gold), #f0c268);
+}
+
+.dialogConfirm.danger {
+  background: linear-gradient(150deg, #ef5350, #d32f2f);
+  color: #fff;
+}
+
+.dialogConfirm.info {
+  background: linear-gradient(150deg, var(--success), #388e6b);
+  color: #fff;
+}
+
+.dialogConfirm:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.dialogConfirm:active {
+  transform: scale(0.97);
+}
+
+/* ---------- NOTIFICATION BADGE ---------- */
+.notificationBadge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 106, 43, 0.15);
+  border: 1px solid rgba(255, 106, 43, 0.2);
+  color: var(--accent-glow);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+
+.notificationBadge:hover {
+  background: rgba(255, 106, 43, 0.25);
+  transform: scale(1.05);
+}
+
+.badgeCount {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-glow);
+}
+
+/* Count badge for sections */
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+/* Logo fallback */
+.logoFallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, var(--gold), var(--accent));
+  color: #17181e;
+  font-weight: 800;
+  font-size: 18px;
+}
+
+/* ---------- RESPONSIVE ADJUSTMENTS ---------- */
+@media (max-width: 420px) {
+  .dialog {
+    padding: 28px 20px 24px;
+    max-width: 95%;
+  }
+
+  .dialogTitle {
+    font-size: 18px;
+  }
+
+  .dialogMessage {
+    font-size: 13px;
+  }
+
+  .dialogCancel,
+  .dialogConfirm {
+    min-width: 80px;
+    padding: 8px 16px;
+    font-size: 12.5px;
+  }
+
+  .notificationBadge {
+    padding: 2px 6px 2px 4px;
+  }
+
+  .badgeCount {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .dialogActions {
+    flex-direction: column-reverse;
+  }
+
+  .dialogCancel,
+  .dialogConfirm {
+    width: 100%;
+  }
+}
 /* ---------- hero text ---------- */
 
 .heroText {

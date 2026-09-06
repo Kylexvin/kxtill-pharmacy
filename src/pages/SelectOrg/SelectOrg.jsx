@@ -14,12 +14,17 @@ import {
   RefreshCw, 
   LogOut, 
   Search, 
-  ChevronRight 
+  ChevronRight,
+  AlertCircle,
+  Bell
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { showToast } from '../../components/Common/Toast';
 import { initializeKxTill } from '../../initializer';
 import styles from './SelectOrg.module.css';
+
+// Logo URL
+const LOGO_URL = 'https://res.cloudinary.com/dkahrnjrn/image/upload/v1788695499/logo.png';
 
 // API error helper
 function getErrorMessage(error, fallback) {
@@ -35,6 +40,125 @@ function getErrorMessage(error, fallback) {
   return fallback;
 }
 
+// ============================================================
+// TOOLTIP COMPONENT
+// ============================================================
+const Tooltip = ({ children, content, position = 'top' }) => {
+  const [show, setShow] = useState(false);
+  
+  return (
+    <div 
+      className={styles.tooltipWrapper} 
+      onMouseEnter={() => setShow(true)} 
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div className={`${styles.tooltip} ${styles[position]}`}>
+          {content}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// CONFIRMATION DIALOG COMPONENT (Sweet Alert Style)
+// ============================================================
+const ConfirmationDialog = ({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message, 
+  confirmText = 'Confirm', 
+  cancelText = 'Cancel',
+  type = 'warning' // 'warning', 'danger', 'info'
+}) => {
+  if (!isOpen) return null;
+
+  const getIconColor = () => {
+    switch(type) {
+      case 'danger': return '#ef5350';
+      case 'warning': return '#d9a84e';
+      case 'info': return '#4caf82';
+      default: return '#d9a84e';
+    }
+  };
+
+  const getIconBg = () => {
+    switch(type) {
+      case 'danger': return 'rgba(239, 83, 80, 0.15)';
+      case 'warning': return 'rgba(217, 168, 78, 0.15)';
+      case 'info': return 'rgba(76, 175, 130, 0.15)';
+      default: return 'rgba(217, 168, 78, 0.15)';
+    }
+  };
+
+  return (
+    <div className={styles.dialogOverlay} onClick={onClose}>
+      <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.dialogIcon} style={{ background: getIconBg() }}>
+          <AlertCircle size={28} color={getIconColor()} />
+        </div>
+        <h3 className={styles.dialogTitle}>{title}</h3>
+        <p className={styles.dialogMessage}>{message}</p>
+        <div className={styles.dialogActions}>
+          <button 
+            className={styles.dialogCancel} 
+            onClick={onClose}
+          >
+            {cancelText}
+          </button>
+          <button 
+            className={`${styles.dialogConfirm} ${styles[type]}`}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// SKELETON LOADER COMPONENTS
+// ============================================================
+const SkeletonOrganizationCard = () => (
+  <div className={styles.orgCardNeo} style={{ pointerEvents: 'none' }}>
+    <div className={styles.skeletonAvatar} />
+    <div className={styles.orgMeta}>
+      <div className={styles.skeletonText} style={{ width: '70%' }} />
+      <div className={styles.skeletonText} style={{ width: '40%' }} />
+    </div>
+    <div className={styles.skeletonBadge} />
+    <div className={styles.skeletonChevron} />
+  </div>
+);
+
+const SkeletonInviteCard = () => (
+  <div className={styles.inviteCard} style={{ pointerEvents: 'none' }}>
+    <div className={styles.inviteTop}>
+      <div className={styles.skeletonAvatar} style={{ width: '30px', height: '30px' }} />
+      <div className={styles.inviteInfo}>
+        <div className={styles.skeletonText} style={{ width: '60%' }} />
+        <div className={styles.skeletonText} style={{ width: '40%' }} />
+      </div>
+    </div>
+    <div className={styles.inviteActions}>
+      <div className={styles.skeletonButton} />
+      <div className={styles.skeletonButton} />
+    </div>
+  </div>
+);
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export default function SelectOrganizationPage() {
   const navigate = useNavigate();
   const {
@@ -43,6 +167,7 @@ export default function SelectOrganizationPage() {
     setActiveOrganization,
     isLoading,
     logout,
+    isAuthenticated,
   } = useAuth();
 
   const [pendingInvites, setPendingInvites] = useState([]);
@@ -55,23 +180,48 @@ export default function SelectOrganizationPage() {
   const [redirecting, setRedirecting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    type: 'warning',
+    onConfirm: null
+  });
+
   const hasLoaded = useRef(false);
   const redirectingRef = useRef(false);
 
   // ============================================================
+  // AUTH CHECK — redirect to login if not authenticated
+  // ============================================================
+  useEffect(() => {
+    // If not authenticated and not loading, redirect to login
+    if (!isAuthenticated && !isLoading) {
+      console.log('User not authenticated, redirecting to login');
+      navigate('/login', { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
+
+  // ============================================================
   // LOAD DATA — ONLY ONCE
   // ============================================================
-
   useEffect(() => {
     let mounted = true;
 
     const loadData = async () => {
+      // Don't load if already loaded or no user
       if (hasLoaded.current) return;
       if (!user) return;
 
       try {
-        const [invitesRes, archivedRes] = await Promise.all([
-          axios.get('/organizations'),
+        setLoading(true);
+        
+        const [orgsRes, invitesRes, archivedRes] = await Promise.all([
+          axios.get('/organizations').catch(() => ({ data: { organizations: [] } })),
           axios.get('/invitations/my').catch(() => ({ data: { invitations: [] } })),
           axios.get('/organizations/archived').catch(() => ({ data: { organizations: [] } })),
         ]);
@@ -85,7 +235,10 @@ export default function SelectOrganizationPage() {
         setPendingInvites(freshInvites);
         setArchivedOrgs(archivedRes.data.organizations || []);
 
-        if (organizations.length === 0 && freshInvites.length === 0) {
+        // Check if organizations array exists from response
+        const orgs = orgsRes.data.organizations || [];
+        
+        if (orgs.length === 0 && freshInvites.length === 0) {
           setShowCreateForm(true);
         }
 
@@ -93,6 +246,13 @@ export default function SelectOrganizationPage() {
         hasLoaded.current = true;
       } catch (err) {
         console.error('Failed to load data:', err);
+        
+        // If it's a 401, AuthContext should handle it, but just in case
+        if (err.response?.status === 401) {
+          navigate('/login', { replace: true });
+          return;
+        }
+        
         showToast.error('Could not load your organizations');
         setShowCreateForm(true);
         setLoading(false);
@@ -104,12 +264,11 @@ export default function SelectOrganizationPage() {
     return () => {
       mounted = false;
     };
-  }, [user, organizations.length]);
+  }, [user, navigate]);
 
   // ============================================================
   // AUTO-REDIRECT — when only one organization
   // ============================================================
-
   useEffect(() => {
     if (redirectingRef.current || loading) return;
     if (!user) return;
@@ -137,10 +296,35 @@ export default function SelectOrganizationPage() {
   // HANDLERS
   // ============================================================
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  const showConfirmation = useCallback(({ title, message, confirmText, cancelText, type, onConfirm }) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      confirmText: confirmText || 'Confirm',
+      cancelText: cancelText || 'Cancel',
+      type: type || 'warning',
+      onConfirm: onConfirm || (() => {})
+    });
+  }, []);
+
+  const closeConfirmation = useCallback(() => {
+    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    showConfirmation({
+      title: 'Logout Confirmation',
+      message: 'Are you sure you want to logout? You will need to login again to access your organizations.',
+      confirmText: 'Logout',
+      cancelText: 'Stay',
+      type: 'danger',
+      onConfirm: () => {
+        logout();
+        navigate('/login', { replace: true });
+      }
+    });
+  }, [logout, navigate, showConfirmation]);
 
   const handleSelect = useCallback(async (orgId) => {
     setError('');
@@ -199,23 +383,31 @@ export default function SelectOrganizationPage() {
   }, [pendingInvites]);
 
   const handleRejectInvite = useCallback(async (token) => {
-    setError('');
-    try {
-      await axios.post('/invitations/reject', { token });
-      const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
-      setPendingInvites(remainingInvites);
-      
-      if (organizations.length === 0 && remainingInvites.length === 0) {
-        setShowCreateForm(true);
+    showConfirmation({
+      title: 'Decline Invitation',
+      message: 'Are you sure you want to decline this organization invitation? This action cannot be undone.',
+      confirmText: 'Decline',
+      cancelText: 'Keep Invitation',
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          await axios.post('/invitations/reject', { token });
+          const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
+          setPendingInvites(remainingInvites);
+          
+          if (organizations.length === 0 && remainingInvites.length === 0) {
+            setShowCreateForm(true);
+          }
+          
+          showToast.info('Invitation declined');
+        } catch (err) {
+          const message = getErrorMessage(err, 'Failed to reject invitation');
+          showToast.error(message);
+          console.error(err);
+        }
       }
-      
-      showToast.info('Invitation declined');
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to reject invitation');
-      showToast.error(message);
-      console.error(err);
-    }
-  }, [pendingInvites, organizations]);
+    });
+  }, [pendingInvites, organizations, showConfirmation]);
 
   const handleCreateChange = useCallback((e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -258,26 +450,105 @@ export default function SelectOrganizationPage() {
   }, [organizations, query]);
 
   // ============================================================
-  // LOADING
+  // LOADING / SKELETON STATES
   // ============================================================
 
-  if (loading || isLoading || redirecting) {
+  // Show loading while checking authentication or loading data
+  if (isLoading || loading) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.glowAmber} />
+        <div className={styles.glowMoss} />
+        <div className={styles.glassCard}>
+          {/* Brand + user skeleton */}
+          <div className={styles.cardTopRow}>
+            <div className={styles.brand}>
+              <div className={styles.skeletonAvatar} style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
+              <div className={styles.skeletonText} style={{ width: '60px' }} />
+            </div>
+            <div className={styles.userChip}>
+              <div className={styles.skeletonAvatar} style={{ width: '22px', height: '22px' }} />
+              <div className={styles.skeletonText} style={{ width: '60px' }} />
+            </div>
+          </div>
+
+          {/* Hero text skeleton */}
+          <div className={styles.heroText}>
+            <div className={styles.skeletonText} style={{ width: '200px', height: '24px', marginBottom: '8px' }} />
+            <div className={styles.skeletonText} style={{ width: '300px', height: '16px' }} />
+          </div>
+
+          {/* Search bar skeleton */}
+          <div className={styles.searchRow}>
+            <div className={styles.searchBar} style={{ border: 'none', background: 'var(--bg)' }}>
+              <div className={styles.skeletonText} style={{ width: '100%', height: '20px' }} />
+            </div>
+            <div className={styles.skeletonAvatar} style={{ width: '40px', height: '40px', borderRadius: '13px' }} />
+          </div>
+
+          {/* Organization cards skeleton */}
+          <div className={styles.scrollArea}>
+            <div className={styles.mainCol}>
+              <section className={styles.section}>
+                <div className={styles.sectionLabel}>
+                  <div className={styles.skeletonText} style={{ width: '120px', height: '12px' }} />
+                </div>
+                <div className={styles.orgList}>
+                  {[1, 2, 3, 4].map((i) => (
+                    <SkeletonOrganizationCard key={i} />
+                  ))}
+                </div>
+              </section>
+            </div>
+            <div className={styles.sideCol}>
+              <section className={styles.section}>
+                <div className={styles.sectionLabel}>
+                  <div className={styles.skeletonText} style={{ width: '100px', height: '12px' }} />
+                </div>
+                {[1, 2].map((i) => (
+                  <SkeletonInviteCard key={i} />
+                ))}
+              </section>
+            </div>
+          </div>
+
+          {/* Logout button skeleton */}
+          <div className={styles.skeletonAvatar} style={{ 
+            position: 'absolute', 
+            right: '20px', 
+            bottom: '18px',
+            width: '34px', 
+            height: '34px', 
+            borderRadius: '11px' 
+          }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (redirecting) {
     return (
       <div className={styles.page}>
         <div className={styles.glowAmber} />
         <div className={styles.glowMoss} />
         <div className={styles.loadingCard}>
           <div className={styles.spinner} />
-          <p>{redirecting ? 'Loading organization...' : 'Loading your workspace...'}</p>
+          <p>Loading organization...</p>
         </div>
       </div>
     );
+  }
+
+  // If not authenticated, show nothing (will redirect via useEffect)
+  if (!isAuthenticated) {
+    return null;
   }
 
   const hasOrgs = organizations.length > 0;
   const hasInvites = pendingInvites.length > 0;
   const hasArchived = archivedOrgs.length > 0;
   const initial = user?.firstName?.charAt(0).toUpperCase() || user?.name?.charAt(0).toUpperCase() || '?';
+  const totalNotifications = pendingInvites.length;
 
   // ============================================================
   // RENDER
@@ -288,12 +559,42 @@ export default function SelectOrganizationPage() {
       <div className={styles.glowAmber} />
       <div className={styles.glowMoss} />
 
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={closeConfirmation}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        type={confirmDialog.type}
+      />
+
       <div className={styles.glassCard}>
         {/* ===== brand + user, always visible ===== */}
         <div className={styles.cardTopRow}>
           <div className={styles.brand}>
-            <div className={styles.logoMark}>K</div>
+            <img 
+              src={LOGO_URL} 
+              alt="KXBYTE Logo" 
+              className={styles.logoImage}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                const fallback = e.target.nextElementSibling;
+                if (fallback) fallback.style.display = 'flex';
+              }}
+            />
+            <span className={styles.logoFallback} style={{ display: 'none' }}>K</span>
             <span className={styles.brandName}>KXBYTE</span>
+            {totalNotifications > 0 && (
+              <Tooltip content={`${totalNotifications} pending invitation${totalNotifications > 1 ? 's' : ''}`}>
+                <div className={styles.notificationBadge}>
+                  <Bell size={12} />
+                  <span className={styles.badgeCount}>{totalNotifications}</span>
+                </div>
+              </Tooltip>
+            )}
           </div>
           <div className={styles.userChip}>
             <div className={styles.avatar}>{initial}</div>
@@ -401,14 +702,16 @@ export default function SelectOrganizationPage() {
                   placeholder="Search organizations..."
                 />
               </div>
-              <button
-                className={styles.addIconBtn}
-                onClick={() => setShowCreateForm(true)}
-                title="New organization"
-                type="button"
-              >
-                <Plus size={18} />
-              </button>
+              <Tooltip content="Create a new organization">
+                <button
+                  className={styles.addIconBtn}
+                  onClick={() => setShowCreateForm(true)}
+                  title="New organization"
+                  type="button"
+                >
+                  <Plus size={18} />
+                </button>
+              </Tooltip>
             </div>
 
             <div className={styles.scrollArea}>
@@ -418,6 +721,9 @@ export default function SelectOrganizationPage() {
                   <div className={styles.sectionLabel}>
                     <Building2 size={12} />
                     Your Organizations
+                    {organizations.length > 0 && (
+                      <span className={styles.countBadge}>{organizations.length}</span>
+                    )}
                   </div>
 
                   <div className={styles.orgList}>
@@ -426,26 +732,30 @@ export default function SelectOrganizationPage() {
                       const isOwner = role === 'Owner' || role === 'OWNER';
 
                       return (
-                        <button
-                          key={org.id}
-                          className={styles.orgCardNeo}
-                          onClick={() => handleSelect(org.id)}
-                          disabled={isLoading || redirecting}
+                        <Tooltip 
+                          key={org.id} 
+                          content={`${isOwner ? 'Owner' : 'Member'} • Click to access`}
                         >
-                          <div className={styles.orgIcon}>{org.name.charAt(0).toUpperCase()}</div>
-                          <div className={styles.orgMeta}>
-                            <span className={styles.orgName}>{org.name}</span>
-                          </div>
-                          {isOwner ? (
-                            <span className={styles.badgeOwner}>
-                              <Crown size={11} />
-                              Owner
-                            </span>
-                          ) : (
-                            <span className={styles.badgeMember}>Member</span>
-                          )}
-                          <ChevronRight size={16} className={styles.chevron} />
-                        </button>
+                          <button
+                            className={styles.orgCardNeo}
+                            onClick={() => handleSelect(org.id)}
+                            disabled={isLoading || redirecting}
+                          >
+                            <div className={styles.orgIcon}>{org.name.charAt(0).toUpperCase()}</div>
+                            <div className={styles.orgMeta}>
+                              <span className={styles.orgName}>{org.name}</span>
+                            </div>
+                            {isOwner ? (
+                              <span className={styles.badgeOwner}>
+                                <Crown size={11} />
+                                Owner
+                              </span>
+                            ) : (
+                              <span className={styles.badgeMember}>Member</span>
+                            )}
+                            <ChevronRight size={16} className={styles.chevron} />
+                          </button>
+                        </Tooltip>
                       );
                     })}
 
@@ -455,10 +765,12 @@ export default function SelectOrganizationPage() {
                       </div>
                     )}
 
-                    <button className={styles.addOrgCard} onClick={() => setShowCreateForm(true)}>
-                      <Plus size={15} />
-                      <span>New organization</span>
-                    </button>
+                    <Tooltip content="Start a new organization">
+                      <button className={styles.addOrgCard} onClick={() => setShowCreateForm(true)}>
+                        <Plus size={15} />
+                        <span>New organization</span>
+                      </button>
+                    </Tooltip>
                   </div>
                 </section>
               </div>
@@ -471,6 +783,7 @@ export default function SelectOrganizationPage() {
                       <div className={styles.sectionLabel}>
                         <Mail size={12} />
                         Pending Invitations
+                        <span className={styles.countBadge}>{pendingInvites.length}</span>
                       </div>
                       <div className={styles.inviteList}>
                         {pendingInvites.map((invite) => (
@@ -487,14 +800,24 @@ export default function SelectOrganizationPage() {
                               </div>
                             </div>
                             <div className={styles.inviteActions}>
-                              <button className={styles.acceptBtn} onClick={() => handleAcceptInvite(invite.token)}>
-                                <Check size={13} />
-                                Accept
-                              </button>
-                              <button className={styles.rejectBtn} onClick={() => handleRejectInvite(invite.token)}>
-                                <X size={13} />
-                                Decline
-                              </button>
+                              <Tooltip content="Accept this invitation and join the organization">
+                                <button 
+                                  className={styles.acceptBtn} 
+                                  onClick={() => handleAcceptInvite(invite.token)}
+                                >
+                                  <Check size={13} />
+                                  Accept
+                                </button>
+                              </Tooltip>
+                              <Tooltip content="Decline this invitation">
+                                <button 
+                                  className={styles.rejectBtn} 
+                                  onClick={() => handleRejectInvite(invite.token)}
+                                >
+                                  <X size={13} />
+                                  Decline
+                                </button>
+                              </Tooltip>
                             </div>
                           </div>
                         ))}
@@ -519,18 +842,20 @@ export default function SelectOrganizationPage() {
                               </div>
                             </div>
                             <div className={styles.inviteActions}>
-                              <button
-                                className={styles.restoreBtn}
-                                onClick={() => handleRestoreOrganization(org.id)}
-                                disabled={restoring === org.id}
-                              >
-                                {restoring === org.id ? (
-                                  <span className={styles.spinnerSmall} />
-                                ) : (
-                                  <RefreshCw size={13} />
-                                )}
-                                Restore
-                              </button>
+                              <Tooltip content="Restore this organization to regain access">
+                                <button
+                                  className={styles.restoreBtn}
+                                  onClick={() => handleRestoreOrganization(org.id)}
+                                  disabled={restoring === org.id}
+                                >
+                                  {restoring === org.id ? (
+                                    <span className={styles.spinnerSmall} />
+                                  ) : (
+                                    <RefreshCw size={13} />
+                                  )}
+                                  Restore
+                                </button>
+                              </Tooltip>
                             </div>
                           </div>
                         ))}
@@ -544,9 +869,11 @@ export default function SelectOrganizationPage() {
         )}
 
         {/* logout — pinned bottom-right corner */}
-        <button className={styles.logoutCorner} onClick={handleLogout} title="Log out" type="button">
-          <LogOut size={15} />
-        </button>
+        <Tooltip content="Logout">
+          <button className={styles.logoutCorner} onClick={handleLogout} title="Log out" type="button">
+            <LogOut size={15} />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

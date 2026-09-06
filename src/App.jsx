@@ -57,7 +57,6 @@ axios.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // Don't retry refresh, login, or register endpoints
     if (originalRequest.url === '/auth/refresh' || 
         originalRequest.url?.endsWith('/auth/refresh') ||
         originalRequest.url === '/auth/login' ||
@@ -68,7 +67,6 @@ axios.interceptors.response.use(
     }
     
     if (error.response?.status === 401 && !originalRequest._retry) {
-      // If already refreshing, queue the request
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -164,7 +162,9 @@ function App() {
         <AuthProvider>
           <Toaster />
           <Routes>
+            <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/oauth/login" element={<Login />} />
             <Route path="/oauth/callback" element={<OAuthCallback />} />
             <Route path="/select-org" element={<SelectOrg />} />
             <Route path="/select-branch" element={<SelectBranch />} />
