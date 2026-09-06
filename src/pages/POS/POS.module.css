@@ -24,7 +24,7 @@
 /* Categories */
 .categories {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   padding: 4px 0;
   overflow-x: auto;
   flex-shrink: 0;
@@ -72,7 +72,7 @@
 .productsGrid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 12px;
   overflow-y: auto;
   padding: 4px 2px;
@@ -298,7 +298,7 @@
   }
 
   .productsGrid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
 }
 
@@ -315,21 +315,42 @@
   }
 
   .productsGrid {
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     gap: 8px;
   }
 
   .cartPanel {
-    width: 100%;
-    min-width: unset;
-    max-width: unset;
-    height: 320px;
-    flex-shrink: 0;
+    display: none;
   }
 
   .categoryBtn {
     width: 60px;
     height: 30px;
+    gap: 4px;
+  }
+
+  .searchBar {
+    flex-wrap: nowrap;
+  }
+
+  .barcodeForm {
+    width: auto;
+    flex: 1 1 90px;
+    min-width: 0;
+    max-width: 140px;
+  }
+
+  .searchInput {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .syncBtn {
+    width: 40px;
+  }
+
+  .cartToggle {
+    width: 40px;
   }
 }
 
@@ -340,7 +361,7 @@
   }
 
   .productsGrid {
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
     gap: 6px;
   }
 
@@ -349,14 +370,28 @@
     min-height: 100px;
   }
 
-  .cartPanel {
-    height: 260px;
-    padding: 12px;
+  .categoryBtn {
+    width: auto;
+    height: 28px;
+    padding: 0 10px;
+    gap: 4px;
   }
 
-  .categoryBtn {
-    width: 50px;
-    height: 28px;
+  .barcodeForm {
+    max-width: 100px;
+    padding: 0 8px;
+  }
+
+  .barcodeInput {
+    font-size: 12px;
+  }
+
+  .syncBtn {
+    width: 34px;
+  }
+
+  .cartToggle {
+    width: 34px;
   }
 }
 
@@ -377,13 +412,154 @@
   color: var(--text-faint);
 }
 
-/* Search Bar */
+@media (max-width: 1024px) {
+  .productsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .productsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .productsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 6px;
+  }
+} 
+
+@media (max-width: 1024px) {
+  .cartPanel {
+    width: 280px;
+    min-width: 240px;
+  }
+
+}
+
+@media (max-width: 768px) {
+  .pos {
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .productsPanel {
+    flex: 1;
+    min-height: 0;
+  }
+
+
+  .cartPanel {
+    display: none;
+  }
+
+  .categoryBtn {
+    width: 60px;
+    height: 30px;
+    gap: 4px;
+  }
+
+  .searchBar {
+    flex-wrap: nowrap;
+  }
+
+  .barcodeForm {
+    width: auto;
+    flex: 1 1 90px;
+    min-width: 0;
+    max-width: 140px;
+  }
+
+  .searchInput {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .syncBtn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .cartToggle {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .pos {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .productsGrid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 6px;
+  }
+
+  .productCard {
+    padding: 8px;
+    min-height: 100px;
+  }
+
+  .categoryBtn {
+    width: auto;
+    height: 28px;
+    padding: 0 10px;
+    gap: 4px;
+  }
+
+  .barcodeForm {
+    max-width: 100px;
+    padding: 0 8px;
+  }
+
+  .barcodeInput {
+    font-size: 12px;
+  }
+
+  .syncBtn {
+    width: 34px;
+    height: 40px;
+    min-width: 34px;
+  }
+
+  .cartToggle {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+}
+
+/* ============================================================
+   EMPTY STATE — no org/branch selected yet
+   ============================================================ */
+
+.noBranch {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.noBranch svg {
+  color: var(--text-faint);
+}
+
 .searchBar {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+  align-items: stretch;
 }
-
 .searchInput {
   flex: 1;
   padding: 8px 14px;
@@ -829,6 +1005,7 @@
 .grandTotal span:last-child {
   color: var(--accent-glow);
 }
+
 /* Loading states */
 .loadingState {
   display: flex;
@@ -868,7 +1045,7 @@
   align-items: center;
   justify-content: center;
   width: 38px;
-  height: 38px;
+  flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-input);
@@ -928,4 +1105,129 @@
 .syncBtnLarge:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* ============================================================
+   MOBILE CART TOGGLE + SHEET
+   ============================================================
+   z-index budget for this page:
+     cartOverlay / cartSheet : 90 / 95
+     PaymentModal / ReceiptModal overlays should be >= 300
+     so they always sit above the cart sheet regardless of
+     whether the sheet happens to still be mounted.
+   ============================================================ */
+
+.cartToggle {
+  position: relative;
+  width: 46px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cartToggle:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.cartBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cartOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  animation: cartFadeIn 0.2s ease;
+}
+
+@keyframes cartFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cartSheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 85vh;
+  background: var(--bg-raised);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+  transform: translateY(100%);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 95;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cartSheet.open {
+  transform: translateY(0);
+}
+
+.cartSheetHandle {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+  flex-shrink: 0;
+}
+
+.cartSheetDrag {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border-strong);
+}
+
+/* Reuse .cartPanel internals, unlocked to a flexible height inside the sheet */
+.cartSheet .cartPanel {
+  display: flex;
+  border: none;
+  border-radius: 0;
+  width: 100%;
+  height: auto;
+  max-height: calc(85vh - 30px);
+  flex: 1;
+}
+
+.cartSheet .cartItems {
+  max-height: 45vh;
+}
+
+@media (max-width: 480px) {
+  .cartSheet {
+    max-height: 90vh;
+  }
+
+  .cartSheet .cartPanel {
+    max-height: calc(90vh - 30px);
+    padding: 12px;
+  }
+
+  .cartSheet .cartItems {
+    max-height: 40vh;
+  }
 }

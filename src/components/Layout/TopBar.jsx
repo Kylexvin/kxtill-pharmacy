@@ -266,7 +266,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
             alt="KxTill Logo"
             className={styles.logoImage}
           />
-          <span className={styles.logoText}>KxTill</span>
+          <span className={styles.logoText}>KXTILL</span>
         </div>
 
         {(orgName || branchName) && (

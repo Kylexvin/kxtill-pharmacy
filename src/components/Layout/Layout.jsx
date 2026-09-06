@@ -34,10 +34,10 @@ const Layout = () => {
       {/* TopBar - always visible */}
       <TopBar isMobile={isMobile} onToggleSidebar={toggleSidebar} />
 
-      {/* Sidebar Overlay - mobile only */}
-      {isMobile && (
+      {/* Sidebar Overlay - mobile only, and only when sidebar is open */}
+      {isMobile && sidebarOpen && (
         <div 
-          className={`${styles.overlay} ${sidebarOpen ? styles.open : ''}`}
+          className={styles.overlay}
           onClick={closeSidebar}
         />
       )}

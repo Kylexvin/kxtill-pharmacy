@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { ScanLine, Store, RefreshCw } from 'lucide-react';
+import { ScanLine, Store, RefreshCw, ShoppingCart } from 'lucide-react';
 import ProductSearch from './ProductSearch';
 import Cart from './Cart';
 import PaymentModal from './PaymentModal';
@@ -125,6 +125,10 @@ const POS = () => {
   const [dbReady, setDbReady] = useState(false);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
 
+  // Mobile cart sheet
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [cartOpen, setCartOpen] = useState(false);
+
   const barcodeInputRef = useRef(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
@@ -137,6 +141,20 @@ const POS = () => {
   const shouldFetch = orgId && hasValidBranch && dbReady;
 
   const syncFlagKey = orgId && branchId ? `initialSyncDone:${orgId}:${branchId}` : null;
+
+  // Track viewport for mobile cart sheet
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) setCartOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const toggleCart = () => setCartOpen((open) => !open);
+  const closeCart = () => setCartOpen(false);
 
   // Check database readiness
   useEffect(() => {
@@ -490,28 +508,29 @@ const POS = () => {
   const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
   const taxAmount = 0;
   const total = subtotal + taxAmount;
+  const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleCheckout = () => {
-    if (cartItems.length === 0) {
-      toast.error('Cart is empty');
+const handleCheckout = () => {
+  if (cartItems.length === 0) {
+    toast.error('Cart is empty');
+    return;
+  }
+  if (!branchId) {
+    toast.error('No active branch selected');
+    return;
+  }
+
+  for (const item of cartItems) {
+    const stock = Number(item.stock || 0);
+    if (stock < item.quantity) {
+      toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
       return;
     }
-    if (!branchId) {
-      toast.error('No active branch selected');
-      return;
-    }
+  }
 
-    for (const item of cartItems) {
-      const stock = Number(item.stock || 0);
-      if (stock < item.quantity) {
-        toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
-        return;
-      }
-    }
-
-    setShowPaymentModal(true);
-  };
-
+  setCartOpen(false); // close mobile cart sheet before showing payment modal
+  setShowPaymentModal(true);
+};
   const handlePaymentComplete = async ({ method, reference }) => {
     setCheckingOut(true);
     try {
@@ -611,6 +630,7 @@ const POS = () => {
       await clearCart();
       setCustomer(null);
       setShowPaymentModal(false);
+      setCartOpen(false);
       setLastReceipt(receipt);
       fetchProducts();
 
@@ -622,6 +642,52 @@ const POS = () => {
       setCheckingOut(false);
     }
   };
+
+  // Reusable cart element — same props regardless of desktop/mobile placement
+  const cartElement = (
+    <Cart
+      items={cartItems}
+      subtotal={subtotal}
+      taxAmount={taxAmount}
+      total={total}
+      currency={currency}
+      decimals={decimals}
+      customer={customer}
+      onUpdateQuantity={handleUpdateQuantity}
+      onRemoveItem={handleRemoveItem}
+      onClearCart={handleClearCart}
+      onCheckout={handleCheckout}
+      onCustomerSelect={setCustomer}
+    />
+  );
+
+  // On mobile the cart renders inside a bottom sheet (toggled via cartOpen);
+  // on desktop it renders inline as before.
+  const cartRegion = isMobile ? (
+    <>
+      {cartOpen && <div className={styles.cartOverlay} onClick={closeCart} />}
+      <div className={`${styles.cartSheet} ${cartOpen ? styles.open : ''}`}>
+        <div className={styles.cartSheetHandle} onClick={closeCart}>
+          <div className={styles.cartSheetDrag} />
+        </div>
+        {cartElement}
+      </div>
+    </>
+  ) : (
+    cartElement
+  );
+
+  const cartToggleButton = isMobile && (
+    <button
+      type="button"
+      className={styles.cartToggle}
+      onClick={toggleCart}
+      title="View cart"
+    >
+      <ShoppingCart size={18} />
+      {cartItemCount > 0 && <span className={styles.cartBadge}>{cartItemCount}</span>}
+    </button>
+  );
 
   // Loading states
   if (!dbReady) {
@@ -685,6 +751,7 @@ const POS = () => {
                 className={styles.barcodeInput}
               />
             </form>
+            {cartToggleButton}
           </div>
           <div className={styles.emptyStateFull}>
             <Store size={48} />
@@ -699,20 +766,7 @@ const POS = () => {
             </button>
           </div>
         </div>
-        <Cart
-          items={cartItems}
-          subtotal={subtotal}
-          taxAmount={taxAmount}
-          total={total}
-          currency={currency}
-          decimals={decimals}
-          customer={customer}
-          onUpdateQuantity={handleUpdateQuantity}
-          onRemoveItem={handleRemoveItem}
-          onClearCart={handleClearCart}
-          onCheckout={handleCheckout}
-          onCustomerSelect={setCustomer}
-        />
+        {cartRegion}
       </div>
     );
   }
@@ -747,6 +801,7 @@ const POS = () => {
           >
             <RefreshCw size={16} className={syncing ? styles.spinning : ''} />
           </button>
+          {cartToggleButton}
         </div>
 
         <div className={styles.categories}>
@@ -769,20 +824,7 @@ const POS = () => {
         />
       </div>
 
-      <Cart
-        items={cartItems}
-        subtotal={subtotal}
-        taxAmount={taxAmount}
-        total={total}
-        currency={currency}
-        decimals={decimals}
-        customer={customer}
-        onUpdateQuantity={handleUpdateQuantity}
-        onRemoveItem={handleRemoveItem}
-        onClearCart={handleClearCart}
-        onCheckout={handleCheckout}
-        onCustomerSelect={setCustomer}
-      />
+      {cartRegion}
 
       {showPaymentModal && (
         <PaymentModal
