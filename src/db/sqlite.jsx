@@ -1,5 +1,3 @@
-// src/db/sqlite.js
-
 import initSqlJs from 'sql.js';
 
 let db = null;
@@ -34,6 +32,19 @@ export const saveToStore = () => {
     const bytes = Array.from(data);
     localStorage.setItem('kxtill_db', JSON.stringify(bytes));
   }
+};
+
+// Fully tears down the in-memory db and localStorage copy, then reinitializes
+// with fresh empty tables. Use this instead of removing 'kxtill_db' directly —
+// removing the localStorage key alone leaves the stale in-memory singleton
+// intact, and the next write silently re-persists the old data.
+export const resetDb = async () => {
+  if (db) {
+    db.close();
+    db = null;
+  }
+  localStorage.removeItem('kxtill_db');
+  await initDb();
 };
 
 const createTables = async () => {
@@ -115,13 +126,21 @@ const createTables = async () => {
     `CREATE INDEX IF NOT EXISTS idx_local_sales_status ON local_sales(status);`,
     `CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);`,
     `CREATE INDEX IF NOT EXISTS idx_branch_products_branch ON branch_products(branchId);`,
+    `CREATE INDEX IF NOT EXISTS idx_cart_branch ON cart(branchId);`,
+    // Add the new columns to existing tables
+    `ALTER TABLE local_sales ADD COLUMN serverSaleId TEXT;`,
+    `ALTER TABLE local_sales ADD COLUMN receiptText TEXT;`,
+    `CREATE INDEX IF NOT EXISTS idx_local_sales_server_sale_id ON local_sales(serverSaleId);`,
   ];
 
   for (const query of queries) {
     try {
       db.exec(query);
     } catch (err) {
-      console.error('Error creating table:', err);
+      // Ignore "duplicate column" errors - they just mean the column already exists
+      if (!err.message.includes('duplicate column name')) {
+        console.error('Error executing query:', query, err);
+      }
     }
   }
 
@@ -182,6 +201,7 @@ export const rollbackTransaction = () => {
   }
 };
 
+// Product operations
 export const upsertProduct = async (product) => {
   const sql = `
     INSERT OR REPLACE INTO products (id, name, sku, description, category, taxRate, baseUnitId, updatedAt)
@@ -219,6 +239,7 @@ export const clearProducts = async () => {
   runNoSave('DELETE FROM products');
 };
 
+// Product units
 export const upsertProductUnit = async (unit) => {
   const sql = `
     INSERT OR REPLACE INTO product_units (id, productId, name, abbreviation, unitType, conversionQty, price, isBaseUnit, barcode)
@@ -245,6 +266,7 @@ export const clearProductUnits = async () => {
   runNoSave('DELETE FROM product_units');
 };
 
+// Branch products
 export const upsertBranchProduct = async (bp) => {
   const sql = `
     INSERT OR REPLACE INTO branch_products (id, productId, branchId, stock, minStock, isAvailable, updatedAt)
@@ -299,8 +321,9 @@ export const clearBranchProducts = async () => {
   runNoSave('DELETE FROM branch_products');
 };
 
+// Cart operations - scoped per branch
 export const saveCart = async (cart) => {
-  run('DELETE FROM cart');
+  run('DELETE FROM cart WHERE branchId = ?', [cart.branchId]);
   const sql = `
     INSERT INTO cart (branchId, customerName, items, total, updatedAt)
     VALUES (?, ?, ?, ?, ?)
@@ -314,21 +337,22 @@ export const saveCart = async (cart) => {
   ]);
 };
 
-export const getActiveCart = async () => {
-  const results = query('SELECT * FROM cart LIMIT 1');
+export const getActiveCart = async (branchId) => {
+  const results = query('SELECT * FROM cart WHERE branchId = ? LIMIT 1', [branchId]);
   return results.length ? results[0] : null;
 };
 
-export const clearCart = async () => {
-  run('DELETE FROM cart');
+export const clearCart = async (branchId) => {
+  run('DELETE FROM cart WHERE branchId = ?', [branchId]);
 };
 
+// Local sales operations
 export const createLocalSale = async (sale) => {
   const sql = `
     INSERT OR REPLACE INTO local_sales (
       id, branchId, customerName, items, payments, subtotal, taxAmount, totalAmount,
-      status, syncedAt, error, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, syncedAt, error, createdAt, updatedAt, serverSaleId, receiptText
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   run(sql, [
     sale.id,
@@ -344,6 +368,8 @@ export const createLocalSale = async (sale) => {
     sale.error || null,
     sale.createdAt,
     sale.updatedAt,
+    sale.serverSaleId || null,
+    sale.receiptText || null,
   ]);
 };
 
@@ -366,6 +392,37 @@ export const updateSaleStatus = async (id, status, error) => {
   run(sql, [status, syncedAt, error || null, new Date().toISOString(), id]);
 };
 
+// New: Set server sale ID after sync
+export const setSaleServerId = async (id, serverSaleId) => {
+  run('UPDATE local_sales SET serverSaleId = ?, updatedAt = ? WHERE id = ?',
+    [serverSaleId, new Date().toISOString(), id]);
+};
+
+// New: Save receipt text locally
+export const saveReceiptText = async (id, receiptText) => {
+  run('UPDATE local_sales SET receiptText = ?, updatedAt = ? WHERE id = ?',
+    [receiptText, new Date().toISOString(), id]);
+};
+
+// New: Get synced sales that are missing receipt text
+export const getSyncedSalesMissingReceipt = async () => {
+  return query(
+    "SELECT * FROM local_sales WHERE status = 'SYNCED' AND serverSaleId IS NOT NULL AND (receiptText IS NULL OR receiptText = '')"
+  );
+};
+
+// New: Get sale by server ID
+export const getSaleByServerId = async (serverSaleId) => {
+  const results = query('SELECT * FROM local_sales WHERE serverSaleId = ?', [serverSaleId]);
+  return results.length ? results[0] : null;
+};
+
+// New: Get all sales with server IDs (synced sales)
+export const getSalesWithServerId = async () => {
+  return query("SELECT * FROM local_sales WHERE serverSaleId IS NOT NULL ORDER BY createdAt DESC");
+};
+
+// Sync queue operations
 export const enqueueSync = async (entityType, entityId, operation, payload) => {
   const now = new Date().toISOString();
   const sql = `
@@ -414,6 +471,7 @@ export const markAllFailedForRetry = async () => {
   `, [retryAfter, now]);
 };
 
+// Sync metadata operations
 export const getSyncMetadata = async (key) => {
   const results = query('SELECT value FROM sync_metadata WHERE key = ?', [key]);
   return results.length ? results[0].value : null;

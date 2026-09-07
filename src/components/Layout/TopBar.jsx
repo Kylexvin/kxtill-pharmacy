@@ -11,7 +11,7 @@ import {
   Wifi, WifiOff, RefreshCw, CheckCircle, XCircle
 } from 'lucide-react';
 import styles from './TopBar.module.css';
-import { sync } from '../../sync/engine';
+import { sync, setOnlineStatus, startAutoSync, stopAutoSync } from '../../sync/engine';
 import { getPendingSales } from '../../db/sqlite';
 
 const HEARTBEAT_URL = '/auth/me';
@@ -102,31 +102,19 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     try {
       await axios.get(HEARTBEAT_URL, { timeout: HEARTBEAT_TIMEOUT_MS });
       setIsOnline(true);
+      setOnlineStatus(true);
     } catch (err) {
       if (err.response) {
         setIsOnline(true);
+        setOnlineStatus(true);
       } else {
         setIsOnline(false);
+        setOnlineStatus(false);
       }
     } finally {
       heartbeatInFlightRef.current = false;
       setCheckingConnectivity(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
-        setUserMenuOpen(false);
-        setOrgDropdownOpen(false);
-        setBranchDropdownOpen(false);
-      }
-      if (notifMenuRef.current && !notifMenuRef.current.contains(event.target)) {
-        setNotifOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -139,6 +127,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     };
     const handleBrowserOffline = () => {
       setIsOnline(false);
+      setOnlineStatus(false);
     };
 
     window.addEventListener('online', handleBrowserOnline);
@@ -150,6 +139,12 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
       window.removeEventListener('offline', handleBrowserOffline);
     };
   }, [checkConnectivity]);
+
+  // Start auto-sync with 60-second interval
+  useEffect(() => {
+    startAutoSync(60);
+    return () => stopAutoSync();
+  }, []);
 
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
@@ -186,6 +181,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const handleSwitchBranch = (branch) => {
     setActiveBranch(branch);
     setBranchDropdownOpen(false);
+    sync(branch.id).catch(() => {}); 
   };
 
   const getSyncStatusColor = () => {

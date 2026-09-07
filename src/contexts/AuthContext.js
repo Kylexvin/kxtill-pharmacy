@@ -61,41 +61,59 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // Clear offline data with pending sale check
+  // Check pending sales AND unsaved cart items, then fully reset the offline db.
+  // - If there's anything unsynced/unsaved for the current branch and this
+  //   isn't a forced reset, bail out and report back so the caller can confirm.
+  // - Otherwise, actually reset the db (in-memory + localStorage), not just
+  //   remove the localStorage key.
   const clearOfflineData = useCallback(async (force = false) => {
     try {
+      const { getActiveCart, resetDb } = await import('../db/sqlite');
+
       const pending = await checkPendingSales();
-      
-      if (pending.length > 0 && !force) {
-        const currentBranchId = activeBranch?.id;
-        const pendingForCurrentBranch = pending.filter(s => s.branchId === currentBranchId);
-        
-        if (pendingForCurrentBranch.length > 0) {
-          return {
-            hasPendingSales: true,
-            pendingCount: pendingForCurrentBranch.length,
-            message: `You have ${pendingForCurrentBranch.length} pending sale(s) that haven't been synced. Switching will clear them.`
-          };
-        }
-        
-        if (pending.length > 0 && pendingForCurrentBranch.length === 0) {
-          console.log('Pending sales exist but for different branch, safe to clear');
+      const currentBranchId = activeBranch?.id;
+      const pendingForCurrentBranch = pending.filter(s => s.branchId === currentBranchId);
+
+      let hasCartItems = false;
+      if (currentBranchId) {
+        const cart = await getActiveCart(currentBranchId);
+        try {
+          hasCartItems = !!cart && JSON.parse(cart.items || '[]').length > 0;
+        } catch {
+          hasCartItems = false;
         }
       }
-      
-      localStorage.removeItem('kxtill_db');
-      
+
+      if (!force && (pendingForCurrentBranch.length > 0 || hasCartItems)) {
+        const message = pendingForCurrentBranch.length > 0
+          ? `You have ${pendingForCurrentBranch.length} pending sale(s) that haven't been synced. Switching will clear them.`
+          : `You have items in your cart. Switching will clear them.`;
+
+        return {
+          hasPendingSales: true,
+          pendingCount: pendingForCurrentBranch.length,
+          message,
+        };
+      }
+
+      await resetDb();
+
       const keys = Object.keys(localStorage);
       keys.forEach(key => {
         if (key.startsWith('initialSyncDone:')) {
           localStorage.removeItem(key);
         }
       });
-      
+
       return { hasPendingSales: false };
     } catch (err) {
       console.error('Failed to clear offline data:', err);
-      localStorage.removeItem('kxtill_db');
+      try {
+        const { resetDb } = await import('../db/sqlite');
+        await resetDb();
+      } catch (resetErr) {
+        console.error('Failed to reset db after clearOfflineData error:', resetErr);
+      }
       return { hasPendingSales: false };
     }
   }, [activeBranch, checkPendingSales]);
@@ -282,7 +300,14 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('settings');
       localStorage.removeItem('activeOrganization');
       localStorage.removeItem('activeBranch');
-      localStorage.removeItem('kxtill_db');
+
+      try {
+        const { resetDb } = await import('../db/sqlite');
+        await resetDb();
+      } catch (err) {
+        console.error('Failed to reset db on logout:', err);
+        localStorage.removeItem('kxtill_db');
+      }
       
       const keys = Object.keys(localStorage);
       keys.forEach(key => {

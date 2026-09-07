@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { ScanLine, Store, RefreshCw, ShoppingCart } from 'lucide-react';
 import ProductSearch from './ProductSearch';
@@ -186,7 +185,7 @@ const POS = () => {
 
     const loadSavedCart = async () => {
       try {
-        const savedCart = await getActiveCart();
+        const savedCart = await getActiveCart(branchId);
         if (savedCart) {
           const items = JSON.parse(savedCart.items || '[]');
           setCartItems(items);
@@ -225,55 +224,7 @@ const POS = () => {
     }
   }, [cartItems, customer, branchId, dbReady]);
 
-  // Initial sync
-  useEffect(() => {
-    if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
-      return;
-    }
-
-    const runInitialSync = async () => {
-      const done = localStorage.getItem(syncFlagKey);
-      if (done === 'true') {
-        setInitialSyncDone(true);
-        return;
-      }
-
-      setSyncing(true);
-      try {
-        toast.loading('Syncing products...', { id: 'initial-sync' });
-        await initialSync(branchId);
-        localStorage.setItem(syncFlagKey, 'true');
-        setInitialSyncDone(true);
-        toast.success('Products synced', { id: 'initial-sync' });
-      } catch (err) {
-        console.error('Initial sync failed:', err);
-        toast.error('Failed to sync products', { id: 'initial-sync' });
-        setInitialSyncDone(false);
-      } finally {
-        setSyncing(false);
-      }
-    };
-
-    runInitialSync();
-  }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey]);
-
-  // Categories from SQLite
-  useEffect(() => {
-    if (!dbReady || !shouldFetch || !initialSyncDone) return;
-
-    const loadCategories = async () => {
-      try {
-        const allProducts = await getAllProducts();
-        const unique = Array.from(new Set(allProducts.map((p) => p.category).filter(Boolean)));
-        setCategories(['All', ...unique]);
-      } catch (err) {
-        console.error('Failed to load categories:', err);
-      }
-    };
-    loadCategories();
-  }, [dbReady, shouldFetch, initialSyncDone]);
-
-  // Fetch products from SQLite
+  // Fetch products from SQLite - DEFINED EARLY SO IT'S AVAILABLE TO ALL USEFFECTS
   const fetchProducts = useCallback(async () => {
     if (!dbReady || !shouldFetch || !branchId) return;
     setLoading(true);
@@ -323,6 +274,67 @@ const POS = () => {
     }
   }, [dbReady, branchId, shouldFetch, debouncedSearch, selectedCategory]);
 
+  // Initial sync
+  useEffect(() => {
+    if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
+      return;
+    }
+
+    const runInitialSync = async () => {
+      const done = localStorage.getItem(syncFlagKey);
+      if (done === 'true') {
+        setInitialSyncDone(true);
+        // Fetch products immediately if already synced
+        fetchProducts();
+        return;
+      }
+
+      setSyncing(true);
+      try {
+        toast.loading('Syncing products...', { id: 'initial-sync' });
+        await initialSync(branchId);
+        localStorage.setItem(syncFlagKey, 'true');
+        setInitialSyncDone(true);
+        toast.success('Products synced', { id: 'initial-sync' });
+        // Fetch products immediately after sync
+        fetchProducts();
+      } catch (err) {
+        console.error('Initial sync failed:', err);
+        toast.error('Failed to sync products', { id: 'initial-sync' });
+        setInitialSyncDone(false);
+      } finally {
+        setSyncing(false);
+      }
+    };
+
+    runInitialSync();
+  }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
+
+  // Categories from SQLite
+  useEffect(() => {
+    if (!dbReady || !shouldFetch || !initialSyncDone) return;
+
+    const loadCategories = async () => {
+      try {
+        const allProducts = await getAllProducts();
+        const unique = Array.from(new Set(allProducts.map((p) => p.category).filter(Boolean)));
+        setCategories(['All', ...unique]);
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      }
+    };
+    loadCategories();
+  }, [dbReady, shouldFetch, initialSyncDone]);
+
+  // Refresh when branch changes
+  useEffect(() => {
+    if (initialSyncDone && branchId) {
+      fetchProducts();
+      sync(branchId).catch(() => {});
+    }
+  }, [branchId, initialSyncDone, fetchProducts]);
+
+  // Also fetch when initialSyncDone becomes true (for initial load)
   useEffect(() => {
     if (initialSyncDone) {
       fetchProducts();
@@ -510,27 +522,28 @@ const POS = () => {
   const total = subtotal + taxAmount;
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-const handleCheckout = () => {
-  if (cartItems.length === 0) {
-    toast.error('Cart is empty');
-    return;
-  }
-  if (!branchId) {
-    toast.error('No active branch selected');
-    return;
-  }
-
-  for (const item of cartItems) {
-    const stock = Number(item.stock || 0);
-    if (stock < item.quantity) {
-      toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
+  const handleCheckout = () => {
+    if (cartItems.length === 0) {
+      toast.error('Cart is empty');
       return;
     }
-  }
+    if (!branchId) {
+      toast.error('No active branch selected');
+      return;
+    }
 
-  setCartOpen(false); // close mobile cart sheet before showing payment modal
-  setShowPaymentModal(true);
-};
+    for (const item of cartItems) {
+      const stock = Number(item.stock || 0);
+      if (stock < item.quantity) {
+        toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
+        return;
+      }
+    }
+
+    setCartOpen(false);
+    setShowPaymentModal(true);
+  };
+
   const handlePaymentComplete = async ({ method, reference }) => {
     setCheckingOut(true);
     try {
@@ -577,57 +590,49 @@ const handleCheckout = () => {
         paymentReference: reference,
       });
 
-      let receipt = null;
+      // Fire-and-forget: don't block checkout on the network.
+      // Real ETIMS receipt gets cached in the background by fetchPendingReceipts().
+      sync(branchId).catch(() => {});
 
-      try {
-        const receiptRes = await axios.get(
-          `/organizations/${orgId}/kxtill/sales/${clientSaleId}/receipt`,
-          { timeout: 3000 }
-        );
-        receipt = receiptRes.data;
-      } catch (receiptErr) {
-        console.warn('Receipt fetch failed, using local receipt:', receiptErr.message);
-      }
+      const localReceiptData = {
+        sale: { ...localSale, reference: clientSaleId },
+        items: cartItems.map(item => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.unitPrice * item.quantity,
+        })),
+        total: total,
+        subtotal: subtotal,
+        taxAmount: taxAmount,
+        branchName: activeBranch?.name,
+        organizationName: activeOrganization?.name,
+        payments: payments,
+      };
 
-      if (!receipt) {
-        const localReceiptData = {
-          sale: { ...localSale, reference: clientSaleId },
+      const receipt = {
+        text: buildLocalReceiptText(localReceiptData),
+        data: {
+          shopName: activeOrganization?.name || 'KXBYTE',
           items: cartItems.map(item => ({
-            productName: item.productName,
+            name: item.productName,
             quantity: item.quantity,
-            unitPrice: item.unitPrice,
+            unit: item.unitName,
+            price: item.unitPrice,
             total: item.unitPrice * item.quantity,
           })),
-          total: total,
           subtotal: subtotal,
-          taxAmount: taxAmount,
-          branchName: activeBranch?.name,
-          organizationName: activeOrganization?.name,
-          payments: payments,
-        };
-
-        receipt = {
-          text: buildLocalReceiptText(localReceiptData),
-          data: {
-            shopName: activeOrganization?.name || 'KXBYTE',
-            items: cartItems.map(item => ({
-              name: item.productName,
-              quantity: item.quantity,
-              unit: item.unitName,
-              price: item.unitPrice,
-              total: item.unitPrice * item.quantity,
-            })),
-            subtotal: subtotal,
-            tax: taxAmount,
-            total: total,
-            paymentMethod: method,
-            paymentReference: reference,
-          }
-        };
-      }
+          tax: taxAmount,
+          total: total,
+          paymentMethod: method,
+          paymentReference: reference,
+          isOffline: true,
+          clientSaleId: clientSaleId,
+        }
+      };
 
       setCartItems([]);
-      await clearCart();
+      await clearCart(branchId);
       setCustomer(null);
       setShowPaymentModal(false);
       setCartOpen(false);

@@ -4,6 +4,9 @@ import axios from 'axios';
 import {
   getPendingSales,
   updateSaleStatus,
+  setSaleServerId,
+  saveReceiptText,
+  getSyncedSalesMissingReceipt,
   getLastProductSync,
   setLastProductSync,
   getLastBranchSync,
@@ -22,6 +25,13 @@ let isOnline = navigator.onLine;
 
 export const getOnlineStatus = () => isOnline;
 
+// Lets an external, verified connectivity check (e.g. TopBar's heartbeat)
+// override the browser's navigator.onLine-based guess, so sync() and the
+// UI's connectivity indicator agree on the same value.
+export const setOnlineStatus = (value) => {
+  isOnline = value;
+};
+
 const getOrgId = () => {
   const org = localStorage.getItem('activeOrganization');
   if (!org) return null;
@@ -33,10 +43,21 @@ const getOrgId = () => {
   }
 };
 
+const getStoredActiveBranchId = () => {
+  const stored = localStorage.getItem('activeBranch');
+  if (!stored) return undefined;
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed?.id;
+  } catch {
+    return undefined;
+  }
+};
+
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     isOnline = true;
-    sync();
+    sync(getStoredActiveBranchId());
   });
   window.addEventListener('offline', () => {
     isOnline = false;
@@ -53,6 +74,7 @@ export const sync = async (branchId) => {
     salesFailed: 0,
     productsUpdated: 0,
     branchProductsUpdated: 0,
+    receiptsFetched: 0,
     errors: [],
   };
 
@@ -60,6 +82,7 @@ export const sync = async (branchId) => {
     await pushPendingSales(results);
     await pullProductUpdates(results, branchId);
     await pullBranchProductUpdates(results, branchId);
+    await fetchPendingReceipts(results);
     return { success: true, results };
   } catch (error) {
     results.errors.push(error.message);
@@ -100,12 +123,19 @@ const pushPendingSales = async (results) => {
         paymentReference: payments[0]?.reference || undefined,
       };
 
-      await axios.post(
+      const response = await axios.post(
         `/organizations/${organizationId}/kxtill/sales/offline`,
         payload
       );
 
       await updateSaleStatus(sale.id, 'SYNCED');
+      
+      // Capture and store server sale ID
+      const serverSaleId = response.data?.sale?.id;
+      if (serverSaleId) {
+        await setSaleServerId(sale.id, serverSaleId);
+      }
+      
       results.salesPushed++;
 
     } catch (error) {
@@ -122,6 +152,45 @@ const pushPendingSales = async (results) => {
         results.salesFailed++;
       }
     }
+  }
+};
+
+// New: Fetch and cache official receipts for synced sales
+export const fetchPendingReceipts = async (results = null) => {
+  if (!isOnline) return;
+
+  const organizationId = getOrgId();
+  if (!organizationId) return;
+
+  const sales = await getSyncedSalesMissingReceipt();
+  if (sales.length === 0) return;
+
+  let fetchedCount = 0;
+
+  for (const sale of sales) {
+    try {
+      const res = await axios.get(
+        `/organizations/${organizationId}/kxtill/sales/${sale.serverSaleId}/receipt`,
+        { timeout: 5000 }
+      );
+      
+      // Check if receipt text exists in response
+      const receiptText = res.data?.text || res.data?.receipt || JSON.stringify(res.data);
+      if (receiptText) {
+        await saveReceiptText(sale.id, receiptText);
+        fetchedCount++;
+      }
+    } catch (err) {
+      // Leave it null — will retry next interval
+      console.warn(`Receipt fetch failed for sale ${sale.id}:`, err.message);
+      if (results) {
+        results.errors.push(`Receipt fetch failed for ${sale.id}: ${err.message}`);
+      }
+    }
+  }
+
+  if (results) {
+    results.receiptsFetched = fetchedCount;
   }
 };
 
@@ -306,10 +375,15 @@ export const processSyncQueue = async () => {
 
       switch (item.entityType) {
         case 'sale':
-          await axios.post(
+          const response = await axios.post(
             `/organizations/${organizationId}/kxtill/sales/offline`,
             payload
           );
+          // Capture server sale ID if this is a sale
+          const serverSaleId = response.data?.sale?.id;
+          if (serverSaleId && payload.clientSaleId) {
+            await setSaleServerId(payload.clientSaleId, serverSaleId);
+          }
           break;
         default:
           await updateSyncItemStatus(item.id, 'FAILED', `Unknown entity type: ${item.entityType}`);
@@ -476,10 +550,10 @@ export const startAutoSync = (intervalSeconds = 60) => {
     clearInterval(syncInterval);
   }
 
-  sync();
+  sync(getStoredActiveBranchId());
 
   syncInterval = setInterval(() => {
-    sync();
+    sync(getStoredActiveBranchId());
   }, intervalSeconds * 1000);
 };
 
@@ -502,6 +576,8 @@ const syncEngine = {
   stopAutoSync,
   processSyncQueue,
   getOnlineStatus,
+  setOnlineStatus,
+  fetchPendingReceipts,
 };
 
 export default syncEngine;
