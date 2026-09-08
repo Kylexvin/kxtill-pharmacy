@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
   const [error, setError] = useState(null);
+  const [isOffline, setIsOffline] = useState(false);
   const authInitialized = useRef(false);
 
   // Set axios header when token changes
@@ -62,10 +63,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Check pending sales AND unsaved cart items, then fully reset the offline db.
-  // - If there's anything unsynced/unsaved for the current branch and this
-  //   isn't a forced reset, bail out and report back so the caller can confirm.
-  // - Otherwise, actually reset the db (in-memory + localStorage), not just
-  //   remove the localStorage key.
   const clearOfflineData = useCallback(async (force = false) => {
     try {
       const { getActiveCart, resetDb } = await import('../db/sqlite');
@@ -263,6 +260,7 @@ export function AuthProvider({ children }) {
         await setActiveOrganization(organizations[0].id, true);
       }
 
+      setIsOffline(false);
       return { hasOrganizations: organizations && organizations.length > 0 };
     } catch (err) {
       const message = err.response?.data?.error || err.response?.data?.message || 'Login failed';
@@ -291,6 +289,7 @@ export function AuthProvider({ children }) {
       setActiveOrganizationState(null);
       setActiveBranchState(null);
       setError(null);
+      setIsOffline(false);
       
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');
@@ -336,9 +335,10 @@ export function AuthProvider({ children }) {
     localStorage.setItem('organizations', JSON.stringify(organizations || []));
 
     axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+    setIsOffline(false);
   }, []);
 
-  // Validate session on mount
+  // ✅ CORRECTED: Validate session with proper network error handling
   useEffect(() => {
     if (authInitialized.current) return;
     authInitialized.current = true;
@@ -352,16 +352,43 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        await axios.get('/auth/me');
+        await axios.get('/auth/me', { timeout: 5000 });
+        setIsOffline(false);
       } catch (error) {
-        try {
-          const response = await axios.post('/auth/refresh', { refreshToken: refresh });
-          const { accessToken: newToken } = response.data;
-          localStorage.setItem('accessToken', newToken);
-          setAccessToken(newToken);
-          axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        } catch (refreshError) {
-          handleLogout();
+        // ✅ No response at all = network/offline issue, not an auth problem.
+        // Don't touch the session — just retry silently later.
+        if (!error.response) {
+          console.warn('Session check failed — offline, keeping session as-is');
+          setIsOffline(true);
+          return;
+        }
+
+        // ✅ Got a response, so the server is reachable and said the token
+        // is invalid/expired (401/403) — this is a real auth failure,
+        // safe to attempt refresh.
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          try {
+            const response = await axios.post('/auth/refresh', { refreshToken: refresh });
+            const { accessToken: newToken } = response.data;
+            localStorage.setItem('accessToken', newToken);
+            setAccessToken(newToken);
+            axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+            setIsOffline(false);
+          } catch (refreshError) {
+            // ✅ Same distinction on the refresh call itself
+            if (!refreshError.response) {
+              console.warn('Token refresh failed — offline, keeping session as-is');
+              setIsOffline(true);
+              return;
+            }
+            // ✅ Refresh endpoint reachable and explicitly rejected the refresh
+            // token — this is a genuine expired/invalid session
+            handleLogout();
+          }
+        } else {
+          // Other HTTP errors (500, etc.) - don't logout
+          console.warn('Session validation error:', error.message);
+          setIsOffline(true);
         }
       }
     };
@@ -418,6 +445,7 @@ export function AuthProvider({ children }) {
     isLoading,
     isSwitching,
     error,
+    isOffline,
     login,
     logout: handleLogout,
     setActiveOrganization,

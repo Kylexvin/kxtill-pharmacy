@@ -16,6 +16,14 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import Inventory from './pages/Inventory/Inventory';
 import Reports from './pages/Reports/Reports';
 import Settings from './pages/Settings/Settings';
+import Sales from './pages/Sales/Sales';
+import Refunds from './pages/Refunds/Refunds';
+import Transfers from './pages/Transfers/Transfers';
+import Customers from './pages/Customers/Customers';
+import CustomerGroups from './pages/CustomerGroups/CustomerGroups';
+import Staff from './pages/Staff/Staff';
+import Roles from './pages/Roles/Roles';
+import Branches from './pages/Branches/Branches';
 import { initDb } from './db/sqlite';
 import './App.css';
 import './styles/globals.css';
@@ -162,12 +170,15 @@ function App() {
         <AuthProvider>
           <Toaster />
           <Routes>
+            {/* Public Routes */}
             <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
             <Route path="/login" element={<Login />} />
             <Route path="/oauth/login" element={<Login />} />
             <Route path="/oauth/callback" element={<OAuthCallback />} />
             <Route path="/select-org" element={<SelectOrg />} />
             <Route path="/select-branch" element={<SelectBranch />} />
+            
+            {/* Protected Routes with Layout */}
             <Route
               path="/"
               element={
@@ -180,9 +191,20 @@ function App() {
               <Route path="pos" element={<POS />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="inventory" element={<Inventory />} />
+              <Route path="sales" element={<Sales />} />
+              <Route path="refunds" element={<Refunds />} />
+              <Route path="transfers" element={<Transfers />} />
+              <Route path="customers" element={<Customers />} />
+              <Route path="customer-groups" element={<CustomerGroups />} />
+              <Route path="staff" element={<Staff />} />
+              <Route path="roles" element={<Roles />} />
+              <Route path="branches" element={<Branches />} />
               <Route path="reports" element={<Reports />} />
               <Route path="settings" element={<Settings />} />
             </Route>
+
+            {/* Catch all - redirect to POS */}
+            <Route path="*" element={<Navigate to="/pos" />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>
