@@ -1,6 +1,5 @@
 // src/contexts/AuthContext.jsx
-
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 export const AuthContext = createContext(null);
@@ -28,7 +27,6 @@ export function AuthProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(() => safeLocalStorageGet('refreshToken', null));
   const [organizations, setOrganizations] = useState(() => safeLocalStorageGet('organizations', []));
   const [branches, setBranches] = useState(() => safeLocalStorageGet('branches', []));
-  const [settings, setSettings] = useState(() => safeLocalStorageGet('settings', null));
   const [activeOrganization, setActiveOrganizationState] = useState(() => 
     safeLocalStorageGet('activeOrganization', null)
   );
@@ -115,24 +113,6 @@ export function AuthProvider({ children }) {
     }
   }, [activeBranch, checkPendingSales]);
 
-  // Fetch Settings
-  const fetchSettings = useCallback(async () => {
-    if (!activeOrganization) return null;
-    
-    try {
-      const response = await axios.get(
-        `/organizations/${activeOrganization.id}/kxtill/settings`
-      );
-      const data = response.data.settings;
-      setSettings(data);
-      localStorage.setItem('settings', JSON.stringify(data));
-      return data;
-    } catch (err) {
-      console.error('Failed to fetch settings:', err);
-      return null;
-    }
-  }, [activeOrganization]);
-
   // Load Branches
   const loadBranches = useCallback(async (orgId) => {
     try {
@@ -194,8 +174,6 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('activeBranch');
       }
 
-      await fetchSettings();
-
       return fetchedBranches;
     } catch (err) {
       const message = err.response?.data?.message || 'Failed to load organization';
@@ -205,7 +183,7 @@ export function AuthProvider({ children }) {
       setIsLoading(false);
       setIsSwitching(false);
     }
-  }, [organizations, clearOfflineData, fetchSettings]);
+  }, [organizations, clearOfflineData]);
 
   // Set Active Branch
   const setActiveBranch = useCallback(async (branch) => {
@@ -285,7 +263,6 @@ export function AuthProvider({ children }) {
       setRefreshToken(null);
       setOrganizations([]);
       setBranches([]);
-      setSettings(null);
       setActiveOrganizationState(null);
       setActiveBranchState(null);
       setError(null);
@@ -296,7 +273,6 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('organizations');
       localStorage.removeItem('branches');
-      localStorage.removeItem('settings');
       localStorage.removeItem('activeOrganization');
       localStorage.removeItem('activeBranch');
 
@@ -338,7 +314,7 @@ export function AuthProvider({ children }) {
     setIsOffline(false);
   }, []);
 
-  // ✅ CORRECTED: Validate session with proper network error handling
+  // Validate session with proper network error handling
   useEffect(() => {
     if (authInitialized.current) return;
     authInitialized.current = true;
@@ -355,7 +331,7 @@ export function AuthProvider({ children }) {
         await axios.get('/auth/me', { timeout: 5000 });
         setIsOffline(false);
       } catch (error) {
-        // ✅ No response at all = network/offline issue, not an auth problem.
+        // No response at all = network/offline issue, not an auth problem.
         // Don't touch the session — just retry silently later.
         if (!error.response) {
           console.warn('Session check failed — offline, keeping session as-is');
@@ -363,7 +339,7 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // ✅ Got a response, so the server is reachable and said the token
+        // Got a response, so the server is reachable and said the token
         // is invalid/expired (401/403) — this is a real auth failure,
         // safe to attempt refresh.
         if (error.response?.status === 401 || error.response?.status === 403) {
@@ -375,13 +351,13 @@ export function AuthProvider({ children }) {
             axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
             setIsOffline(false);
           } catch (refreshError) {
-            // ✅ Same distinction on the refresh call itself
+            // Same distinction on the refresh call itself
             if (!refreshError.response) {
               console.warn('Token refresh failed — offline, keeping session as-is');
               setIsOffline(true);
               return;
             }
-            // ✅ Refresh endpoint reachable and explicitly rejected the refresh
+            // Refresh endpoint reachable and explicitly rejected the refresh
             // token — this is a genuine expired/invalid session
             handleLogout();
           }
@@ -398,7 +374,6 @@ export function AuthProvider({ children }) {
     const storedRefresh = localStorage.getItem('refreshToken');
     const storedOrgs = localStorage.getItem('organizations');
     const storedBranches = localStorage.getItem('branches');
-    const storedSettings = localStorage.getItem('settings');
     const storedActive = localStorage.getItem('activeOrganization');
     const storedActiveBranch = localStorage.getItem('activeBranch');
 
@@ -412,9 +387,6 @@ export function AuthProvider({ children }) {
     }
     if (storedBranches) {
       try { setBranches(JSON.parse(storedBranches)); } catch {}
-    }
-    if (storedSettings) {
-      try { setSettings(JSON.parse(storedSettings)); } catch {}
     }
     if (storedActive) {
       try { setActiveOrganizationState(JSON.parse(storedActive)); } catch {}
@@ -433,32 +405,41 @@ export function AuthProvider({ children }) {
 
   const isAuthenticated = !!user && !!accessToken;
 
-  const value = {
+  // Memoized so the context value reference only changes when something in
+  // it actually changes — without this, every AuthProvider render (even from
+  // unrelated state like isLoading toggling during a branch switch) creates
+  // a brand-new object, forcing every consumer of useAuth() to re-render.
+  const value = useMemo(() => ({
     user,
     accessToken,
     refreshToken,
     organizations,
     branches,
-    settings,
     activeOrganization,
     activeBranch,
     isLoading,
     isSwitching,
     error,
     isOffline,
+    setIsOffline,
     login,
     logout: handleLogout,
     setActiveOrganization,
     setActiveBranch,
     setBranches,
     loadBranches,
-    fetchSettings,
     clearError,
     clearOfflineData,
     checkPendingSales,
     isAuthenticated,
     setAuthData,
-  };
+  }), [
+    user, accessToken, refreshToken, organizations, branches,
+    activeOrganization, activeBranch, isLoading, isSwitching, error, isOffline,
+    login, handleLogout, setActiveOrganization, setActiveBranch,
+    loadBranches, clearError, clearOfflineData,
+    checkPendingSales, isAuthenticated, setAuthData,
+  ]);
 
   return (
     <AuthContext.Provider value={value}>

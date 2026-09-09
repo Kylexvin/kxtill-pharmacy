@@ -28,7 +28,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     organizations,
     branches,
     setActiveOrganization,
-    setActiveBranch
+    setActiveBranch,
+    // eslint-disable-next-line no-unused-vars
+    isOffline: contextIsOffline,
+    setIsOffline: setContextIsOffline
   } = useAuth();
   const { darkMode, toggleTheme } = useTheme();
 
@@ -94,6 +97,9 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     }
   }, [checkPendingSales]);
 
+  // Single source of truth for connectivity: updates both the local TopBar
+  // state (drives the UI badge) and AuthContext's isOffline (consumed by
+  // other pages like Sales.jsx), so nothing else needs its own polling.
   const checkConnectivity = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
     heartbeatInFlightRef.current = true;
@@ -103,19 +109,22 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
       await axios.get(HEARTBEAT_URL, { timeout: HEARTBEAT_TIMEOUT_MS });
       setIsOnline(true);
       setOnlineStatus(true);
+      setContextIsOffline(false);
     } catch (err) {
       if (err.response) {
         setIsOnline(true);
         setOnlineStatus(true);
+        setContextIsOffline(false);
       } else {
         setIsOnline(false);
         setOnlineStatus(false);
+        setContextIsOffline(true);
       }
     } finally {
       heartbeatInFlightRef.current = false;
       setCheckingConnectivity(false);
     }
-  }, []);
+  }, [setContextIsOffline]);
 
   useEffect(() => {
     checkConnectivity();
@@ -128,6 +137,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     const handleBrowserOffline = () => {
       setIsOnline(false);
       setOnlineStatus(false);
+      setContextIsOffline(true);
     };
 
     window.addEventListener('online', handleBrowserOnline);
@@ -138,7 +148,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
       window.removeEventListener('online', handleBrowserOnline);
       window.removeEventListener('offline', handleBrowserOffline);
     };
-  }, [checkConnectivity]);
+  }, [checkConnectivity, setContextIsOffline]);
 
   // Start auto-sync with 60-second interval
   useEffect(() => {

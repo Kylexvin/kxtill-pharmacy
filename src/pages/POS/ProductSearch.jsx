@@ -1,15 +1,17 @@
 // src/pages/POS/ProductSearch.jsx
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Package, Layers, X } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import styles from './POS.module.css';
 
 const ProductSearch = ({ products, loading, onAddToCart }) => {
   const [openUnitsFor, setOpenUnitsFor] = useState(null);
   const gridRef = useRef(null);
-  const { settings } = useAuth();
-  const currency = settings?.currency || 'KES';
+  
+  // Use settings for currency and decimal places
+  const { getCurrency, getDecimalPlaces } = useSettings();
+  const currency = getCurrency();
+  const decimals = getDecimalPlaces();
 
   useEffect(() => {
     if (!openUnitsFor) return;
@@ -47,6 +49,11 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
   const handleUnitPick = (product, unit) => {
     onAddToCart(product, unit);
     setOpenUnitsFor(null);
+  };
+
+  // Format price with proper decimal places
+  const formatPrice = (amount) => {
+    return Number(amount || 0).toFixed(decimals);
   };
 
   if (loading) {
@@ -107,7 +114,7 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
                 </div>
                 <div className={styles.productBottomRow}>
                   <span className={styles.productPriceText}>
-                    {Number(product.price || 0).toFixed(2)} {currency}
+                    {formatPrice(product.price)} {currency}
                   </span>
                   {units.length > 1 && (
                     <span className={styles.unitsHint}>
@@ -137,7 +144,7 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
                     onClick={() => handleUnitPick(product, unit)}
                   >
                     <span>{unit.name}</span>
-                    <span className={styles.unitPrice}>{Number(unit.price).toFixed(2)} {currency}</span>
+                    <span className={styles.unitPrice}>{formatPrice(unit.price)} {currency}</span>
                   </button>
                 ))}
               </div>

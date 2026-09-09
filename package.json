@@ -20,6 +20,7 @@
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.18.2",
     "react-scripts": "5.0.1",
+    "recharts": "^3.10.1",
     "sql.js": "^1.14.2",
     "stream-browserify": "^3.0.0",
     "vm-browserify": "^1.1.2",

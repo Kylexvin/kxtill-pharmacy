@@ -1,9 +1,11 @@
+// src/pages/POS/Cart.jsx
 import React from 'react';
 import {
   Plus, Minus, Trash2, ShoppingCart,
   User, Users, CreditCard, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useSettings } from '../../contexts/SettingsContext';
 import styles from './POS.module.css';
 
 const Cart = ({
@@ -20,6 +22,10 @@ const Cart = ({
   onCheckout,
   onCustomerSelect
 }) => {
+  // Use settings for formatting
+  const { formatCurrency } = useSettings();
+  
+  // Fallback formatter if settings not available
   const fmt = (n) => Number(n).toFixed(decimals ?? 2);
 
   const handleIncrement = (item) => {
@@ -39,6 +45,15 @@ const Cart = ({
       return;
     }
     onUpdateQuantity(item.id, newQty);
+  };
+
+  // Format price with proper currency
+  const formatPrice = (amount) => {
+    try {
+      return formatCurrency(amount);
+    } catch {
+      return `${fmt(amount)} ${currency}`;
+    }
   };
 
   return (
@@ -95,7 +110,7 @@ const Cart = ({
                 <span className={styles.cartItemName}>{item.productName}</span>
                 <span className={styles.cartItemUnit}>{item.unitName}</span>
                 <span className={styles.cartItemPrice}>
-                  {fmt(item.unitPrice)} {currency} × {item.quantity}
+                  {formatPrice(item.unitPrice)} × {item.quantity}
                 </span>
                 <span className={styles.cartItemStock}>
                   Stock: {item.stock || 0}
@@ -132,17 +147,17 @@ const Cart = ({
         <div className={styles.cartTotal}>
           <div className={styles.totalRow}>
             <span>Subtotal</span>
-            <span>{fmt(subtotal)} {currency}</span>
+            <span>{formatPrice(subtotal)}</span>
           </div>
           {taxAmount > 0 && (
             <div className={styles.totalRow}>
               <span>Tax</span>
-              <span>{fmt(taxAmount)} {currency}</span>
+              <span>{formatPrice(taxAmount)}</span>
             </div>
           )}
           <div className={`${styles.totalRow} ${styles.grandTotal}`}>
             <span>Total</span>
-            <span>{fmt(total)} {currency}</span>
+            <span>{formatPrice(total)}</span>
           </div>
         </div>
 
@@ -153,7 +168,7 @@ const Cart = ({
             disabled={items.length === 0}
           >
             <CreditCard size={16} />
-            Pay {fmt(total)} {currency}
+            Pay {formatPrice(total)}
           </button>
         </div>
       </div>

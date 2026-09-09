@@ -1,14 +1,15 @@
 // src/pages/Sales/Sales.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import {
   Search, Filter, Eye, ChevronLeft, ChevronRight,
   DollarSign, ShoppingBag, Users, FileText, Printer,
   RefreshCw, Clock, CheckCircle, XCircle, AlertCircle,
   Receipt, Copy, Check, User, Building2, CreditCard, X,
-  Banknote, Smartphone, CloudOff, RotateCw, WifiOff, Wifi
+  Banknote, Smartphone, CloudOff, RotateCw, WifiOff, 
 } from 'lucide-react';
 import axios from 'axios';
 import {
@@ -21,16 +22,20 @@ import {
 } from '../../db/sqlite';
 import styles from './Sales.module.css';
 
-// Extract a usable payment method whether it's a top-level string
-// (older/local shape) or nested in a payments[] array (server shape).
+// ---------------------------------------------------------------------------
+// Tuning constants
+// ---------------------------------------------------------------------------
+const POLL_INTERVAL_IDLE_MS = 30000;     // normal background refresh
+const POLL_INTERVAL_PENDING_MS = 8000;   // faster refresh while anything is pending/failed
+const SEARCH_DEBOUNCE_MS = 400;
+const SYNC_EVENT_NAME = 'kxtill:sync-complete';
+
 const paymentMethodOf = (sale) => {
   if (sale.paymentMethod) return sale.paymentMethod;
   if (sale.payments && sale.payments.length > 0) return sale.payments[0].method;
   return null;
 };
 
-// Best-effort reference: prefer the server's real reference (INV-...),
-// fall back to a slice of the id for local/unsynced sales.
 const referenceOf = (sale) => {
   if (sale.reference) return sale.reference;
   if (sale.id) return sale.id.slice(-8).toUpperCase();
@@ -43,9 +48,6 @@ const itemsCountOf = (sale) => {
   return 0;
 };
 
-// Client-side filtering — applied regardless of what the backend already
-// filtered, since only branchId/startDate/endDate are confirmed to work
-// server-side today. Safe to run even on already-filtered data.
 const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) => {
   let result = items;
 
@@ -72,39 +74,46 @@ const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) 
   return result;
 };
 
+const isAbortError = (error) =>
+  error?.name === 'CanceledError' || error?.name === 'AbortError' || axios.isCancel?.(error);
+
 const Sales = () => {
   const navigate = useNavigate();
   const {
     activeOrganization,
     activeBranch,
     branches,
-    user,
-    settings,
+
     accessToken,
     setActiveBranch,
     isOffline: contextIsOffline
   } = useAuth();
 
-  const [sales, setSales] = useState([]);
+  // Use settings from SettingsContext
+  const {
+
+    formatCurrency,
+    formatDate,
+    formatDateTime,
+  } = useSettings();
+
+  // Raw merged (server + local) sales for the current branch/date scope.
+  const [rawSales, setRawSales] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [dateRange, setDateRange] = useState('all');
-  const [branchFilter, setBranchFilter] = useState('all');
+
+  const [branchFilter, setBranchFilter] = useState(() => activeBranch?.id || 'all');
+
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
   const [userPermissions, setUserPermissions] = useState([]);
   const [hasAllBranches, setHasAllBranches] = useState(false);
   const [localPendingCount, setLocalPendingCount] = useState(0);
   const [localFailedCount, setLocalFailedCount] = useState(0);
-  const [stats, setStats] = useState({
-    totalSales: 0,
-    totalRevenue: 0,
-    averageOrderValue: 0,
-    uniqueCustomers: 0
-  });
   const [showReceipt, setShowReceipt] = useState(null);
   const [showDetail, setShowDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -114,14 +123,30 @@ const Sales = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retryingIds, setRetryingIds] = useState(new Set());
 
-  const currency = settings?.currency || 'KES';
-  const decimals = settings?.decimalPlaces ?? 2;
   const orgId = activeOrganization?.id;
   const limit = 20;
+
+  const isMountedRef = useRef(true);
+  const fetchSalesControllerRef = useRef(null);
+  const hasLoadedOnceRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      fetchSalesControllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
+
+  useEffect(() => {
+    setBranchFilter(activeBranch?.id || 'all');
+    setCurrentPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBranch?.id]);
 
   useEffect(() => {
     const fetchPermissions = async () => {
@@ -142,7 +167,7 @@ const Sales = () => {
 
   const isOwner = userPermissions.includes('*');
   const canViewAllBranches = hasAllBranches || isOwner;
-  const availableBranches = branches || [];
+  const availableBranches = useMemo(() => branches || [], [branches]);
   const showBranchFilter = canViewAllBranches && availableBranches.length > 1;
 
   const getActiveBranchName = useCallback(() => {
@@ -169,10 +194,6 @@ const Sales = () => {
     return null;
   }, [branchFilter, activeBranch]);
 
-  // Decide what branchId (if any) to send to the server.
-  // - explicit branch chosen -> that branch
-  // - "all" chosen but user can't view all branches -> scope to their own branch anyway
-  // - "all" chosen and user CAN view all branches -> omit branchId (true "all")
   const getServerBranchId = useCallback(() => {
     if (branchFilter !== 'all') return branchFilter;
     if (!canViewAllBranches) return activeBranch?.id || null;
@@ -186,8 +207,10 @@ const Sales = () => {
     try {
       const pending = await getPendingSalesCount(branchId);
       const failed = await getFailedSalesCount(branchId);
-      setLocalPendingCount(pending);
-      setLocalFailedCount(failed);
+      if (isMountedRef.current) {
+        setLocalPendingCount(pending);
+        setLocalFailedCount(failed);
+      }
     } catch (error) {
       console.error('Error fetching local counts:', error);
     }
@@ -267,15 +290,20 @@ const Sales = () => {
       setLoading(false);
       return;
     }
-    setLoading(true);
+
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    }
+
+    fetchSalesControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchSalesControllerRef.current = controller;
 
     let serverSales = [];
     let localSales = [];
     const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
 
     try {
-      // Only branchId + date range are confirmed to work server-side.
-      // status/paymentMethod/search are applied client-side below instead.
       const params = {
         limit: 100,
         offset: 0,
@@ -291,11 +319,13 @@ const Sales = () => {
         try {
           const response = await axios.get(`/organizations/${orgId}/kxtill/sales`, {
             params,
-            timeout: 10000
+            timeout: 10000,
+            signal: controller.signal,
           });
           serverSales = response.data.items || [];
-          setLastSyncTime(new Date());
+          if (!controller.signal.aborted) setLastSyncTime(new Date());
         } catch (error) {
+          if (isAbortError(error)) return;
           console.warn('Server sales fetch failed:', error.message);
         }
       }
@@ -308,151 +338,124 @@ const Sales = () => {
         localSales = localResult.items || [];
       }
 
+      if (controller.signal.aborted || !isMountedRef.current) return;
+
       const mergedSales = mergeSales(serverSales, localSales);
-      const filteredSales = applyClientFilters(mergedSales, {
-        statusFilter,
-        paymentFilter,
-        searchTerm,
-      });
-
-      const start = (currentPage - 1) * limit;
-      const end = start + limit;
-      const paginatedSales = filteredSales.slice(start, end);
-
-      setSales(paginatedSales);
-      setTotalPages(Math.max(1, Math.ceil(filteredSales.length / limit)));
-      setTotalItems(filteredSales.length);
+      setRawSales(mergedSales);
+      hasLoadedOnceRef.current = true;
 
       await fetchLocalCounts();
 
     } catch (error) {
+      if (isAbortError(error)) return;
       console.error('Error fetching sales:', error);
       try {
         const localBranchId = getActiveBranchId();
         if (localBranchId) {
           const localResult = await getAllLocalSalesForBranch(localBranchId, {});
-          const filtered = applyClientFilters(localResult.items || [], {
-            statusFilter,
-            paymentFilter,
-            searchTerm,
-          });
-          setSales(filtered);
-          setTotalPages(Math.max(1, Math.ceil(filtered.length / limit)));
-          setTotalItems(filtered.length);
+          if (isMountedRef.current) {
+            setRawSales(localResult.items || []);
+            hasLoadedOnceRef.current = true;
+          }
         }
       } catch (localError) {
         console.error('Failed to load local sales:', localError);
-        setSales([]);
+        if (isMountedRef.current) setRawSales([]);
       }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
   }, [
-    orgId, currentPage, statusFilter, paymentFilter, searchTerm, limit,
-    getActiveBranchId, getServerBranchId, fetchLocalCounts, mergeSales,
+    orgId, getActiveBranchId, getServerBranchId, fetchLocalCounts, mergeSales,
     buildDateParams, contextIsOffline
   ]);
 
-  const fetchStats = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const params = {
-        limit: 100,
-        offset: 0,
-        ...buildDateParams(),
-      };
+  const filteredSales = useMemo(
+    () => applyClientFilters(rawSales, { statusFilter, paymentFilter, searchTerm }),
+    [rawSales, statusFilter, paymentFilter, searchTerm]
+  );
 
-      const serverBranchId = getServerBranchId();
-      if (serverBranchId) {
-        params.branchId = serverBranchId;
-      }
+  const totalItems = filteredSales.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
 
-      let items = [];
-      const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
+  const paginatedSales = useMemo(() => {
+    const start = (currentPage - 1) * limit;
+    return filteredSales.slice(start, start + limit);
+  }, [filteredSales, currentPage, limit]);
 
-      if (isCurrentlyOnline) {
-        try {
-          const response = await axios.get(`/organizations/${orgId}/kxtill/sales`, {
-            params,
-            timeout: 5000
-          });
-          items = response.data.items || [];
-        } catch (error) {
-          const localBranchId = getActiveBranchId();
-          if (localBranchId) {
-            const localResult = await getAllLocalSalesForBranch(localBranchId, {});
-            items = localResult.items || [];
-          }
-        }
-      } else {
-        const localBranchId = getActiveBranchId();
-        if (localBranchId) {
-          const localResult = await getAllLocalSalesForBranch(localBranchId, {});
-          items = localResult.items || [];
-        }
-      }
+  const stats = useMemo(() => {
+    const totalRevenue = filteredSales.reduce((sum, s) => sum + parseFloat(s.totalAmount || 0), 0);
+    return {
+      totalSales: filteredSales.length,
+      totalRevenue,
+      averageOrderValue: filteredSales.length > 0 ? totalRevenue / filteredSales.length : 0,
+      uniqueCustomers: new Set(filteredSales.map(s => s.customerName || 'Walk-in Customer')).size,
+    };
+  }, [filteredSales]);
 
-      const filtered = applyClientFilters(items, { statusFilter, paymentFilter, searchTerm });
-      const totalRevenue = filtered.reduce((sum, s) => sum + parseFloat(s.totalAmount || 0), 0);
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
-      setStats({
-        totalSales: filtered.length || 0,
-        totalRevenue,
-        averageOrderValue: filtered.length > 0 ? totalRevenue / filtered.length : 0,
-        uniqueCustomers: new Set(filtered.map(s => s.customerName)).size
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  }, [orgId, getActiveBranchId, getServerBranchId, statusFilter, paymentFilter, searchTerm, buildDateParams, contextIsOffline]);
+  useEffect(() => {
+    const handle = setTimeout(() => setSearchTerm(searchInput), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  useEffect(() => {
+    hasLoadedOnceRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getServerBranchId, dateRange]);
+
+  useEffect(() => {
+    if (orgId) fetchSales();
+  }, [fetchSales, orgId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, paymentFilter, searchTerm, branchFilter, dateRange]);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await Promise.all([fetchSales(), fetchLocalCounts()]);
+      await fetchSales();
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
-      setIsRefreshing(false);
+      if (isMountedRef.current) setIsRefreshing(false);
     }
-  }, [fetchSales, fetchLocalCounts, isRefreshing]);
+  }, [fetchSales, isRefreshing]);
 
   useEffect(() => {
-    if (orgId) {
-      handleRefresh();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextIsOffline, orgId]);
+    if (!isOnline || contextIsOffline) return;
 
-  useEffect(() => {
-    if (orgId) {
-      fetchSales();
-    }
-  }, [fetchSales, orgId]);
-
-  useEffect(() => {
-    if (orgId) {
-      fetchStats();
-      fetchLocalCounts();
-    }
-  }, [fetchStats, orgId, fetchLocalCounts]);
-
-  useEffect(() => {
-    if (!isOnline) return;
+    const hasPendingWork = localPendingCount > 0 || localFailedCount > 0;
+    const intervalMs = hasPendingWork ? POLL_INTERVAL_PENDING_MS : POLL_INTERVAL_IDLE_MS;
 
     const interval = setInterval(() => {
       if (navigator.onLine && !contextIsOffline) {
         handleRefresh();
       }
-    }, 30000);
+    }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isOnline, contextIsOffline, handleRefresh]);
+  }, [isOnline, contextIsOffline, handleRefresh, localPendingCount, localFailedCount]);
+
+  useEffect(() => {
+    const onOnline = () => { if (orgId) handleRefresh(); };
+    const onSyncComplete = () => { if (orgId) handleRefresh(); };
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener(SYNC_EVENT_NAME, onSyncComplete);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener(SYNC_EVENT_NAME, onSyncComplete);
+    };
+  }, [orgId, handleRefresh]);
 
   const handleSearch = () => {
-    setCurrentPage(1);
-    fetchSales();
+    setSearchTerm(searchInput);
   };
 
   const handleKeyPress = (e) => {
@@ -489,25 +492,14 @@ const Sales = () => {
       default:
         break;
     }
-    setCurrentPage(1);
   }, [canViewAllBranches, availableBranches, setActiveBranch]);
-
-  // Re-fetch whenever a filter actually changes value (was previously
-  // calling fetchSales() synchronously inside handleFilterChange using a
-  // stale closure — this effect fires after state updates instead).
-  useEffect(() => {
-    if (orgId) {
-      setCurrentPage(1);
-      fetchSales();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, paymentFilter, dateRange, branchFilter]);
 
   const clearFilters = () => {
     setStatusFilter('all');
     setPaymentFilter('all');
     setDateRange('all');
-    setBranchFilter('all');
+    setBranchFilter(activeBranch?.id || 'all');
+    setSearchInput('');
     setSearchTerm('');
     setCurrentPage(1);
   };
@@ -689,34 +681,8 @@ const Sales = () => {
     return match;
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals
-    }).format(parseFloat(amount) || 0);
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const formatDateShort = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
+  // REMOVED: formatCurrency function (now using from SettingsContext)
+  // REMOVED: formatDate function (now using from SettingsContext)
 
   const getPaymentMethod = (method) => {
     const methodMap = {
@@ -741,6 +707,7 @@ const Sales = () => {
   }
 
   const showOffline = !isOnline || contextIsOffline;
+  const showSkeleton = loading && !hasLoadedOnceRef.current;
 
   return (
     <div className={styles.salesPage}>
@@ -846,8 +813,8 @@ const Sales = () => {
           <input
             type="text"
             placeholder="Search by reference or customer name..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             onKeyPress={handleKeyPress}
             className={styles.searchInput}
           />
@@ -925,12 +892,12 @@ const Sales = () => {
 
       {/* Sales Table */}
       <div className={styles.tableContainer}>
-        {loading ? (
+        {showSkeleton ? (
           <div className={styles.loadingState}>
             <RefreshCw size={32} className={styles.spinning} />
             <p>Loading sales...</p>
           </div>
-        ) : sales.length === 0 ? (
+        ) : paginatedSales.length === 0 ? (
           <div className={styles.emptyState}>
             {showOffline ? (
               <>
@@ -975,10 +942,15 @@ const Sales = () => {
           <>
             <div className={styles.tableHeader}>
               <span className={styles.tableInfo}>
-                Showing {sales.length} of {totalItems} sales
+                Showing {paginatedSales.length} of {totalItems} sales
                 {lastSyncTime && isOnline && (
                   <span className={styles.lastSyncTime}>
                     • Updated: {lastSyncTime.toLocaleTimeString()}
+                  </span>
+                )}
+                {isRefreshing && (
+                  <span className={styles.lastSyncTime}>
+                    {' '}• <RefreshCw size={11} className={styles.spinning} style={{ display: 'inline', verticalAlign: 'middle' }} /> refreshing…
                   </span>
                 )}
               </span>
@@ -1009,7 +981,7 @@ const Sales = () => {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((sale) => {
+                {paginatedSales.map((sale) => {
                   const status = getStatusBadgeWithLocal(sale);
                   const StatusIcon = status.icon;
                   const payment = getPaymentMethod(paymentMethodOf(sale));
@@ -1040,7 +1012,7 @@ const Sales = () => {
                         </div>
                       </td>
                       <td className={styles.dateCell}>
-                        {formatDate(sale.createdAt)}
+                        {formatDateTime(sale.createdAt)}
                       </td>
                       <td>
                         <div className={styles.customerCell}>
@@ -1190,7 +1162,7 @@ const Sales = () => {
                   <div className={styles.detailMeta}>
                     <div className={styles.detailMetaItem}>
                       <Clock size={14} />
-                      <span>{formatDate(showDetail.createdAt)}</span>
+                      <span>{formatDateTime(showDetail.createdAt)}</span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <User size={14} />
@@ -1290,7 +1262,7 @@ const Sales = () => {
                       <XCircle size={14} />
                       <span>
                         Refunded by {showDetail.refundedByUser.firstName} {showDetail.refundedByUser.lastName}
-                        {' '}on {formatDateShort(showDetail.refundedAt)}
+                        {' '}on {formatDate(showDetail.refundedAt)}
                       </span>
                     </div>
                   )}

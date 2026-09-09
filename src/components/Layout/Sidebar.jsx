@@ -1,3 +1,4 @@
+// Sidebar.tsx - Updated
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -27,6 +28,7 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
 
   const isInventoryActive = location.pathname === '/inventory' || 
                            location.pathname === '/transfers' ||
+                           location.pathname === '/low-stock' ||
                            location.pathname.startsWith('/inventory/');
 
   const isCustomersActive = location.pathname === '/customers' || 
@@ -79,10 +81,13 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
           {inventoryOpen && !collapsed && (
             <div className={styles.subNav}>
               <NavLink to="/inventory" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Overview
+                Products
               </NavLink>
               <NavLink to="/transfers" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
                 Stock Transfers
+              </NavLink>
+              <NavLink to="/low-stock" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
+                Low Stock
               </NavLink>
             </div>
           )}

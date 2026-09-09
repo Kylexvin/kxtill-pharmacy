@@ -1,7 +1,7 @@
 // src/pages/POS/POS.jsx
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import { ScanLine, Store, RefreshCw, ShoppingCart } from 'lucide-react';
 import ProductSearch from './ProductSearch';
@@ -107,7 +107,15 @@ const buildLocalReceiptText = (data) => {
 };
 
 const POS = () => {
-  const { activeOrganization, activeBranch, settings, branches } = useAuth();
+  const { activeOrganization, activeBranch, branches } = useAuth();
+
+  // Use settings from SettingsContext
+  const {
+    getCurrency,
+    getDecimalPlaces,
+    getDefaultPaymentMethod,   
+    getShopName,
+  } = useSettings();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState(['All']);
@@ -133,8 +141,10 @@ const POS = () => {
 
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
-  const currency = settings?.currency || 'KES';
-  const decimals = settings?.decimalPlaces ?? 2;
+  const currency = getCurrency();
+  const decimals = getDecimalPlaces();
+  const defaultPaymentMethod = getDefaultPaymentMethod();
+ 
 
   const hasValidBranch = branchId && branches?.some(b => b.id === branchId);
   const shouldFetch = orgId && hasValidBranch && dbReady;
@@ -606,14 +616,14 @@ const POS = () => {
         subtotal: subtotal,
         taxAmount: taxAmount,
         branchName: activeBranch?.name,
-        organizationName: activeOrganization?.name,
+        organizationName: getShopName(),
         payments: payments,
       };
 
       const receipt = {
         text: buildLocalReceiptText(localReceiptData),
         data: {
-          shopName: activeOrganization?.name || 'KXBYTE',
+          shopName: getShopName(),
           items: cartItems.map(item => ({
             name: item.productName,
             quantity: item.quantity,
@@ -841,7 +851,7 @@ const POS = () => {
           cartItems={cartItems}
           customer={customer}
           isProcessing={checkingOut}
-          defaultPaymentMethod={settings?.defaultPaymentMethod || 'CASH'}
+          defaultPaymentMethod={defaultPaymentMethod}
         />
       )}
 

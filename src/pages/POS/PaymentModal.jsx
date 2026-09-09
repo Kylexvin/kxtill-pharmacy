@@ -1,3 +1,4 @@
+// src/pages/POS/PaymentModal.jsx
 import React, { useState } from 'react';
 import { X, CreditCard, Smartphone, Wallet, Landmark, Check, AlertCircle } from 'lucide-react';
 import styles from './PaymentModal.module.css';
@@ -11,7 +12,7 @@ const PaymentModal = ({
   cartItems,
   customer,
   isProcessing,
-  defaultPaymentMethod // ADD THIS
+  defaultPaymentMethod,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState(defaultPaymentMethod || 'CASH');
   const [tendered, setTendered] = useState(total);
@@ -148,6 +149,11 @@ const PaymentModal = ({
                 {Number(tendered) > total && (
                   <div className={styles.changeDue}>
                     Change due: {change.toFixed(2)} {currency}
+                  </div>
+                )}
+                {Number(tendered) < total && Number(tendered) > 0 && (
+                  <div className={styles.shortfall}>
+                    Shortfall: {(total - Number(tendered)).toFixed(2)} {currency}
                   </div>
                 )}
               </div>

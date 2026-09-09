@@ -1,10 +1,10 @@
 // src/App.jsx
-
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Toaster } from './components/Common/Toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login/Login';
@@ -168,44 +168,46 @@ function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <Toaster />
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/oauth/login" element={<Login />} />
-            <Route path="/oauth/callback" element={<OAuthCallback />} />
-            <Route path="/select-org" element={<SelectOrg />} />
-            <Route path="/select-branch" element={<SelectBranch />} />
-            
-            {/* Protected Routes with Layout */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="/pos" />} />
-              <Route path="pos" element={<POS />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="inventory" element={<Inventory />} />
-              <Route path="sales" element={<Sales />} />
-              <Route path="refunds" element={<Refunds />} />
-              <Route path="transfers" element={<Transfers />} />
-              <Route path="customers" element={<Customers />} />
-              <Route path="customer-groups" element={<CustomerGroups />} />
-              <Route path="staff" element={<Staff />} />
-              <Route path="roles" element={<Roles />} />
-              <Route path="branches" element={<Branches />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
+          <SettingsProvider>
+            <Toaster />
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/oauth/login" element={<Login />} />
+              <Route path="/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/select-org" element={<SelectOrg />} />
+              <Route path="/select-branch" element={<SelectBranch />} />
+              
+              {/* Protected Routes with Layout */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/pos" />} />
+                <Route path="pos" element={<POS />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="inventory" element={<Inventory />} />
+                <Route path="sales" element={<Sales />} />
+                <Route path="refunds" element={<Refunds />} />
+                <Route path="transfers" element={<Transfers />} />
+                <Route path="customers" element={<Customers />} />
+                <Route path="customer-groups" element={<CustomerGroups />} />
+                <Route path="staff" element={<Staff />} />
+                <Route path="roles" element={<Roles />} />
+                <Route path="branches" element={<Branches />} />
+                <Route path="reports" element={<Reports />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
 
-            {/* Catch all - redirect to POS */}
-            <Route path="*" element={<Navigate to="/pos" />} />
-          </Routes>
+              {/* Catch all - redirect to POS */}
+              <Route path="*" element={<Navigate to="/pos" />} />
+            </Routes>
+          </SettingsProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
