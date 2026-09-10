@@ -7,7 +7,6 @@ import axios from 'axios';
 import {
   Package,
   Search,
-  Plus,
   Edit,
   Trash2,
   Eye,
@@ -19,25 +18,22 @@ import {
   AlertTriangle,
   Check,
   Clock,
-  DollarSign,
   List,
   Grid,
   Building2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import styles from './Inventory.module.css';
-import ProductModal from './components/ProductModal';
 import BranchProductModal from './components/BranchProductModal';
 import ProductDetailModal from './components/ProductDetailModal';
-import StockModal from './components/StockModal';
+import BranchStockModal from './components/BranchStockModal';
+import usePolling from '../../hooks/usePolling';
 
 const Inventory = () => {
   const {
     activeOrganization,
     activeBranch,
-    branches,
     isOffline: contextIsOffline,
-    setActiveBranch,
-    userPermissions,
   } = useAuth();
 
   const { formatCurrency, getCurrency } = useSettings();
@@ -51,59 +47,38 @@ const Inventory = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [categories, setCategories] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [branchFilter, setBranchFilter] = useState(() => activeBranch?.id || 'all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('list');
-  const [summary, setSummary] = useState(null);
 
   // Modal states
-  const [showProductModal, setShowProductModal] = useState(false);
   const [showBranchProductModal, setShowBranchProductModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [productToDelete, setProductToDelete] = useState(null);
+  const [productToRemove, setProductToRemove] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [stockData, setStockData] = useState({ stock: '', minStock: '' });
   const [branchProductData, setBranchProductData] = useState({
     displayName: '',
-    price: '',
+    description: '',
     isAvailable: true,
   });
-  // Track if we're in the "add stock after creation" flow
-  const [isPostCreationFlow, setIsPostCreationFlow] = useState(false);
 
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
+  const hasInitialLoadRef = useRef(false);
 
   const orgId = activeOrganization?.id;
+  const branchId = activeBranch?.id;
   const limit = 20;
-  const isOwner = userPermissions?.includes('*') || false;
-  const canViewAllBranches = isOwner;
-  const availableBranches = branches || [];
+  // Permission check for branch-level remove is owner-only in this build.
+  // TODO: migrate to usePermissions() (see TODO.md — Permissions migration).
 
-  // Helper functions
-  const getServerBranchId = useCallback(() => {
-    if (branchFilter !== 'all') return branchFilter;
-    if (!canViewAllBranches) return activeBranch?.id || null;
-    return null;
-  }, [branchFilter, canViewAllBranches, activeBranch]);
-
-  const getActiveBranchName = useCallback(() => {
-    if (canViewAllBranches && branchFilter === 'all') return 'All Branches';
-    if (branchFilter !== 'all') {
-      const branch = availableBranches.find(b => b.id === branchFilter);
-      return branch?.name || 'Unknown Branch';
-    }
-    return activeBranch?.name || 'No Branch Selected';
-  }, [canViewAllBranches, branchFilter, availableBranches, activeBranch]);
-
+  // ---------- helpers ----------
   const getStockStatus = (product) => {
     const stock = Number(product.stock || 0);
     const minStock = Number(product.minStock || 0);
@@ -112,20 +87,22 @@ const Inventory = () => {
     return { label: 'In Stock', variant: 'success', icon: Check };
   };
 
-  // Fetch summary
-  const fetchSummary = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const response = await axios.get(`/organizations/${orgId}/kxtill/inventory/summary`);
-      if (isMountedRef.current) setSummary(response.data);
-    } catch (error) {
-      console.error('Failed to fetch summary:', error);
+  const stats = useMemo(() => {
+    const total = products.length;
+    let inStock = 0, low = 0, out = 0;
+    for (const p of products) {
+      const stock = Number(p.stock || 0);
+      const minStock = Number(p.minStock || 0);
+      if (stock <= 0) out++;
+      else if (stock <= minStock) low++;
+      else inStock++;
     }
-  }, [orgId]);
+    return { total, inStock, low, out };
+  }, [products]);
 
-  // Fetch products
+  // ---------- fetching ----------
   const fetchProducts = useCallback(async () => {
-    if (!orgId) {
+    if (!orgId || !branchId) {
       setLoading(false);
       return;
     }
@@ -140,12 +117,9 @@ const Inventory = () => {
       const params = { limit: 100, offset: 0 };
       if (searchTerm) params.search = searchTerm;
       if (categoryFilter !== 'all') params.category = categoryFilter;
+      if (statusFilter === 'low-stock') params.lowStock = true;
 
-      const serverBranchId = getServerBranchId();
-      let endpoint = `/organizations/${orgId}/kxtill/products`;
-      if (serverBranchId) {
-        endpoint = `/organizations/${orgId}/kxtill/branches/${serverBranchId}/products`;
-      }
+      const endpoint = `/organizations/${orgId}/kxtill/branches/${branchId}/products`;
 
       const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
       let productData = [];
@@ -160,7 +134,7 @@ const Inventory = () => {
           productData = response.data.items || [];
         } catch (error) {
           if (error.name === 'CanceledError' || error.name === 'AbortError') return;
-          console.warn('Server fetch failed:', error.message);
+          console.warn('Branch fetch failed:', error.message);
         }
       }
 
@@ -168,31 +142,24 @@ const Inventory = () => {
 
       const transformed = productData.map(p => {
         const baseUnit = p.baseUnit || {};
-        const unit = p.units?.[0] || baseUnit;
-        const branchProduct = p.branchProducts?.[0] || p;
-
         return {
           id: p.id,
-          productId: p.productId || p.id,
-          name: p.displayName || p.name,
+          branchProductId: p.id,
+          productId: p.productId,
+          productName: p.productName,
+          name: p.displayName || p.productName,
+          displayName: p.displayName,
+          description: p.description,
           sku: p.sku || '-',
           category: p.category || '-',
-          price: parseFloat(unit.price || p.price || 0),
-          cost: parseFloat(unit.cost || p.cost || 0),
-          stock: parseFloat(branchProduct.stock || p.stock || 0),
-          minStock: parseFloat(branchProduct.minStock || p.minStock || 0),
-          unit: unit.abbreviation || unit.name || 'units',
-          allowFractional: unit.allowFractional || false,
+          stock: Number(p.stock) || 0,
+          minStock: Number(p.minStock) || 0,
           isAvailable: p.isAvailable !== false,
-          branchProducts: p.branchProducts || [],
+          unit: baseUnit.abbreviation || baseUnit.name || 'units',
+          unitName: baseUnit.name || 'units',
+          price: parseFloat(baseUnit.price) || 0,
+          baseUnit,
           units: p.units || [],
-          baseUnit: baseUnit,
-          branchId: p.branchId,
-          branchName: p.branchName,
-          displayName: p.displayName,
-          branchProductId: branchProduct.id || p.id,
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt,
         };
       });
 
@@ -200,7 +167,7 @@ const Inventory = () => {
       if (statusFilter === 'in-stock') {
         filtered = filtered.filter(p => p.stock > p.minStock);
       } else if (statusFilter === 'low-stock') {
-        filtered = filtered.filter(p => p.stock <= p.minStock && p.stock > 0);
+        filtered = filtered.filter(p => p.stock > 0 && p.stock <= p.minStock);
       } else if (statusFilter === 'out-of-stock') {
         filtered = filtered.filter(p => p.stock <= 0);
       }
@@ -210,17 +177,16 @@ const Inventory = () => {
 
       const uniqueCategories = [...new Set(productData.map(p => p.category).filter(Boolean))];
       setCategories(uniqueCategories);
-
     } catch (error) {
       if (error.name === 'CanceledError' || error.name === 'AbortError') return;
-      console.error('Error fetching products:', error);
+      console.error('Error fetching branch products:', error);
       if (isMountedRef.current) setProducts([]);
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [orgId, searchTerm, categoryFilter, statusFilter, getServerBranchId, contextIsOffline]);
+  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, contextIsOffline]);
 
-  // Effects
+  // ---------- lifecycle ----------
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -233,48 +199,48 @@ const Inventory = () => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
 
-  useEffect(() => {
-    setBranchFilter(activeBranch?.id || 'all');
-    setCurrentPage(1);
-  }, [activeBranch?.id]);
-
+  // Reset paging + skeleton when branch/filters change (not search)
   useEffect(() => {
     hasLoadedOnceRef.current = false;
-  }, [getServerBranchId, categoryFilter, statusFilter]);
+    setCurrentPage(1);
+  }, [branchId, categoryFilter, statusFilter]);
 
+  // Fetch immediately when filters or branch change.
+  // This replaces the "fetch inside the interval effect" behavior.
   useEffect(() => {
-    if (orgId) {
-      fetchProducts();
-      fetchSummary();
-    }
-  }, [fetchProducts, fetchSummary, orgId]);
+    if (!orgId || !branchId) return;
+    fetchProducts();
+  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, fetchProducts]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, statusFilter, branchFilter]);
+  }, [searchTerm]);
 
+  // Debounce search input
   useEffect(() => {
     const handler = setTimeout(() => setSearchTerm(searchInput), 400);
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // Auto-refresh
-  useEffect(() => {
-    if (!isOnline || contextIsOffline) return;
-    const interval = setInterval(() => {
-      if (navigator.onLine && !contextIsOffline) {
-        fetchProducts();
-        fetchSummary();
-      }
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [isOnline, contextIsOffline, fetchProducts, fetchSummary]);
+  // ---------- periodic background refresh ----------
+  // Pauses when tab is hidden. Also skips while offline (fetchProducts
+  // handles the online check internally, but we short-circuit here so
+  // the callback doesn't spin needlessly).
+  usePolling(
+    () => {
+      if (contextIsOffline) return;
+      if (!navigator.onLine) return;
+      fetchProducts();
+    },
+    60_000,
+    [orgId, branchId]
+  );
 
-  // Handlers
+  // ---------- handlers ----------
   const handleRefresh = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    Promise.all([fetchProducts(), fetchSummary()])
+    fetchProducts()
       .then(() => toast.success('Refreshed successfully'))
       .catch(() => toast.error('Failed to refresh'))
       .finally(() => {
@@ -289,27 +255,15 @@ const Inventory = () => {
     setSearchTerm('');
     setCategoryFilter('all');
     setStatusFilter('all');
-    setBranchFilter(activeBranch?.id || 'all');
     setCurrentPage(1);
   };
 
   // Modal handlers
-  const openProductModal = (product = null) => {
-    setEditingProduct(product);
-    setIsPostCreationFlow(false);
-    setShowProductModal(true);
-  };
-
-  const closeProductModal = () => {
-    setShowProductModal(false);
-    setEditingProduct(null);
-  };
-
   const openBranchProductModal = (product) => {
     setSelectedProduct(product);
     setBranchProductData({
-      displayName: product.displayName || product.name,
-      price: product.price?.toString() || '',
+      displayName: product.displayName || product.productName || product.name,
+      description: product.description || '',
       isAvailable: product.isAvailable !== false,
     });
     setShowBranchProductModal(true);
@@ -330,184 +284,44 @@ const Inventory = () => {
     setSelectedProduct(null);
   };
 
-  const openStockModal = (product, isPostCreation = false) => {
+  const openStockModal = (product) => {
     setSelectedProduct(product);
-    setStockData({
-      stock: '',
-      minStock: product.minStock?.toString() || '5',
-    });
-    setIsPostCreationFlow(isPostCreation);
     setShowStockModal(true);
   };
 
   const closeStockModal = () => {
     setShowStockModal(false);
     setSelectedProduct(null);
-    setStockData({ stock: '', minStock: '' });
-    setIsPostCreationFlow(false);
   };
 
-  const openDeleteModal = (product) => {
-    setProductToDelete(product);
-    setShowDeleteModal(true);
+  const openRemoveModal = (product) => {
+    setProductToRemove(product);
+    setShowRemoveModal(true);
   };
 
-  const closeDeleteModal = () => {
-    setShowDeleteModal(false);
-    setProductToDelete(null);
+  const closeRemoveModal = () => {
+    setShowRemoveModal(false);
+    setProductToRemove(null);
   };
 
   // Action handlers
-  const handleViewProduct = (product) => {
-    openDetailModal(product);
-  };
+  const handleViewProduct = (product) => openDetailModal(product);
+  const handleEditBranchProduct = (product) => openBranchProductModal(product);
+  const handleUpdateStock = (product) => openStockModal(product);
+  const handleRemoveProduct = (product) => openRemoveModal(product);
 
-  const handleEditProduct = (product) => {
-    openProductModal(product);
-  };
-
-  const handleEditBranchProduct = (product) => {
-    openBranchProductModal(product);
-  };
-
-  const handleUpdateStock = (product) => {
-    openStockModal(product, false);
-  };
-
-  const handleDeleteProduct = (product) => {
-    openDeleteModal(product);
-  };
-
-  const confirmDelete = async () => {
-    if (!productToDelete || !orgId) return;
-    setSubmitting(true);
-    try {
-      await axios.delete(
-        `/organizations/${orgId}/kxtill/products/${productToDelete.productId || productToDelete.id}`
-      );
-      toast.success('Product deleted successfully');
-      closeDeleteModal();
-      fetchProducts();
-      fetchSummary();
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to delete product');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ✅ Updated: Handle stock update with branch selection
-  const handleStockUpdate = async (payload) => {
-    if (!selectedProduct || !orgId) return;
-    
-    const { branchId, quantity, operation } = payload;
-    const productId = selectedProduct.productId || selectedProduct.id;
-
-    setSubmitting(true);
-    try {
-      let newStock;
-      const currentStock = selectedProduct.stock || 0;
-      
-      if (operation === 'add') {
-        newStock = currentStock + quantity;
-      } else {
-        newStock = quantity;
-      }
-
-      await axios.patch(
-        `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productId}/stock`,
-        {
-          stock: newStock,
-        }
-      );
-      
-      toast.success(`Stock updated! ${newStock} ${selectedProduct.unit}`);
-      closeStockModal();
-      fetchProducts();
-      fetchSummary();
-    } catch (error) {
-      console.error('Stock update failed:', error);
-      toast.error(error.response?.data?.message || 'Failed to update stock');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ✅ Updated: Handle product save with auto-open stock modal
-  const handleProductSave = async (productData) => {
-    if (!orgId) return;
-    setSubmitting(true);
-    
-    try {
-      let response;
-      if (editingProduct) {
-        // Update existing product
-        response = await axios.put(
-          `/organizations/${orgId}/kxtill/products/${editingProduct.productId || editingProduct.id}`,
-          productData
-        );
-        toast.success('Product updated successfully');
-        closeProductModal();
-        fetchProducts();
-        fetchSummary();
-      } else {
-        // Create new product globally
-        response = await axios.post(`/organizations/${orgId}/kxtill/products`, productData);
-        const newProduct = response.data.product || response.data;
-        
-        // Get the branch ID from the form or use current branch
-        const branchId = productData.branchId || activeBranch?.id || availableBranches[0]?.id;
-        
-        toast.success(`"${newProduct.name}" created successfully!`);
-        closeProductModal();
-        
-        // ✅ Auto-open stock modal for the new product
-        const productForStock = {
-          id: newProduct.id,
-          productId: newProduct.id,
-          name: newProduct.name,
-          sku: newProduct.sku || '-',
-          unit: newProduct.baseUnit?.abbreviation || 'units',
-          stock: 0,
-          minStock: parseFloat(productData.minStock) || 5,
-          branchId: branchId,
-          allowFractional: newProduct.baseUnit?.allowFractional || false,
-          branchName: availableBranches.find(b => b.id === branchId)?.name || 'Current Branch',
-        };
-        
-        // Open stock modal with the new product
-        setSelectedProduct(productForStock);
-        setStockData({
-          stock: '',
-          minStock: productData.minStock?.toString() || '5',
-        });
-        setIsPostCreationFlow(true);
-        setShowStockModal(true);
-        
-        // Refresh the list in background
-        fetchProducts();
-        fetchSummary();
-      }
-    } catch (error) {
-      console.error('Save failed:', error);
-      toast.error(error.response?.data?.message || 'Failed to save product');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+  // Branch product update — PATCH, no price
   const handleBranchProductUpdate = async () => {
-    if (!selectedProduct || !orgId) return;
-    const branchId = selectedProduct.branchId || activeBranch?.id;
-    const productId = selectedProduct.productId || selectedProduct.id;
+    if (!selectedProduct || !orgId || !branchId) return;
+    const productId = selectedProduct.productId;
 
     setSubmitting(true);
     try {
-      await axios.put(
+      await axios.patch(
         `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productId}`,
         {
-          displayName: branchProductData.displayName || selectedProduct.name,
-          price: parseFloat(branchProductData.price) || 0,
+          displayName: branchProductData.displayName?.trim() || selectedProduct.productName,
+          description: branchProductData.description?.trim() || undefined,
           isAvailable: branchProductData.isAvailable,
         }
       );
@@ -521,11 +335,54 @@ const Inventory = () => {
     }
   };
 
+  // Stock update — PATCH /stock with absolute values
+  const handleStockUpdate = async (payload) => {
+    if (!selectedProduct || !orgId || !branchId) return;
+    const productId = selectedProduct.productId;
+
+    setSubmitting(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productId}/stock`,
+        {
+          stock: payload.stock,
+          minStock: payload.minStock,
+        }
+      );
+
+      toast.success(`Stock updated: ${payload.stock} ${selectedProduct.unit}`);
+      closeStockModal();
+      fetchProducts();
+    } catch (error) {
+      console.error('Stock update failed:', error);
+      toast.error(error.response?.data?.message || 'Failed to update stock');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Remove product from branch — soft (isAvailable: false)
+  const confirmRemove = async () => {
+    if (!productToRemove || !orgId || !branchId) return;
+    setSubmitting(true);
+    try {
+      await axios.delete(
+        `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productToRemove.productId}`
+      );
+      toast.success('Product removed from this branch');
+      closeRemoveModal();
+      fetchProducts();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to remove product');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const getActiveFilterCount = () => {
     let count = 0;
     if (categoryFilter !== 'all') count++;
     if (statusFilter !== 'all') count++;
-    if (branchFilter !== 'all') count++;
     if (searchTerm?.trim()) count++;
     return count;
   };
@@ -537,12 +394,12 @@ const Inventory = () => {
     return products.slice(start, start + limit);
   }, [products, currentPage, limit]);
 
-  if (!orgId) {
+  if (!orgId || !branchId) {
     return (
       <div className={styles.page}>
         <div className={styles.loadingState}>
           <AlertCircle size={40} />
-          <p>No organization selected</p>
+          <p>No branch selected</p>
         </div>
       </div>
     );
@@ -559,7 +416,9 @@ const Inventory = () => {
             <Package size={20} />
             <h1>Inventory</h1>
           </div>
-          <span className={styles.headerSubtitle}>{getActiveBranchName()}</span>
+          <span className={styles.headerSubtitle}>
+            <Building2 size={12} /> {activeBranch?.name}
+          </span>
         </div>
         <div className={styles.headerRight}>
           {!isOnline && (
@@ -567,10 +426,6 @@ const Inventory = () => {
               <Clock size={14} /> Offline
             </span>
           )}
-          {isOwner && <span className={styles.ownerBadge}>Owner</span>}
-          <button className={styles.addProductBtn} onClick={() => openProductModal()}>
-            <Plus size={16} /> Add Product
-          </button>
         </div>
       </div>
 
@@ -582,16 +437,16 @@ const Inventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Total Products</span>
-            <span className={styles.statValue}>{summary?.totalProducts || 0}</span>
+            <span className={styles.statValue}>{stats.total}</span>
           </div>
         </div>
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconValue}`}>
-            <DollarSign size={18} />
+            <Check size={18} />
           </div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Total Stock Value</span>
-            <span className={styles.statValue}>{formatCurrency(summary?.totalStockValue || 0)}</span>
+            <span className={styles.statLabel}>In Stock</span>
+            <span className={styles.statValue}>{stats.inStock}</span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -600,7 +455,7 @@ const Inventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Low Stock</span>
-            <span className={styles.statValue}>{summary?.lowStock || 0}</span>
+            <span className={styles.statValue}>{stats.low}</span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -609,7 +464,7 @@ const Inventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Out of Stock</span>
-            <span className={styles.statValue}>{summary?.outOfStock || 0}</span>
+            <span className={styles.statValue}>{stats.out}</span>
           </div>
         </div>
       </div>
@@ -690,16 +545,13 @@ const Inventory = () => {
           <p>
             {getActiveFilterCount() > 0
               ? 'Try adjusting your filters to see more results'
-              : 'Start by adding your first product'}
+              : 'No products available for this branch yet'}
           </p>
           {getActiveFilterCount() > 0 && (
             <button className={styles.clearFiltersBtnLarge} onClick={clearFilters}>
               Clear Filters
             </button>
           )}
-          <button className={styles.addProductBtnLarge} onClick={() => openProductModal()}>
-            <Plus size={16} /> Add Product
-          </button>
         </div>
       ) : viewMode === 'grid' ? (
         <div className={styles.productsGrid}>
@@ -721,16 +573,14 @@ const Inventory = () => {
                 </div>
                 <div className={styles.productCardBody}>
                   <h3 className={styles.productCardName}>{product.name}</h3>
+                  {!product.isAvailable && (
+                    <span className={styles.unavailableTag}>Unavailable</span>
+                  )}
                   {product.sku && product.sku !== '-' && (
                     <span className={styles.productCardSku}>SKU: {product.sku}</span>
                   )}
                   {product.category && product.category !== '-' && (
                     <span className={styles.productCardCategory}>{product.category}</span>
-                  )}
-                  {product.branchName && (
-                    <span className={styles.productCardBranch}>
-                      <Building2 size={12} /> {product.branchName}
-                    </span>
                   )}
                   <div className={styles.productCardStock}>
                     <span className={styles.productCardStockLabel}>Stock:</span>
@@ -749,20 +599,34 @@ const Inventory = () => {
                   </div>
                 </div>
                 <div className={styles.productCardActions}>
-                  <button className={styles.productCardActionBtn} onClick={() => handleViewProduct(product)}>
+                  <button
+                    className={styles.productCardActionBtn}
+                    onClick={() => handleViewProduct(product)}
+                    title="View Details"
+                  >
                     <Eye size={14} />
                   </button>
-                  <button className={styles.productCardActionBtn} onClick={() => handleEditBranchProduct(product)}>
+                  <button
+                    className={styles.productCardActionBtn}
+                    onClick={() => handleUpdateStock(product)}
+                    title="Update Stock"
+                  >
+                    <SlidersHorizontal size={14} />
+                  </button>
+                  <button
+                    className={styles.productCardActionBtn}
+                    onClick={() => handleEditBranchProduct(product)}
+                    title="Edit Branch Product"
+                  >
                     <Edit size={14} />
                   </button>
-                  <button className={styles.productCardActionBtn} onClick={() => handleUpdateStock(product)}>
-                    <RefreshCw size={14} />
+                  <button
+                    className={`${styles.productCardActionBtn} ${styles.danger}`}
+                    onClick={() => handleRemoveProduct(product)}
+                    title="Remove from Branch"
+                  >
+                    <Trash2 size={14} />
                   </button>
-                  {isOwner && (
-                    <button className={`${styles.productCardActionBtn} ${styles.danger}`} onClick={() => handleDeleteProduct(product)}>
-                      <Trash2 size={14} />
-                    </button>
-                  )}
                 </div>
               </div>
             );
@@ -776,7 +640,6 @@ const Inventory = () => {
                 <th>Product</th>
                 <th>SKU</th>
                 <th>Category</th>
-                <th>Branch</th>
                 <th>Stock</th>
                 <th>Price</th>
                 <th>Status</th>
@@ -797,16 +660,22 @@ const Inventory = () => {
                         <div className={styles.productCellIcon}>
                           <Package size={16} />
                         </div>
-                        <span className={styles.productCellName}>{product.name}</span>
+                        <div className={styles.productCellInfo}>
+                          <span className={styles.productCellName}>{product.name}</span>
+                          {!product.isAvailable && (
+                            <span className={styles.unavailableTag}>Unavailable</span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
                     <td>{product.category !== '-' ? product.category : '-'}</td>
-                    <td>{product.branchName || '-'}</td>
                     <td>
                       <span className={stock <= minStock ? styles.stockLow : ''}>
                         {stock} {product.unit}
-                        {minStock > 0 && <span className={styles.minStockLabel}>(min: {minStock})</span>}
+                        {minStock > 0 && (
+                          <span className={styles.minStockLabel}>(min: {minStock})</span>
+                        )}
                       </span>
                     </td>
                     <td>{formatCurrency(product.price)}</td>
@@ -826,27 +695,25 @@ const Inventory = () => {
                         </button>
                         <button
                           className={styles.actionBtn}
+                          onClick={() => handleUpdateStock(product)}
+                          title="Update Stock"
+                        >
+                          <SlidersHorizontal size={14} />
+                        </button>
+                        <button
+                          className={styles.actionBtn}
                           onClick={() => handleEditBranchProduct(product)}
                           title="Edit Branch Product"
                         >
                           <Edit size={14} />
                         </button>
                         <button
-                          className={styles.actionBtn}
-                          onClick={() => handleUpdateStock(product)}
-                          title="Update Stock"
+                          className={`${styles.actionBtn} ${styles.danger}`}
+                          onClick={() => handleRemoveProduct(product)}
+                          title="Remove from Branch"
                         >
-                          <RefreshCw size={14} />
+                          <Trash2 size={14} />
                         </button>
-                        {isOwner && (
-                          <button
-                            className={`${styles.actionBtn} ${styles.danger}`}
-                            onClick={() => handleDeleteProduct(product)}
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -881,17 +748,6 @@ const Inventory = () => {
       )}
 
       {/* Modals */}
-      <ProductModal
-        isOpen={showProductModal}
-        onClose={closeProductModal}
-        onSave={handleProductSave}
-        product={editingProduct}
-        isSubmitting={submitting}
-        currency={currency}
-        branches={availableBranches}
-        activeBranch={activeBranch}
-      />
-
       <BranchProductModal
         isOpen={showBranchProductModal}
         onClose={closeBranchProductModal}
@@ -900,7 +756,6 @@ const Inventory = () => {
         branchProductData={branchProductData}
         setBranchProductData={setBranchProductData}
         isSubmitting={submitting}
-        currency={currency}
         activeBranch={activeBranch}
       />
 
@@ -910,44 +765,53 @@ const Inventory = () => {
         product={selectedProduct}
         currency={currency}
         formatCurrency={formatCurrency}
-        onEdit={() => {
-          closeDetailModal();
-          if (selectedProduct) handleEditBranchProduct(selectedProduct);
-        }}
+        mode="branch"
+        activeBranch={activeBranch}
         onUpdateStock={() => {
           closeDetailModal();
           if (selectedProduct) handleUpdateStock(selectedProduct);
         }}
+        onEditBranchProduct={() => {
+          closeDetailModal();
+          if (selectedProduct) handleEditBranchProduct(selectedProduct);
+        }}
       />
 
-      <StockModal
+      <BranchStockModal
         isOpen={showStockModal}
         onClose={closeStockModal}
         onSave={handleStockUpdate}
         product={selectedProduct}
-        stockData={stockData}
-        setStockData={setStockData}
         isSubmitting={submitting}
-        activeBranch={activeBranch}
-        branches={availableBranches}
-        isPostCreation={isPostCreationFlow}
       />
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && productToDelete && (
+      {/* Remove from Branch Confirmation */}
+      {showRemoveModal && productToRemove && (
         <div className={styles.modalOverlay}>
           <div className={styles.confirmModal}>
             <div className={styles.confirmModalIcon}>
               <AlertCircle size={32} />
             </div>
-            <h3>Delete Product</h3>
-            <p>Are you sure you want to delete <strong>{productToDelete.name}</strong>? This action cannot be undone.</p>
+            <h3>Remove from Branch</h3>
+            <p>
+              Remove <strong>{productToRemove.name}</strong> from{' '}
+              <strong>{activeBranch?.name}</strong>? The product stays in the
+              global catalog and can be re-added later.
+            </p>
             <div className={styles.confirmModalActions}>
-              <button className={styles.confirmCancelBtn} onClick={closeDeleteModal} disabled={submitting}>
+              <button
+                className={styles.confirmCancelBtn}
+                onClick={closeRemoveModal}
+                disabled={submitting}
+              >
                 Cancel
               </button>
-              <button className={styles.confirmDeleteBtn} onClick={confirmDelete} disabled={submitting}>
-                {submitting ? 'Deleting...' : 'Delete'}
+              <button
+                className={styles.confirmDeleteBtn}
+                onClick={confirmRemove}
+                disabled={submitting}
+              >
+                {submitting ? 'Removing...' : 'Remove'}
               </button>
             </div>
           </div>

@@ -1,0 +1,800 @@
+// src/pages/Inventory/GlobalInventory.jsx
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
+import toast from 'react-hot-toast';
+import axios from 'axios';
+import {
+  Globe,
+  Search,
+  Plus,
+  Edit,
+  Trash2,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  X,
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  Clock,
+  DollarSign,
+  List,
+  Grid,
+  Package,
+  Building2,
+  Activity,
+  Archive,
+} from 'lucide-react';
+import styles from './GlobalInventory.module.css';
+import ProductModal from './components/ProductModal';
+import ProductDetailModal from './components/ProductDetailModal';
+
+const GlobalInventory = () => {
+  const {
+    activeOrganization,
+    isOffline: contextIsOffline,
+    userPermissions,
+  } = useAuth();
+
+  const { formatCurrency, getCurrency } = useSettings();
+  const currency = getCurrency();
+
+  // State
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [categories, setCategories] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isOnline, setIsOnline] = useState(!contextIsOffline);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState('list');
+
+  // Aggregates
+  const [health, setHealth] = useState(null);
+  const [summary, setSummary] = useState(null);
+
+  // Modal states
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [productToArchive, setProductToArchive] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const isMountedRef = useRef(true);
+  const fetchControllerRef = useRef(null);
+  const hasLoadedOnceRef = useRef(false);
+
+  const orgId = activeOrganization?.id;
+  const limit = 20;
+  const isOwner = userPermissions?.includes('*') || false;
+
+  // ---------- helpers ----------
+  const getStockStatus = (product) => {
+    const bps = product.branchProducts || [];
+
+    if (bps.length === 0) {
+      return { label: 'No Branches', variant: 'muted', icon: AlertCircle };
+    }
+
+    const outCount = bps.filter(bp => Number(bp.stock) <= 0).length;
+    const lowCount = bps.filter(
+      bp => Number(bp.stock) > 0 && Number(bp.stock) <= Number(bp.minStock)
+    ).length;
+    const total = bps.length;
+
+    if (outCount === total) {
+      return { label: 'Out of Stock', variant: 'danger', icon: AlertCircle };
+    }
+
+    if (lowCount + outCount === total) {
+      return { label: 'Low Stock', variant: 'warning', icon: AlertTriangle };
+    }
+
+    if (outCount > 0 || lowCount > 0) {
+      const needAttention = lowCount + outCount;
+      return {
+        label: `${needAttention} of ${total} branches need attention`,
+        variant: 'warning',
+        icon: AlertTriangle,
+      };
+    }
+
+    return { label: 'In Stock', variant: 'success', icon: Check };
+  };
+
+  // ---------- fetching ----------
+  const fetchHealth = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const response = await axios.get(
+        `/organizations/${orgId}/kxtill/inventory/health`
+      );
+      if (isMountedRef.current) setHealth(response.data);
+    } catch (error) {
+      console.error('Failed to fetch health:', error);
+    }
+  }, [orgId]);
+
+  const fetchSummary = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const response = await axios.get(
+        `/organizations/${orgId}/kxtill/inventory/summary`
+      );
+      if (isMountedRef.current) setSummary(response.data);
+    } catch (error) {
+      console.error('Failed to fetch summary:', error);
+    }
+  }, [orgId]);
+
+  const fetchProducts = useCallback(async () => {
+    if (!orgId) {
+      setLoading(false);
+      return;
+    }
+
+    if (!hasLoadedOnceRef.current) setLoading(true);
+
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
+    try {
+      const params = { limit: 100, offset: 0 };
+      if (searchTerm) params.search = searchTerm;
+      if (categoryFilter !== 'all') params.category = categoryFilter;
+
+      const endpoint = `/organizations/${orgId}/kxtill/products`;
+
+      const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
+      let productData = [];
+
+      if (isCurrentlyOnline) {
+        try {
+          const response = await axios.get(endpoint, {
+            params,
+            timeout: 10000,
+            signal: controller.signal,
+          });
+          productData = response.data.items || [];
+        } catch (error) {
+          if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+          console.warn('Global fetch failed:', error.message);
+        }
+      }
+
+      if (controller.signal.aborted || !isMountedRef.current) return;
+
+      const transformed = productData.map(p => {
+        const baseUnit = p.baseUnit || p.units?.find(u => u.isBaseUnit) || {};
+        const sellingUnits = (p.units || []).filter(u => !u.isBaseUnit);
+        const branchProducts = p.branchProducts || [];
+
+        const totalStock = branchProducts.reduce(
+          (sum, bp) => sum + Number(bp.stock || 0),
+          0
+        );
+        const totalMinStock = branchProducts.reduce(
+          (sum, bp) => sum + Number(bp.minStock || 0),
+          0
+        );
+        const lowCount = branchProducts.filter(
+          bp => Number(bp.stock) > 0 && Number(bp.stock) <= Number(bp.minStock)
+        ).length;
+        const outCount = branchProducts.filter(bp => Number(bp.stock) <= 0).length;
+
+        return {
+          id: p.id,
+          productId: p.productId || p.id,
+          name: p.name,
+          sku: p.sku || '-',
+          category: p.category || '-',
+          description: p.description,
+          taxRate: parseFloat(p.taxRate) || 0,
+          isActive: p.isActive !== false,
+          trackInventory: p.trackInventory !== false,
+
+          baseUnit,
+          baseUnitId: p.baseUnitId,
+          price: parseFloat(baseUnit.price || 0),
+          cost: parseFloat(baseUnit.cost || p.cost || 0),
+          unit: baseUnit.abbreviation || baseUnit.name || 'units',
+          allowFractional: !!baseUnit.allowFractional,
+          unitType: baseUnit.unitType || 'WHOLE',
+
+          units: p.units || [],
+          sellingUnits,
+
+          branchProducts,
+          branchCount: branchProducts.length,
+          lowCount,
+          outCount,
+          totalStock,
+          totalMinStock,
+          stock: totalStock,
+
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        };
+      });
+
+      let filtered = transformed;
+      if (statusFilter === 'in-stock') {
+        filtered = filtered.filter(p => p.outCount === 0 && p.lowCount === 0);
+      } else if (statusFilter === 'low-stock') {
+        filtered = filtered.filter(p => p.lowCount > 0 || p.outCount > 0);
+      } else if (statusFilter === 'out-of-stock') {
+        filtered = filtered.filter(p => p.branchCount > 0 && p.outCount === p.branchCount);
+      }
+
+      setProducts(filtered);
+      hasLoadedOnceRef.current = true;
+
+      const uniqueCategories = [
+        ...new Set(productData.map(p => p.category).filter(Boolean)),
+      ];
+      setCategories(uniqueCategories);
+    } catch (error) {
+      if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+      console.error('Error fetching global products:', error);
+      if (isMountedRef.current) setProducts([]);
+    } finally {
+      if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
+    }
+  }, [orgId, searchTerm, categoryFilter, statusFilter, contextIsOffline]);
+
+  // ---------- effects ----------
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      fetchControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    setIsOnline(!contextIsOffline);
+  }, [contextIsOffline]);
+
+  useEffect(() => {
+    hasLoadedOnceRef.current = false;
+  }, [categoryFilter, statusFilter]);
+
+  useEffect(() => {
+    if (orgId) {
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    }
+  }, [fetchProducts, fetchHealth, fetchSummary, orgId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, categoryFilter, statusFilter]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => setSearchTerm(searchInput), 400);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (!isOnline || contextIsOffline) return;
+    const interval = setInterval(() => {
+      if (navigator.onLine && !contextIsOffline) {
+        fetchProducts();
+        fetchHealth();
+        fetchSummary();
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [isOnline, contextIsOffline, fetchProducts, fetchHealth, fetchSummary]);
+
+  // ---------- handlers ----------
+  const handleRefresh = () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    Promise.all([fetchProducts(), fetchHealth(), fetchSummary()])
+      .then(() => toast.success('Refreshed successfully'))
+      .catch(() => toast.error('Failed to refresh'))
+      .finally(() => {
+        if (isMountedRef.current) setIsRefreshing(false);
+      });
+  };
+
+  const handlePageChange = (newPage) => setCurrentPage(newPage);
+
+  const clearFilters = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setCategoryFilter('all');
+    setStatusFilter('all');
+    setCurrentPage(1);
+  };
+
+  const openProductModal = (product = null) => {
+    setEditingProduct(product);
+    setShowProductModal(true);
+  };
+
+  const closeProductModal = () => {
+    setShowProductModal(false);
+    setEditingProduct(null);
+  };
+
+  const openDetailModal = (product) => {
+    setSelectedProduct(product);
+    setShowDetailModal(true);
+  };
+
+  const closeDetailModal = () => {
+    setShowDetailModal(false);
+    setSelectedProduct(null);
+  };
+
+  const openArchiveModal = (product) => {
+    setProductToArchive(product);
+    setShowArchiveModal(true);
+  };
+
+  const closeArchiveModal = () => {
+    setShowArchiveModal(false);
+    setProductToArchive(null);
+  };
+
+  const handleProductSave = async (productData) => {
+    if (!orgId) return;
+    setSubmitting(true);
+    try {
+      if (editingProduct) {
+        await axios.patch(
+          `/organizations/${orgId}/kxtill/products/${editingProduct.productId || editingProduct.id}`,
+          productData
+        );
+        toast.success('Product updated successfully');
+      } else {
+        await axios.post(`/organizations/${orgId}/kxtill/products`, productData);
+        toast.success('Product created successfully');
+      }
+      closeProductModal();
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    } catch (error) {
+      console.error('Save failed:', error);
+      toast.error(error.response?.data?.message || 'Failed to save product');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmArchive = async () => {
+    if (!productToArchive || !orgId) return;
+    setSubmitting(true);
+    try {
+      await axios.delete(
+        `/organizations/${orgId}/kxtill/products/${productToArchive.productId || productToArchive.id}`
+      );
+      toast.success('Product archived');
+      closeArchiveModal();
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to archive product');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getActiveFilterCount = () => {
+    let count = 0;
+    if (categoryFilter !== 'all') count++;
+    if (statusFilter !== 'all') count++;
+    if (searchTerm?.trim()) count++;
+    return count;
+  };
+
+  const totalItems = products.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * limit;
+    return products.slice(start, start + limit);
+  }, [products, currentPage, limit]);
+
+  if (!orgId) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.loadingState}>
+          <AlertCircle size={40} />
+          <p>No organization selected</p>
+        </div>
+      </div>
+    );
+  }
+
+  const showSkeleton = loading && !hasLoadedOnceRef.current;
+  const healthScore = health?.health ?? 0;
+
+  return (
+    <div className={styles.page}>
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.headerLeft}>
+          <div className={styles.headerTitle}>
+            <Globe size={20} />
+            <h1>Global Inventory</h1>
+          </div>
+          <span className={styles.headerSubtitle}>All Branches · Organization-wide</span>
+        </div>
+        <div className={styles.headerRight}>
+          {!isOnline && (
+            <span className={styles.offlineBadge}>
+              <Clock size={14} /> Offline
+            </span>
+          )}
+          {isOwner && <span className={styles.ownerBadge}>Owner</span>}
+          <button className={styles.addProductBtn} onClick={() => openProductModal()}>
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
+      </div>
+
+      {/* Stats — health-driven */}
+      <div className={styles.statsGrid}>
+        <div className={styles.statCard}>
+          <div className={`${styles.statIcon} ${styles.statIconHealth}`}>
+            <Activity size={18} />
+          </div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Inventory Health</span>
+            <span className={styles.statValue}>{healthScore}%</span>
+          </div>
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={`${styles.statIcon} ${styles.statIconTotal}`}>
+            <Check size={18} />
+          </div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>In Stock</span>
+            <span className={styles.statValue}>{health?.inStock ?? 0}</span>
+          </div>
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={`${styles.statIcon} ${styles.statIconLow}`}>
+            <AlertTriangle size={18} />
+          </div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Low Stock</span>
+            <span className={styles.statValue}>{health?.lowStock ?? 0}</span>
+          </div>
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={`${styles.statIcon} ${styles.statIconOut}`}>
+            <AlertCircle size={18} />
+          </div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Out of Stock</span>
+            <span className={styles.statValue}>{health?.outOfStock ?? 0}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className={styles.filtersBar}>
+        <div className={styles.searchWrapper}>
+          <Search size={16} className={styles.searchIcon} />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className={styles.searchInput}
+          />
+        </div>
+
+        <div className={styles.filterGroup}>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={styles.filterSelect}
+          >
+            <option value="all">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className={styles.filterSelect}
+          >
+            <option value="all">All Status</option>
+            <option value="in-stock">In Stock</option>
+            <option value="low-stock">Needs Attention</option>
+            <option value="out-of-stock">Out of Stock</option>
+          </select>
+
+          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+          </button>
+
+          <div className={styles.viewToggle}>
+            <button
+              className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.active : ''}`}
+              onClick={() => setViewMode('grid')}
+            >
+              <Grid size={14} />
+            </button>
+            <button
+              className={`${styles.viewBtn} ${viewMode === 'list' ? styles.active : ''}`}
+              onClick={() => setViewMode('list')}
+            >
+              <List size={14} />
+            </button>
+          </div>
+
+          {getActiveFilterCount() > 0 && (
+            <button className={styles.clearFiltersBtn} onClick={clearFilters}>
+              <X size={14} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Products Display */}
+      {showSkeleton ? (
+        <div className={styles.loadingState}>
+          <RefreshCw size={32} className={styles.spinning} />
+          <p>Loading global products...</p>
+        </div>
+      ) : paginatedProducts.length === 0 ? (
+        <div className={styles.emptyState}>
+          <Globe size={48} />
+          <h3>No products found</h3>
+          <p>
+            {getActiveFilterCount() > 0
+              ? 'Try adjusting your filters to see more results'
+              : 'Start by adding your first global product'}
+          </p>
+          {getActiveFilterCount() > 0 && (
+            <button className={styles.clearFiltersBtnLarge} onClick={clearFilters}>
+              Clear Filters
+            </button>
+          )}
+          <button className={styles.addProductBtnLarge} onClick={() => openProductModal()}>
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
+      ) : viewMode === 'grid' ? (
+        <div className={styles.productsGrid}>
+          {paginatedProducts.map((product) => {
+            const status = getStockStatus(product);
+            const StatusIcon = status.icon;
+            const totalStock = Number(product.totalStock || 0);
+
+            return (
+              <div key={product.id} className={styles.productCard}>
+                <div className={styles.productCardHeader}>
+                  <div className={styles.productCardIcon}>
+                    <Package size={20} />
+                  </div>
+                  <div className={`${styles.productCardStatus} ${styles[status.variant]}`}>
+                    <StatusIcon size={10} /> {status.label}
+                  </div>
+                </div>
+                <div className={styles.productCardBody}>
+                  <h3 className={styles.productCardName}>{product.name}</h3>
+                  {product.sku && product.sku !== '-' && (
+                    <span className={styles.productCardSku}>SKU: {product.sku}</span>
+                  )}
+                  {product.category && product.category !== '-' && (
+                    <span className={styles.productCardCategory}>{product.category}</span>
+                  )}
+                  <span className={styles.productCardBranch}>
+                    <Building2 size={12} /> {product.branchCount} branch{product.branchCount === 1 ? '' : 'es'}
+                  </span>
+                  <div className={styles.productCardStock}>
+                    <span className={styles.productCardStockLabel}>Total Stock:</span>
+                    <span className={totalStock <= 0 ? styles.productCardStockLow : ''}>
+                      {totalStock} {product.unit}
+                    </span>
+                  </div>
+                  <div className={styles.productCardPrice}>
+                    <span className={styles.productCardPriceLabel}>Base Price:</span>
+                    <span className={styles.productCardPriceValue}>
+                      {formatCurrency(product.price)}
+                    </span>
+                  </div>
+                </div>
+                <div className={styles.productCardActions}>
+                  <button className={styles.productCardActionBtn} onClick={() => openDetailModal(product)}>
+                    <Eye size={14} />
+                  </button>
+                  <button className={styles.productCardActionBtn} onClick={() => openProductModal(product)}>
+                    <Edit size={14} />
+                  </button>
+                  {isOwner && (
+                    <button
+                      className={`${styles.productCardActionBtn} ${styles.danger}`}
+                      onClick={() => openArchiveModal(product)}
+                      title="Archive"
+                    >
+                      <Archive size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className={styles.tableContainer}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Branches</th>
+                <th>Total Stock</th>
+                <th>Base Price</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedProducts.map((product) => {
+                const status = getStockStatus(product);
+                const StatusIcon = status.icon;
+                const totalStock = Number(product.totalStock || 0);
+
+                return (
+                  <tr key={product.id} className={styles.tableRow}>
+                    <td>
+                      <div className={styles.productCell}>
+                        <div className={styles.productCellIcon}>
+                          <Package size={16} />
+                        </div>
+                        <span className={styles.productCellName}>{product.name}</span>
+                      </div>
+                    </td>
+                    <td>{product.sku !== '-' ? product.sku : '-'}</td>
+                    <td>{product.category !== '-' ? product.category : '-'}</td>
+                    <td>
+                      {product.branchCount > 0
+                        ? `${product.branchCount - product.lowCount - product.outCount}/${product.branchCount} ok`
+                        : '—'}
+                    </td>
+                    <td>
+                      <span className={totalStock <= 0 ? styles.stockLow : ''}>
+                        {totalStock} {product.unit}
+                      </span>
+                    </td>
+                    <td>{formatCurrency(product.price)}</td>
+                    <td>
+                      <span className={`${styles.statusBadge} ${styles[status.variant]}`}>
+                        <StatusIcon size={10} /> {status.label}
+                      </span>
+                    </td>
+                    <td>
+                      <div className={styles.actionButtons}>
+                        <button
+                          className={styles.actionBtn}
+                          onClick={() => openDetailModal(product)}
+                          title="View Details"
+                        >
+                          <Eye size={14} />
+                        </button>
+                        <button
+                          className={styles.actionBtn}
+                          onClick={() => openProductModal(product)}
+                          title="Edit Product"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        {isOwner && (
+                          <button
+                            className={`${styles.actionBtn} ${styles.danger}`}
+                            onClick={() => openArchiveModal(product)}
+                            title="Archive"
+                          >
+                            <Archive size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className={styles.pagination}>
+          <button
+            className={styles.pageBtn}
+            onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
+            disabled={currentPage === 1}
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+          <span className={styles.pageInfo}>
+            Page {currentPage} of {totalPages} ({totalItems} items)
+          </span>
+          <button
+            className={styles.pageBtn}
+            onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+            disabled={currentPage === totalPages}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Modals */}
+      <ProductModal
+        isOpen={showProductModal}
+        onClose={closeProductModal}
+        onSave={handleProductSave}
+        product={editingProduct}
+        isSubmitting={submitting}
+        currency={currency}
+      />
+
+      <ProductDetailModal
+        isOpen={showDetailModal}
+        onClose={closeDetailModal}
+        product={selectedProduct}
+        currency={currency}
+        formatCurrency={formatCurrency}
+        mode="global"
+        onEdit={() => {
+          closeDetailModal();
+          if (selectedProduct) openProductModal(selectedProduct);
+        }}
+      />
+
+      {/* Archive Confirmation Modal */}
+      {showArchiveModal && productToArchive && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.confirmModal}>
+            <div className={styles.confirmModalIcon}>
+              <Archive size={32} />
+            </div>
+            <h3>Archive Product</h3>
+            <p>
+              Archive <strong>{productToArchive.name}</strong>?
+              It will be hidden from POS and inventory lists, but its sales
+              history stays intact. You can reactivate it later.
+            </p>
+            <div className={styles.confirmModalActions}>
+              <button className={styles.confirmCancelBtn} onClick={closeArchiveModal} disabled={submitting}>
+                Cancel
+              </button>
+              <button className={styles.confirmDeleteBtn} onClick={confirmArchive} disabled={submitting}>
+                {submitting ? 'Archiving...' : 'Archive'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default GlobalInventory;

@@ -1,81 +1,476 @@
 // src/pages/Transfers/Transfers.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
+import { useSettings } from '../../contexts/SettingsContext';
+import toast from 'react-hot-toast';
+import axios from 'axios';
+import {
+  RefreshCw,
+  ArrowRight,
+  Plus,
+  Search,
+  Eye,
+  AlertCircle,
+  Building2,
+  Loader2,
+} from 'lucide-react';
+import styles from './Transfers.module.css';
+import NewTransferModal from './components/NewTransferModal';
+import TransferDetailModal from './components/TransferDetailModal';
+import TransferStatusBadge from './components/TransferStatusBadge';
 
 const Transfers = () => {
-  const [transfers, setTransfers] = useState([
-    { id: 1, from: 'Main Store', to: 'Branch A', item: 'Product X', quantity: 50, status: 'Completed', date: '2024-01-15' },
-    { id: 2, from: 'Branch A', to: 'Main Store', item: 'Product Y', quantity: 20, status: 'Pending', date: '2024-01-16' },
-    { id: 3, from: 'Main Store', to: 'Branch B', item: 'Product Z', quantity: 30, status: 'In Transit', date: '2024-01-17' },
+  const { activeOrganization, activeBranch } = useAuth();
+  const { canAny } = usePermissions();
+  const { } = useSettings();
+
+  const orgId = activeOrganization?.id;
+  const branchId = activeBranch?.id;
+
+  // Platform admins (branches.manage) can also manage transfers at org level.
+  // Owner is covered automatically — can() returns true for anything when
+  // permissions include '*'.
+  const canCreate = canAny([
+    'kxtill.inventory.transfers.create',
+    'branches.manage',
   ]);
 
-  return (
-    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 600, margin: 0 }}>Stock Transfers</h1>
-          <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>Manage stock transfers between branches</p>
+  const canApprove = canAny([
+    'kxtill.inventory.transfers.approve',
+    'branches.manage',
+  ]);
+
+  // Approve and reject share one permission (single decision gate).
+  const canReject = canApprove;
+
+  const canComplete = canAny([
+    'kxtill.inventory.transfers.complete',
+    'kxtill.inventory.transfers.approve',
+    'branches.manage',
+  ]);
+
+  // State
+  const [transfers, setTransfers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedTransfer, setSelectedTransfer] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // ---------- fetch ----------
+  const fetchTransfers = useCallback(async () => {
+    if (!orgId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const params = {};
+      if (branchId) params.branchId = branchId;
+      if (statusFilter !== 'all') params.status = statusFilter;
+
+      const response = await axios.get(
+        `/organizations/${orgId}/kxtill/transfers`,
+        { params }
+      );
+
+      setTransfers(response.data.items || []);
+    } catch (error) {
+      console.error('Failed to fetch transfers:', error);
+      toast.error(
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Failed to load transfers'
+      );
+      setTransfers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, branchId, statusFilter]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchTransfers();
+  }, [fetchTransfers]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => setSearchTerm(searchInput), 300);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await fetchTransfers();
+    setRefreshing(false);
+    toast.success('Refreshed');
+  };
+
+  // ---------- derived stats ----------
+  const stats = useMemo(() => {
+    const s = {
+      total: transfers.length,
+      pending: 0,
+      approved: 0,
+      completed: 0,
+      rejected: 0,
+      failed: 0,
+    };
+    for (const t of transfers) {
+      const key = (t.status || '').toLowerCase();
+      if (key in s) s[key]++;
+    }
+    return s;
+  }, [transfers]);
+
+  const filteredTransfers = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return transfers;
+    return transfers.filter((t) => {
+      const ref = t.reference?.toLowerCase() || '';
+      const from = t.sourceBranchProduct?.branch?.code?.toLowerCase() || '';
+      const to = t.destBranchProduct?.branch?.code?.toLowerCase() || '';
+      const product = (
+        t.sourceBranchProduct?.displayName ||
+        t.sourceBranchProduct?.product?.name ||
+        ''
+      ).toLowerCase();
+      const by = `${t.initiatedBy?.firstName || ''} ${t.initiatedBy?.lastName || ''}`.toLowerCase();
+      return (
+        ref.includes(q) ||
+        from.includes(q) ||
+        to.includes(q) ||
+        product.includes(q) ||
+        by.includes(q)
+      );
+    });
+  }, [transfers, searchTerm]);
+
+  // ---------- actions ----------
+  const openDetail = (transfer) => {
+    setSelectedTransfer(transfer);
+    setShowDetailModal(true);
+  };
+
+  const closeDetail = () => {
+    setShowDetailModal(false);
+    setSelectedTransfer(null);
+  };
+
+  const handleCreate = async (payload) => {
+    try {
+      const response = await axios.post(
+        `/organizations/${orgId}/kxtill/transfers`,
+        payload
+      );
+      const ref = response.data?.transfer?.reference || '';
+      toast.success(`Transfer ${ref} created`);
+      setShowNewModal(false);
+      await fetchTransfers();
+      return { ok: true };
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Failed to create transfer';
+      toast.error(msg);
+      return { ok: false, error: msg };
+    }
+  };
+
+  const handleApprove = async (id, { offerComplete = true } = {}) => {
+    setActionLoading(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/transfers/${id}/approve`
+      );
+      toast.success('Transfer approved — stock has moved');
+      await fetchTransfers();
+      closeDetail();
+      return { ok: true, offerComplete };
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Failed to approve transfer';
+      toast.error(msg);
+      return { ok: false, error: msg };
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReject = async (id, reason) => {
+    setActionLoading(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/transfers/${id}/reject`,
+        { reason }
+      );
+      toast.success('Transfer rejected');
+      await fetchTransfers();
+      closeDetail();
+      return { ok: true };
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Failed to reject transfer';
+      toast.error(msg);
+      return { ok: false, error: msg };
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleComplete = async (id) => {
+    setActionLoading(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/transfers/${id}/complete`
+      );
+      toast.success('Transfer marked as completed');
+      await fetchTransfers();
+      closeDetail();
+      return { ok: true };
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        'Failed to complete transfer';
+      toast.error(msg);
+      return { ok: false, error: msg };
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ---------- render helpers ----------
+  const getDisplayName = (user) => {
+    if (!user) return 'Unknown';
+    const n = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    return n || 'Unknown';
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return '—';
+    }
+  };
+
+  if (!orgId) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.loadingState}>
+          <AlertCircle size={40} />
+          <p>No organization selected</p>
         </div>
-        <button style={{
-          padding: '10px 20px',
-          background: '#3b82f6',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '8px',
-          fontSize: '14px',
-          fontWeight: 500,
-          cursor: 'pointer'
-        }}>
-          + New Transfer
-        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.page}>
+      {/* Header */}
+      <div className={styles.header}>
+        <div className={styles.headerLeft}>
+          <div className={styles.headerIcon}>
+            <RefreshCw size={20} />
+          </div>
+          <div>
+            <h1 className={styles.title}>Stock Transfers</h1>
+            <p className={styles.subtitle}>
+              <Building2 size={12} /> {activeBranch?.name || 'All Branches'}
+            </p>
+          </div>
+        </div>
+        <div className={styles.headerRight}>
+          <button
+            className={styles.refreshBtn}
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={refreshing ? styles.spinning : ''} />
+          </button>
+          {canCreate && (
+            <button
+              className={styles.primaryBtn}
+              onClick={() => setShowNewModal(true)}
+            >
+              <Plus size={16} /> New Transfer
+            </button>
+          )}
+        </div>
       </div>
 
-      <div style={{
-        background: '#fff',
-        borderRadius: '12px',
-        border: '1px solid #e5e7eb',
-        overflow: 'hidden'
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-            <tr>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>ID</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>From</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>To</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Item</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Quantity</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Status</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6b7280' }}>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {transfers.map((transfer) => (
-              <tr key={transfer.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '12px 16px', fontWeight: 500 }}>#{transfer.id}</td>
-                <td style={{ padding: '12px 16px' }}>{transfer.from}</td>
-                <td style={{ padding: '12px 16px' }}>{transfer.to}</td>
-                <td style={{ padding: '12px 16px' }}>{transfer.item}</td>
-                <td style={{ padding: '12px 16px' }}>{transfer.quantity}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    background: transfer.status === 'Completed' ? '#e8f5e9' : 
-                               transfer.status === 'Pending' ? '#fff3e0' : '#e3f2fd',
-                    color: transfer.status === 'Completed' ? '#2e7d32' : 
-                           transfer.status === 'Pending' ? '#e65100' : '#1565c0'
-                  }}>
-                    {transfer.status}
-                  </span>
-                </td>
-                <td style={{ padding: '12px 16px', color: '#6b7280' }}>{transfer.date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Stats */}
+      <div className={styles.statsGrid}>
+        <div className={styles.statCard}>
+          <span className={styles.statValue}>{stats.total}</span>
+          <span className={styles.statLabel}>Total</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statPending}`}>
+          <span className={styles.statValue}>{stats.pending}</span>
+          <span className={styles.statLabel}>Pending</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statApproved}`}>
+          <span className={styles.statValue}>{stats.approved}</span>
+          <span className={styles.statLabel}>Approved</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statCompleted}`}>
+          <span className={styles.statValue}>{stats.completed}</span>
+          <span className={styles.statLabel}>Completed</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statRejected}`}>
+          <span className={styles.statValue}>{stats.rejected}</span>
+          <span className={styles.statLabel}>Rejected</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statFailed}`}>
+          <span className={styles.statValue}>{stats.failed}</span>
+          <span className={styles.statLabel}>Failed</span>
+        </div>
       </div>
+
+      {/* Filters */}
+      <div className={styles.filtersBar}>
+        <div className={styles.searchWrapper}>
+          <Search size={16} className={styles.searchIcon} />
+          <input
+            type="text"
+            className={styles.searchInput}
+            placeholder="Search by reference, branch, product, or user…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <select
+          className={styles.filterSelect}
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">All Status</option>
+          <option value="PENDING">Pending</option>
+          <option value="APPROVED">Approved</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="FAILED">Failed</option>
+        </select>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className={styles.loadingState}>
+          <Loader2 size={28} className={styles.spinning} />
+          <p>Loading transfers…</p>
+        </div>
+      ) : filteredTransfers.length === 0 ? (
+        <div className={styles.emptyState}>
+          <RefreshCw size={36} />
+          <h3>No transfers found</h3>
+          <p>
+            {searchTerm || statusFilter !== 'all'
+              ? 'Try adjusting your filters.'
+              : canCreate
+                ? 'Create the first transfer to move stock between branches.'
+                : 'No transfers involving this branch yet.'}
+          </p>
+        </div>
+      ) : (
+        <div className={styles.tableContainer}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Reference</th>
+                <th>Route</th>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Date</th>
+                <th>By</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTransfers.map((t) => {
+                const from = t.sourceBranchProduct?.branch?.code || '—';
+                const to = t.destBranchProduct?.branch?.code || '—';
+                const product =
+                  t.sourceBranchProduct?.displayName ||
+                  t.sourceBranchProduct?.product?.name ||
+                  '—';
+                const qty = parseInt(t.quantitySent, 10) || 0;
+
+                return (
+                  <tr key={t.id} className={styles.tableRow}>
+                    <td className={styles.refCell}>{t.reference}</td>
+                    <td>
+                      <div className={styles.pathCell}>
+                        <span className={styles.branchCode}>{from}</span>
+                        <ArrowRight size={12} className={styles.pathArrow} />
+                        <span className={styles.branchCode}>{to}</span>
+                      </div>
+                    </td>
+                    <td className={styles.productCell}>{product}</td>
+                    <td className={styles.qtyCell}>{qty}</td>
+                    <td>{formatDate(t.createdAt)}</td>
+                    <td className={styles.userCell}>
+                      {getDisplayName(t.initiatedBy)}
+                    </td>
+                    <td>
+                      <TransferStatusBadge status={t.status} />
+                    </td>
+                    <td>
+                      <button
+                        className={styles.rowActionBtn}
+                        onClick={() => openDetail(t)}
+                        title="View details"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modals */}
+      <NewTransferModal
+        isOpen={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onCreate={handleCreate}
+        orgId={orgId}
+        activeBranch={activeBranch}
+      />
+
+      <TransferDetailModal
+        isOpen={showDetailModal}
+        onClose={closeDetail}
+        transfer={selectedTransfer}
+        actionLoading={actionLoading}
+        canApprove={canApprove}
+        canReject={canReject}
+        canComplete={canComplete}
+        onApprove={handleApprove}
+        onReject={handleReject}
+        onComplete={handleComplete}
+      />
     </div>
   );
 };

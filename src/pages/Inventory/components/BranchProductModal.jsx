@@ -1,7 +1,7 @@
 // src/pages/Inventory/components/BranchProductModal.jsx
 import React from 'react';
 import { X, Edit } from 'lucide-react';
-import styles from '../Inventory.module.css';
+import styles from './BranchProductModal.module.css';
 
 const BranchProductModal = ({
   isOpen,
@@ -11,15 +11,12 @@ const BranchProductModal = ({
   branchProductData,
   setBranchProductData,
   isSubmitting,
-  currency,
   activeBranch,
 }) => {
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setBranchProductData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+  if (!isOpen || !product) return null;
+
+  const handleChange = (field, value) => {
+    setBranchProductData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = (e) => {
@@ -27,76 +24,85 @@ const BranchProductModal = ({
     onSave();
   };
 
-  if (!isOpen || !product) return null;
-
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
+    <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <div className={styles.modalTitle}>
-            <Edit size={18} />
-            <span>Edit Branch Product</span>
+        {/* Header */}
+        <div className={styles.header}>
+          <div className={styles.headerText}>
+            <div className={styles.title}>
+              <Edit size={18} />
+              <span>Edit Branch Product</span>
+            </div>
+            <p className={styles.subtitle}>
+              {product.productName || product.name} · {activeBranch?.name}
+            </p>
           </div>
-          <button className={styles.modalClose} onClick={onClose}>
+          <button className={styles.closeBtn} onClick={onClose} type="button">
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className={styles.modalBody}>
-          <div className={styles.formGrid}>
-            <div className={styles.formGroup}>
-              <label>Display Name</label>
-              <input
-                type="text"
-                name="displayName"
-                value={branchProductData.displayName}
-                onChange={handleChange}
-                placeholder="Display name for this branch"
-              />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label>Price ({currency})</label>
-              <input
-                type="number"
-                name="price"
-                value={branchProductData.price}
-                onChange={handleChange}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-              />
-            </div>
-
-            <div className={styles.formGroupFull}>
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  name="isAvailable"
-                  checked={branchProductData.isAvailable}
-                  onChange={handleChange}
-                />
-                Available at this branch
-              </label>
-            </div>
-
-            <div className={styles.formGroupFull}>
-              <div className={styles.productInfo}>
-                <p><strong>Original Name:</strong> {product.name}</p>
-                <p><strong>SKU:</strong> {product.sku || '-'}</p>
-                <p><strong>Branch:</strong> {product.branchName || activeBranch?.name || 'Current Branch'}</p>
-                <p><strong>Current Stock:</strong> {product.stock} {product.unit}</p>
-              </div>
-            </div>
+        {/* Body */}
+        <form onSubmit={handleSubmit} className={styles.body}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Display name</label>
+            <input
+              type="text"
+              value={branchProductData.displayName || ''}
+              onChange={(e) => handleChange('displayName', e.target.value)}
+              placeholder={product.productName || product.name}
+              autoFocus
+            />
+            <span className={styles.fieldHint}>
+              How this product appears in the POS at {activeBranch?.name}.
+            </span>
           </div>
 
-          <div className={styles.modalFooter}>
-            <button type="button" className={styles.cancelBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Update'}
-            </button>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Description (optional)</label>
+            <textarea
+              value={branchProductData.description || ''}
+              onChange={(e) => handleChange('description', e.target.value)}
+              placeholder="Branch-specific notes or description"
+              rows={2}
+            />
           </div>
+
+          <label className={styles.checkboxRow}>
+            <input
+              type="checkbox"
+              checked={branchProductData.isAvailable !== false}
+              onChange={(e) => handleChange('isAvailable', e.target.checked)}
+            />
+            <span>
+              <strong>Available at this branch</strong>
+              <small>
+                If unchecked, this product will be hidden from POS at {activeBranch?.name}.
+              </small>
+            </span>
+          </label>
         </form>
+
+        {/* Footer */}
+        <div className={styles.footer}>
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={styles.saveBtn}
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
       </div>
     </div>
   );

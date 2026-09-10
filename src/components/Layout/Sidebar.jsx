@@ -1,22 +1,86 @@
-// Sidebar.tsx - Updated
-import React, { useState } from 'react';
+// src/components/Layout/Sidebar.jsx
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { 
+import {
   LayoutDashboard, Receipt, Undo2, Package, BarChart3, Settings,
-  LogOut, ChevronDown, ShoppingCart, Users, Building2, 
+  LogOut, ChevronDown, ShoppingCart, Users, Building2,
   Globe, ExternalLink, UserCog
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import styles from './Sidebar.module.css';
 
 const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
-  const [inventoryOpen, setInventoryOpen] = useState(true);
-  const [customersOpen, setCustomersOpen] = useState(false);
-  const [staffOpen, setStaffOpen] = useState(false);
+  const { can, canAny } = usePermissions();
 
+  // ---------- permissions ----------
+  const showPos          = can('kxtill.sales.create');
+  const showSales        = can('kxtill.sales.view');
+  const showRefunds      = can('kxtill.sales.refund');
+
+  const showProducts     = can('kxtill.inventory.view');
+  const showGlobalInv    = can('kxtill.inventory.view');
+  const showTransfers    = canAny(['kxtill.inventory.view', 'branches.manage']);
+  const showInventoryGroup = showProducts || showGlobalInv || showTransfers;
+
+  const showCustomers    = can('kxtill.customers.view');
+  const showCustomerGroups = showCustomers;
+  const showCustomersGroup = showCustomers || showCustomerGroups;
+
+  const showStaffList    = canAny(['members.view', 'members.manage']);
+  const showRoles        = can('members.manage');
+  const showStaffGroup   = showStaffList || showRoles;
+
+  const showBranches     = canAny(['branches.view', 'branches.manage']);
+  const showReports      = can('kxtill.reports.view');
+  const showSettings     = can('kxtill.settings.view');
+
+  // ---------- route matching ----------
+  const path = location.pathname;
+
+  const isInventoryActive =
+    path === '/inventory' ||
+    path === '/global-inventory' ||
+    path === '/transfers' ||
+    path.startsWith('/inventory/') ||
+    path.startsWith('/global-inventory/') ||
+    path.startsWith('/transfers/');
+
+  const isCustomersActive =
+    path === '/customers' ||
+    path === '/customer-groups' ||
+    path.startsWith('/customers/') ||
+    path.startsWith('/customer-groups/');
+
+  const isStaffActive =
+    path === '/staff' ||
+    path === '/roles' ||
+    path.startsWith('/staff/') ||
+    path.startsWith('/roles/');
+
+  // ---------- open/close state ----------
+  // At most one group expanded at a time. Synced to the current route.
+  const [openGroup, setOpenGroup] = useState(null); // null | 'inventory' | 'customers' | 'staff'
+
+  useEffect(() => {
+    if (isInventoryActive) setOpenGroup('inventory');
+    else if (isCustomersActive) setOpenGroup('customers');
+    else if (isStaffActive) setOpenGroup('staff');
+    else setOpenGroup(null);
+  }, [isInventoryActive, isCustomersActive, isStaffActive]);
+
+  const toggleGroup = (group) => {
+    setOpenGroup((current) => (current === group ? null : group));
+  };
+
+  const inventoryOpen = openGroup === 'inventory';
+  const customersOpen = openGroup === 'customers';
+  const staffOpen     = openGroup === 'staff';
+
+  // ---------- handlers ----------
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -25,19 +89,6 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const handleNavClick = () => {
     if (isMobile && onClose) onClose();
   };
-
-  const isInventoryActive = location.pathname === '/inventory' || 
-                           location.pathname === '/transfers' ||
-                           location.pathname === '/low-stock' ||
-                           location.pathname.startsWith('/inventory/');
-
-  const isCustomersActive = location.pathname === '/customers' || 
-                           location.pathname === '/customer-groups' ||
-                           location.pathname.startsWith('/customers/');
-
-  const isStaffActive = location.pathname === '/staff' || 
-                       location.pathname === '/roles' ||
-                       location.pathname.startsWith('/staff/');
 
   const handleVisitSuite = () => {
     const suiteUrl = process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
@@ -49,115 +100,164 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
     }
   };
 
+  // ---------- link class helpers ----------
+  const navLinkClass = ({ isActive }) =>
+    `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`;
+  const subLinkClass = ({ isActive }) =>
+    `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`;
+
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${isMobile ? styles.mobile : ''}`}>
       {isMobile && <div className={styles.mobileSpacer} />}
 
       <nav className={styles.nav}>
-        <NavLink to="/pos" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <ShoppingCart size={16} className={styles.navIcon} /> <span className={styles.navLabel}>POS</span>
-        </NavLink>
-        
-        <NavLink to="/dashboard" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
+        {showPos && (
+          <NavLink to="/pos" className={navLinkClass} onClick={handleNavClick}>
+            <ShoppingCart size={16} className={styles.navIcon} /> <span className={styles.navLabel}>POS</span>
+          </NavLink>
+        )}
+
+        <NavLink to="/dashboard" className={navLinkClass} onClick={handleNavClick}>
           <LayoutDashboard size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Overview</span>
         </NavLink>
-        
-        <NavLink to="/sales" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <Receipt size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Sales</span>
-        </NavLink>
-        
-        <NavLink to="/refunds" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <Undo2 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Refunds</span>
-        </NavLink>
 
-        {/* Inventory - Expandable */}
-        <div>
-          <button className={`${styles.navLinkExpandable} ${isInventoryActive ? styles.navLinkActive : ''}`} onClick={() => setInventoryOpen(!inventoryOpen)}>
-            <span className={styles.navLinkExpandableLabel}>
-              <Package size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Inventory</span>
-            </span>
-            <ChevronDown size={13} className={styles.chevron} data-open={inventoryOpen} />
-          </button>
-          {inventoryOpen && !collapsed && (
-            <div className={styles.subNav}>
-              <NavLink to="/inventory" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Products
-              </NavLink>
-              <NavLink to="/transfers" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Stock Transfers
-              </NavLink>
-              <NavLink to="/low-stock" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Low Stock
-              </NavLink>
-            </div>
-          )}
-        </div>
+        {showSales && (
+          <NavLink to="/sales" className={navLinkClass} onClick={handleNavClick}>
+            <Receipt size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Sales</span>
+          </NavLink>
+        )}
 
-        {/* Customers - Expandable */}
-        <div>
-          <button className={`${styles.navLinkExpandable} ${isCustomersActive ? styles.navLinkActive : ''}`} onClick={() => setCustomersOpen(!customersOpen)}>
-            <span className={styles.navLinkExpandableLabel}>
-              <Users size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Customers</span>
-            </span>
-            <ChevronDown size={13} className={styles.chevron} data-open={customersOpen} />
-          </button>
-          {customersOpen && !collapsed && (
-            <div className={styles.subNav}>
-              <NavLink to="/customers" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                All Customers
-              </NavLink>
-              <NavLink to="/customer-groups" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Groups
-              </NavLink>
-            </div>
-          )}
-        </div>
+        {showRefunds && (
+          <NavLink to="/refunds" className={navLinkClass} onClick={handleNavClick}>
+            <Undo2 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Refunds</span>
+          </NavLink>
+        )}
 
-        {/* Staff/Team - Expandable */}
-        <div>
-          <button className={`${styles.navLinkExpandable} ${isStaffActive ? styles.navLinkActive : ''}`} onClick={() => setStaffOpen(!staffOpen)}>
-            <span className={styles.navLinkExpandableLabel}>
-              <UserCog size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Staff</span>
-            </span>
-            <ChevronDown size={13} className={styles.chevron} data-open={staffOpen} />
-          </button>
-          {staffOpen && !collapsed && (
-            <div className={styles.subNav}>
-              <NavLink to="/staff" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                All Staff
-              </NavLink>
-              <NavLink to="/roles" className={({ isActive }) => `${styles.subLink} ${isActive ? styles.subLinkActive : ''}`} onClick={handleNavClick}>
-                Roles & Permissions
-              </NavLink>
-            </div>
-          )}
-        </div>
+        {/* Inventory */}
+        {showInventoryGroup && (
+          <div>
+            <button
+              type="button"
+              className={`${styles.navLinkExpandable} ${isInventoryActive ? styles.navLinkActive : ''}`}
+              onClick={() => toggleGroup('inventory')}
+            >
+              <span className={styles.navLinkExpandableLabel}>
+                <Package size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Inventory</span>
+              </span>
+              <ChevronDown size={13} className={styles.chevron} data-open={inventoryOpen} />
+            </button>
+            {inventoryOpen && !collapsed && (
+              <div className={styles.subNav}>
+                {showProducts && (
+                  <NavLink to="/inventory" className={subLinkClass} onClick={handleNavClick}>
+                    Products
+                  </NavLink>
+                )}
+                {showGlobalInv && (
+                  <NavLink to="/global-inventory" className={subLinkClass} onClick={handleNavClick}>
+                    Global Inventory
+                  </NavLink>
+                )}
+                {showTransfers && (
+                  <NavLink to="/transfers" className={subLinkClass} onClick={handleNavClick}>
+                    Stock Transfers
+                  </NavLink>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-        <NavLink to="/branches" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <Building2 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Branches</span>
-        </NavLink>
+        {/* Customers */}
+        {showCustomersGroup && (
+          <div>
+            <button
+              type="button"
+              className={`${styles.navLinkExpandable} ${isCustomersActive ? styles.navLinkActive : ''}`}
+              onClick={() => toggleGroup('customers')}
+            >
+              <span className={styles.navLinkExpandableLabel}>
+                <Users size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Customers</span>
+              </span>
+              <ChevronDown size={13} className={styles.chevron} data-open={customersOpen} />
+            </button>
+            {customersOpen && !collapsed && (
+              <div className={styles.subNav}>
+                {showCustomers && (
+                  <NavLink to="/customers" className={subLinkClass} onClick={handleNavClick}>
+                    All Customers
+                  </NavLink>
+                )}
+                {showCustomerGroups && (
+                  <NavLink to="/customer-groups" className={subLinkClass} onClick={handleNavClick}>
+                    Groups
+                  </NavLink>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-        <NavLink to="/reports" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <BarChart3 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Reports</span>
-        </NavLink>
-        
-        <NavLink to="/settings" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`} onClick={handleNavClick}>
-          <Settings size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Settings</span>
-        </NavLink>
+        {/* Staff */}
+        {showStaffGroup && (
+          <div>
+            <button
+              type="button"
+              className={`${styles.navLinkExpandable} ${isStaffActive ? styles.navLinkActive : ''}`}
+              onClick={() => toggleGroup('staff')}
+            >
+              <span className={styles.navLinkExpandableLabel}>
+                <UserCog size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Staff</span>
+              </span>
+              <ChevronDown size={13} className={styles.chevron} data-open={staffOpen} />
+            </button>
+            {staffOpen && !collapsed && (
+              <div className={styles.subNav}>
+                {showStaffList && (
+                  <NavLink to="/staff" className={subLinkClass} onClick={handleNavClick}>
+                    All Staff
+                  </NavLink>
+                )}
+                {showRoles && (
+                  <NavLink to="/roles" className={subLinkClass} onClick={handleNavClick}>
+                    Roles &amp; Permissions
+                  </NavLink>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showBranches && (
+          <NavLink to="/branches" className={navLinkClass} onClick={handleNavClick}>
+            <Building2 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Branches</span>
+          </NavLink>
+        )}
+
+        {showReports && (
+          <NavLink to="/reports" className={navLinkClass} onClick={handleNavClick}>
+            <BarChart3 size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Reports</span>
+          </NavLink>
+        )}
+
+        {showSettings && (
+          <NavLink to="/settings" className={navLinkClass} onClick={handleNavClick}>
+            <Settings size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Settings</span>
+          </NavLink>
+        )}
       </nav>
 
       <div className={styles.spacer} />
 
       <div className={styles.divider} />
 
-      {/* Visit Suite Button */}
-      <button className={styles.suiteRow} onClick={handleVisitSuite} title="Visit KXBYTE Suite">
+      <button className={styles.suiteRow} onClick={handleVisitSuite} title="Visit KXBYTE Suite" type="button">
         <Globe size={15} />
         <span className={styles.navLabel}>Visit Suite</span>
         <ExternalLink size={12} className={styles.externalIcon} />
       </button>
 
-      <button className={styles.logoutRow} onClick={handleLogout} title="Logout">
+      <button className={styles.logoutRow} onClick={handleLogout} title="Logout" type="button">
         <LogOut size={15} />
         <span className={styles.navLabel}>Logout</span>
       </button>

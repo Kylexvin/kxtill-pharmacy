@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -14,9 +15,12 @@ import {
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, 
+  ResponsiveContainer,
 } from 'recharts';
 import styles from './Dashboard.module.css';
+import usePolling from '../../hooks/usePolling';
+
+const DASHBOARD_POLL_MS = 5 * 60 * 1000; // 5 minutes
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -28,12 +32,9 @@ const Dashboard = () => {
     branches,
     setActiveBranch,
   } = useAuth();
+  const { isOwner } = usePermissions();
 
-  // Use settings from SettingsContext
-  const {
-    formatCurrency,
-    formatCompactCurrency,
-  } = useSettings();
+  const { formatCurrency, formatCompactCurrency } = useSettings();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -53,42 +54,29 @@ const Dashboard = () => {
   const [lowStockItems, setLowStockItems] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
 
-  const [userPermissions, setUserPermissions] = useState([]);
-  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
-
-  // Local branch view filter - initialize based on whether we have a specific branch selected
+  // Local branch view filter — init from localStorage or default 'own'
   const [branchViewFilter, setBranchViewFilter] = useState(() => {
-    // If there's a stored selection, use it, otherwise default to 'own'
     const stored = localStorage.getItem('dashboardBranchFilter');
     return stored || 'own';
   });
-  
+
   const requestIdRef = useRef(0);
 
-
   const orgId = activeOrganization?.id;
-  const isOwner = userPermissions.includes('*');
   const canViewAllBranches = isOwner;
 
-  // Save branch filter to localStorage when it changes
   useEffect(() => {
     localStorage.setItem('dashboardBranchFilter', branchViewFilter);
   }, [branchViewFilter]);
 
-  // Sync the branch view filter with the active branch when it changes from outside
+  // Keep branch filter in sync with the active branch when it changes externally
   useEffect(() => {
-    // If the active branch changes and we're not in 'all' mode, update the filter
     if (activeBranch && branchViewFilter !== 'all' && branchViewFilter !== activeBranch.id) {
-      // Check if we're currently viewing a specific branch that might have been changed
-      // Only update if we're in 'own' mode or if the branch doesn't match
       if (branchViewFilter === 'own' || branchViewFilter !== activeBranch.id) {
         setBranchViewFilter('own');
       }
     }
   }, [activeBranch, branchViewFilter]);
-
-  // We no longer need custom formatCurrency and formatCompactCurrency
-  // They are now provided by SettingsContext
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -106,47 +94,25 @@ const Dashboard = () => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  useEffect(() => {
-    const fetchPermissions = async () => {
-      if (!orgId || !accessToken) return;
-      try {
-        const response = await axios.get(`/auth/me/dashboard?organizationId=${orgId}`);
-        setUserPermissions(response.data.permissions || []);
-      } catch (error) {
-        console.error('Failed to fetch permissions:', error);
-        setUserPermissions([]);
-      } finally {
-        setPermissionsLoaded(true);
-      }
-    };
-    fetchPermissions();
-  }, [orgId, accessToken]);
-
   const getServerBranchId = useCallback(() => {
     if (branchViewFilter === 'all' && canViewAllBranches) return null;
     if (branchViewFilter === 'own' || !canViewAllBranches) return activeBranch?.id || null;
     return branchViewFilter;
   }, [branchViewFilter, canViewAllBranches, activeBranch]);
 
-  // Handle branch view change - updates local filter AND global context if needed
   const handleBranchViewChange = useCallback((value) => {
     setBranchViewFilter(value);
-    
-    // If a specific branch is selected (not 'own' or 'all'), update the global context
+
     if (value !== 'own' && value !== 'all') {
       const selectedBranch = branches.find(b => b.id === value);
       if (selectedBranch) {
         setActiveBranch(selectedBranch);
       }
-    } else if (value === 'own' && activeBranch) {
-      // If 'own' is selected, make sure the context has the correct branch
-      // This is useful when switching back from a specific branch
-      // We don't need to do anything if the activeBranch is already set
     }
-  }, [branches, setActiveBranch, activeBranch]);
+  }, [branches, setActiveBranch]);
 
   const fetchDashboardData = useCallback(async () => {
-    if (!orgId || !permissionsLoaded) return;
+    if (!orgId) return;
 
     const thisRequestId = ++requestIdRef.current;
     setLoading(true);
@@ -241,7 +207,6 @@ const Dashboard = () => {
       if (recentSalesRes.status === 'fulfilled' && recentSalesRes.value?.data) {
         setRecentSales(recentSalesRes.value.data || []);
       }
-
     } catch (error) {
       if (thisRequestId !== requestIdRef.current) return;
       console.error('Error fetching dashboard data:', error);
@@ -253,7 +218,7 @@ const Dashboard = () => {
         setIsRefreshing(false);
       }
     }
-  }, [orgId, permissionsLoaded, period, contextIsOffline, getServerBranchId]);
+  }, [orgId, period, contextIsOffline, getServerBranchId]);
 
   useEffect(() => {
     setIsOnline(!contextIsOffline);
@@ -265,23 +230,22 @@ const Dashboard = () => {
     await fetchDashboardData();
   }, [fetchDashboardData, isRefreshing]);
 
+  // Fetch immediately when org, period, or branch filter changes
   useEffect(() => {
-    if (orgId && permissionsLoaded) {
+    if (!orgId) return;
+    fetchDashboardData();
+  }, [fetchDashboardData, orgId]);
+
+  // Background poll — 5 min cadence, pauses when hidden
+  usePolling(
+    () => {
+      if (contextIsOffline) return;
+      if (!navigator.onLine) return;
       fetchDashboardData();
-    }
-  }, [fetchDashboardData, orgId, permissionsLoaded]);
-
-  useEffect(() => {
-    if (!isOnline) return;
-
-    const interval = setInterval(() => {
-      if (navigator.onLine && !contextIsOffline) {
-        fetchDashboardData();
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [isOnline, contextIsOffline, fetchDashboardData]);
+    },
+    DASHBOARD_POLL_MS,
+    [orgId, period, branchViewFilter]
+  );
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -310,27 +274,20 @@ const Dashboard = () => {
   const showOffline = !isOnline || contextIsOffline;
   const showBranchSwitch = canViewAllBranches && branches && branches.length > 1;
 
-  // For Today view, use hourly trend data
   const todayChartData = todaySalesTrend.labels.map((label, i) => ({
     name: label,
     sales: todaySalesTrend.values?.[i] || 0,
   }));
 
-  // For Week/Month view, use daily trend data
   const weekMonthChartData = salesTrend.labels.map((label, i) => ({
     name: label,
     sales: salesTrend.values?.[i] || 0,
   }));
 
-  // Determine which data to show based on period
   const isTodayView = period === 'today';
   const chartData = isTodayView ? todayChartData : weekMonthChartData;
-  
-  // Check if there's any sales data
   const hasSalesData = chartData.some(d => d.sales > 0);
-  
-  // For Week/Month, require at least 2 data points with sales
-  const shouldShowChart = isTodayView 
+  const shouldShowChart = isTodayView
     ? hasSalesData
     : chartData.filter(d => d.sales > 0).length >= 2;
 
@@ -343,11 +300,8 @@ const Dashboard = () => {
     }
   };
 
-  // Get the display name for the current branch view
   const getBranchDisplayName = () => {
-    if (branchViewFilter === 'all') {
-      return 'All Branches';
-    }
+    if (branchViewFilter === 'all') return 'All Branches';
     if (branchViewFilter !== 'own') {
       const found = branches.find(b => b.id === branchViewFilter);
       if (found) return found.name;
@@ -375,7 +329,7 @@ const Dashboard = () => {
           <Plus size={18} />
           New Sale
         </button>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/products')}>
+        <button className={styles.quickActionBtn} onClick={() => navigate('/global-inventory')}>
           <PackageIcon size={18} />
           Add Product
         </button>
@@ -389,7 +343,7 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Header - Compact Full Width */}
+      {/* Header */}
       <div className={styles.headerCard}>
         <div className={styles.headerLeft}>
           <Store size={18} className={styles.orgIcon} />
@@ -426,20 +380,20 @@ const Dashboard = () => {
           )}
 
           <div className={styles.periodSelector}>
-            <button 
-              className={`${styles.periodBtn} ${period === 'today' ? styles.active : ''}`} 
+            <button
+              className={`${styles.periodBtn} ${period === 'today' ? styles.active : ''}`}
               onClick={() => setPeriod('today')}
             >
               Today
             </button>
-            <button 
-              className={`${styles.periodBtn} ${period === 'week' ? styles.active : ''}`} 
+            <button
+              className={`${styles.periodBtn} ${period === 'week' ? styles.active : ''}`}
               onClick={() => setPeriod('week')}
             >
               Week
             </button>
-            <button 
-              className={`${styles.periodBtn} ${period === 'month' ? styles.active : ''}`} 
+            <button
+              className={`${styles.periodBtn} ${period === 'month' ? styles.active : ''}`}
               onClick={() => setPeriod('month')}
             >
               Month
@@ -522,7 +476,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Sales Trend - Shows hourly for Today, daily for Week/Month */}
+      {/* Sales Trend */}
       <div className={styles.card}>
         <div className={styles.cardHeader}>
           <div className={styles.cardTitle}>
@@ -546,10 +500,10 @@ const Dashboard = () => {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                <XAxis 
-                  dataKey="name" 
-                  stroke="#6b7280" 
-                  fontSize={11} 
+                <XAxis
+                  dataKey="name"
+                  stroke="#6b7280"
+                  fontSize={11}
                   interval={isTodayView ? Math.floor(chartData.length / 8) : 0}
                 />
                 <YAxis stroke="#6b7280" fontSize={11} tickFormatter={(value) => formatCompactCurrency(value)} />
@@ -567,7 +521,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Low Stock - Premium Cards */}
+      {/* Low Stock */}
       {lowStockItems.length > 0 && (
         <div className={styles.lowStockSection}>
           <div className={styles.lowStockHeader}>
@@ -576,9 +530,9 @@ const Dashboard = () => {
               <span>Low Stock Alert</span>
               <span className={styles.lowStockCount}>{lowStockItems.length} items</span>
             </div>
-            <button 
-              className={styles.viewAllBtn} 
-              onClick={() => navigate('/kx/kxtill/low-stock')}
+            <button
+              className={styles.viewAllBtn}
+              onClick={() => navigate('/inventory')}
             >
               View All <ChevronRight size={14} />
             </button>
@@ -603,9 +557,9 @@ const Dashboard = () => {
                       <span className={styles.lowStockCardSku}>SKU: {item.sku}</span>
                     )}
                   </div>
-                  <button 
+                  <button
                     className={styles.lowStockCardAction}
-                    onClick={() => navigate(`/kx/kxtill/inventory/${item.id}`)}
+                    onClick={() => navigate('/inventory')}
                   >
                     <Eye size={14} />
                     View Product
@@ -615,9 +569,9 @@ const Dashboard = () => {
             })}
           </div>
           {lowStockItems.length > 6 && (
-            <button 
+            <button
               className={styles.lowStockViewMore}
-              onClick={() => navigate('/kx/kxtill/low-stock')}
+              onClick={() => navigate('/inventory')}
             >
               View all {lowStockItems.length} low stock items <ArrowRight size={14} />
             </button>
@@ -625,7 +579,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Bottom Row - Top Products & Recent Sales */}
+      {/* Bottom Row */}
       <div className={styles.bottomRow}>
         <div className={styles.card}>
           <div className={styles.cardHeader}>

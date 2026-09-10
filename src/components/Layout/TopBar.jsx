@@ -1,25 +1,32 @@
 // src/components/layout/TopBar.jsx
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import axios from 'axios';
 import {
   Bell, User, Settings, HelpCircle, LogOut, AlertTriangle,
   Menu, Moon, Sun, Building2, Check, ChevronRight,
-  Wifi, WifiOff, RefreshCw, CheckCircle, XCircle
+  Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, UserCircle
 } from 'lucide-react';
 import styles from './TopBar.module.css';
-import { sync, setOnlineStatus, startAutoSync, stopAutoSync } from '../../sync/engine';
+import { sync, setOnlineStatus } from '../../sync/engine';
 import { getPendingSales } from '../../db/sqlite';
+import usePolling from '../../hooks/usePolling';
 
 const HEARTBEAT_URL = '/auth/me';
 const HEARTBEAT_INTERVAL_MS = 20000;
 const HEARTBEAT_TIMEOUT_MS = 5000;
 
+// Sync cadence: POS needs fresh stock every minute; everywhere else
+// can wait 5 minutes without hurting anyone.
+const SYNC_INTERVAL_POS_MS = 60 * 1000;
+const SYNC_INTERVAL_IDLE_MS = 5 * 60 * 1000;
+
 const TopBar = ({ isMobile, onToggleSidebar }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     user,
     logout,
@@ -53,6 +60,8 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const activeBranchRef = useRef(activeBranch);
   const heartbeatInFlightRef = useRef(false);
 
+  const isPos = location.pathname === '/pos';
+
   useEffect(() => {
     isSyncingRef.current = isSyncing;
   }, [isSyncing]);
@@ -63,7 +72,54 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
   const lowStockCount = 0;
 
-  // Check pending sales count
+  // ------------------------------------------------------------
+  // Click-outside: close open dropdowns when clicking elsewhere
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        userMenuOpen &&
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target)
+      ) {
+        setUserMenuOpen(false);
+        setOrgDropdownOpen(false);
+        setBranchDropdownOpen(false);
+      }
+
+      if (
+        notifOpen &&
+        notifMenuRef.current &&
+        !notifMenuRef.current.contains(event.target)
+      ) {
+        setNotifOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen, notifOpen]);
+
+  // ------------------------------------------------------------
+  // Escape closes all dropdowns
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setUserMenuOpen(false);
+        setNotifOpen(false);
+        setOrgDropdownOpen(false);
+        setBranchDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // ------------------------------------------------------------
+  // Pending sales count (SQLite read — cheap, no network)
+  // ------------------------------------------------------------
   const checkPendingSales = useCallback(async () => {
     try {
       const pending = await getPendingSales();
@@ -73,21 +129,23 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     }
   }, []);
 
-  // Check pending on mount and when online status changes
   useEffect(() => {
     checkPendingSales();
   }, [isOnline, lastSyncStatus, checkPendingSales]);
 
+  // ------------------------------------------------------------
+  // Manual sync (also used by the sync button)
+  // ------------------------------------------------------------
   const handleManualSync = useCallback(async () => {
     if (isSyncingRef.current) return;
+    if (!activeBranchRef.current?.id) return;
 
     setIsSyncing(true);
     setLastSyncStatus(null);
 
     try {
-      const result = await sync(activeBranchRef.current?.id);
+      const result = await sync(activeBranchRef.current.id);
       setLastSyncStatus(result.success ? 'success' : 'error');
-      // Refresh pending count after sync
       await checkPendingSales();
     } catch (error) {
       setLastSyncStatus('error');
@@ -97,9 +155,27 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     }
   }, [checkPendingSales]);
 
-  // Single source of truth for connectivity: updates both the local TopBar
-  // state (drives the UI badge) and AuthContext's isOffline (consumed by
-  // other pages like Sales.jsx), so nothing else needs its own polling.
+  // ------------------------------------------------------------
+  // Auto-sync — now via usePolling (pauses when hidden)
+  // POS: every 60s. Everywhere else: every 5 min.
+  // ------------------------------------------------------------
+  const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
+
+  usePolling(
+    () => {
+      // Don't sync while offline or if we have no branch
+      if (!isOnline) return;
+      if (!activeBranchRef.current?.id) return;
+      if (isSyncingRef.current) return;
+      handleManualSync();
+    },
+    syncInterval,
+    [syncInterval, isOnline, activeBranch?.id]
+  );
+
+  // ------------------------------------------------------------
+  // Connectivity heartbeat — via usePolling (pauses when hidden)
+  // ------------------------------------------------------------
   const checkConnectivity = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
     heartbeatInFlightRef.current = true;
@@ -126,14 +202,13 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     }
   }, [setContextIsOffline]);
 
+  usePolling(checkConnectivity, HEARTBEAT_INTERVAL_MS, [checkConnectivity]);
+
+  // ------------------------------------------------------------
+  // Browser online/offline events (still useful, orthogonal to polling)
+  // ------------------------------------------------------------
   useEffect(() => {
-    checkConnectivity();
-
-    const interval = setInterval(checkConnectivity, HEARTBEAT_INTERVAL_MS);
-
-    const handleBrowserOnline = () => {
-      checkConnectivity();
-    };
+    const handleBrowserOnline = () => checkConnectivity();
     const handleBrowserOffline = () => {
       setIsOnline(false);
       setOnlineStatus(false);
@@ -144,18 +219,14 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     window.addEventListener('offline', handleBrowserOffline);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('online', handleBrowserOnline);
       window.removeEventListener('offline', handleBrowserOffline);
     };
   }, [checkConnectivity, setContextIsOffline]);
 
-  // Start auto-sync with 60-second interval
-  useEffect(() => {
-    startAutoSync(60);
-    return () => stopAutoSync();
-  }, []);
-
+  // ------------------------------------------------------------
+  // Sync immediately when coming back online
+  // ------------------------------------------------------------
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
@@ -191,7 +262,14 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const handleSwitchBranch = (branch) => {
     setActiveBranch(branch);
     setBranchDropdownOpen(false);
-    sync(branch.id).catch(() => {}); 
+    sync(branch.id).catch(() => {});
+  };
+
+  const navigateAndClose = (path) => {
+    setUserMenuOpen(false);
+    setOrgDropdownOpen(false);
+    setBranchDropdownOpen(false);
+    navigate(path);
   };
 
   const getSyncStatusColor = () => {
@@ -216,7 +294,6 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     });
   };
 
-  // Notification content - includes pending sales
   const getNotificationContent = () => {
     const items = [];
 
@@ -252,6 +329,13 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
     return items;
   };
+
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
 
   return (
     <header className={styles.topBar}>
@@ -328,11 +412,13 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
           {darkMode ? <Sun size={17} /> : <Moon size={17} />}
         </button>
 
+        {/* Notifications */}
         <div className={styles.dropdownWrap} ref={notifMenuRef}>
           <button
             className={styles.iconBtn}
             onClick={() => setNotifOpen((v) => !v)}
             title="Notifications"
+            aria-expanded={notifOpen}
           >
             <Bell size={17} />
             {pendingCount > 0 && <span className={styles.notifBadge}>{pendingCount}</span>}
@@ -343,8 +429,8 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <div className={styles.notifHeader}>
                 <span>Notifications</span>
                 {pendingCount > 0 && isOnline && (
-                  <button 
-                    className={styles.notifMarkAll} 
+                  <button
+                    className={styles.notifMarkAll}
                     onClick={handleSyncButtonClick}
                     disabled={isSyncing}
                   >
@@ -354,7 +440,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               </div>
               <div className={styles.notifList}>
                 {getNotificationContent().map((item) => (
-                  <div key={item.id} className={`${styles.notifItem} ${item.type === 'pending' ? styles.pendingItem : ''}`}>
+                  <div
+                    key={item.id}
+                    className={`${styles.notifItem} ${item.type === 'pending' ? styles.pendingItem : ''}`}
+                  >
                     {item.icon && (
                       <span className={item.type === 'pending' ? styles.notifIconPending : styles.notifIconLowStock}>
                         {item.icon}
@@ -371,20 +460,25 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
           )}
         </div>
 
+        {/* User menu */}
         <div className={styles.dropdownWrap} ref={userMenuRef}>
           <button
             className={styles.userBtn}
             onClick={() => setUserMenuOpen((v) => !v)}
+            aria-expanded={userMenuOpen}
+            aria-haspopup="menu"
           >
-            <User size={16} className={styles.userIcon} />
+            <span className={styles.userAvatarSmall}>
+              {initials || <User size={14} />}
+            </span>
             <span className={styles.userName}>{displayName}</span>
           </button>
 
           {userMenuOpen && (
-            <div className={styles.userMenu}>
+            <div className={styles.userMenu} role="menu">
               <div className={styles.userInfo}>
                 <div className={styles.userAvatarLarge}>
-                  <User size={24} />
+                  {initials || <User size={22} />}
                 </div>
                 <div className={styles.userInfoText}>
                   <div className={styles.userNameFull}>{displayName}</div>
@@ -394,6 +488,40 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               </div>
 
               <div className={styles.divider} />
+
+              <div className={styles.menuSectionLabel}>Account</div>
+
+              <button
+                className={styles.menuItem}
+                role="menuitem"
+                onClick={() => navigateAndClose('/account')}
+              >
+                <UserCircle size={15} />
+                My Account
+              </button>
+              <button
+                className={styles.menuItem}
+                role="menuitem"
+                onClick={() => navigateAndClose('/account?tab=preferences')}
+              >
+                <Settings size={15} />
+                Preferences
+              </button>
+              <button
+                className={styles.menuItem}
+                role="menuitem"
+                onClick={() => navigateAndClose('/help')}
+              >
+                <HelpCircle size={15} />
+                Help &amp; Support
+              </button>
+
+              {((organizations && organizations.length > 0) || (branches && branches.length > 0)) && (
+                <>
+                  <div className={styles.divider} />
+                  <div className={styles.menuSectionLabel}>Organization</div>
+                </>
+              )}
 
               {organizations && organizations.length > 0 && (
                 <div className={styles.switcherSection}>
@@ -406,7 +534,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                     <span className={styles.switcherCurrent}>
                       {activeOrganization?.name || 'Select'}
                     </span>
-                    <ChevronRight size={14} className={`${styles.switcherChevron} ${orgDropdownOpen ? styles.open : ''}`} />
+                    <ChevronRight
+                      size={14}
+                      className={`${styles.switcherChevron} ${orgDropdownOpen ? styles.open : ''}`}
+                    />
                   </div>
                   {orgDropdownOpen && (
                     <div className={styles.switcherList}>
@@ -438,7 +569,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                     <span className={styles.switcherCurrent}>
                       {activeBranch?.name || 'Select'}
                     </span>
-                    <ChevronRight size={14} className={`${styles.switcherChevron} ${branchDropdownOpen ? styles.open : ''}`} />
+                    <ChevronRight
+                      size={14}
+                      className={`${styles.switcherChevron} ${branchDropdownOpen ? styles.open : ''}`}
+                    />
                   </div>
                   {branchDropdownOpen && (
                     <div className={styles.switcherList}>
@@ -462,30 +596,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <div className={styles.divider} />
 
               <button
-                className={styles.menuItem}
-                onClick={() => navigate('/settings')}
+                className={styles.menuItemLogout}
+                role="menuitem"
+                onClick={handleLogout}
               >
-                <User size={15} />
-                My Profile
-              </button>
-              <button
-                className={styles.menuItem}
-                onClick={() => navigate('/settings')}
-              >
-                <Settings size={15} />
-                Settings
-              </button>
-              <button
-                className={styles.menuItem}
-                onClick={() => navigate('/help')}
-              >
-                <HelpCircle size={15} />
-                Help & Support
-              </button>
-
-              <div className={styles.divider} />
-
-              <button className={styles.menuItemLogout} onClick={handleLogout}>
                 <LogOut size={15} />
                 Logout
               </button>

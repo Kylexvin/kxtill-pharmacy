@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Toaster } from './components/Common/Toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { PermissionsProvider } from './contexts/PermissionsContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout/Layout';
@@ -14,6 +15,7 @@ import SelectBranch from './pages/SelectBranch/SelectBranch';
 import POS from './pages/POS/POS';
 import Dashboard from './pages/Dashboard/Dashboard';
 import Inventory from './pages/Inventory/Inventory';
+import GlobalInventory from './pages/Inventory/GlobalInventory';
 import Reports from './pages/Reports/Reports';
 import Settings from './pages/Settings/Settings';
 import Sales from './pages/Sales/Sales';
@@ -24,6 +26,7 @@ import CustomerGroups from './pages/CustomerGroups/CustomerGroups';
 import Staff from './pages/Staff/Staff';
 import Roles from './pages/Roles/Roles';
 import Branches from './pages/Branches/Branches';
+import Account from './pages/Account/Account';
 import { initDb } from './db/sqlite';
 import './App.css';
 import './styles/globals.css';
@@ -31,6 +34,29 @@ import './styles/globals.css';
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
+
+// ============================================================
+// SESSION CACHE PURGE
+// ============================================================
+// Called when the session truly ends (logout or refresh failure).
+// Removes per-org caches so a different user on the same device
+// never sees stale permissions or sync flags.
+// ============================================================
+function purgeSessionCaches() {
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach((key) => {
+      if (
+        key.startsWith('initialSyncDone:') ||
+        key.startsWith('permissions:')
+      ) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch {
+    // ignore — private mode, quota
+  }
+}
 
 // Request queue for concurrent requests during refresh
 let isRefreshing = false;
@@ -64,8 +90,8 @@ axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
-    if (originalRequest.url === '/auth/refresh' || 
+
+    if (originalRequest.url === '/auth/refresh' ||
         originalRequest.url?.endsWith('/auth/refresh') ||
         originalRequest.url === '/auth/login' ||
         originalRequest.url === '/auth/register') {
@@ -73,7 +99,7 @@ axios.interceptors.response.use(
       window.location.href = '/login';
       return Promise.reject(error);
     }
-    
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -92,15 +118,15 @@ axios.interceptors.response.use(
         if (!refreshToken) {
           throw new Error('No refresh token');
         }
-        
+
         const response = await axios.post('/auth/refresh', { refreshToken });
         const { accessToken } = response.data;
-        
+
         localStorage.setItem('accessToken', accessToken);
         axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-        
+
         processQueue(null, accessToken);
-        
+
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return axios(originalRequest);
       } catch (refreshError) {
@@ -111,6 +137,10 @@ axios.interceptors.response.use(
         localStorage.removeItem('organizations');
         localStorage.removeItem('activeOrganization');
         localStorage.removeItem('activeBranch');
+
+        // Purge per-org caches so the next login starts clean
+        purgeSessionCaches();
+
         delete axios.defaults.headers.common['Authorization'];
         window.location.href = '/login';
         return Promise.reject(refreshError);
@@ -118,7 +148,7 @@ axios.interceptors.response.use(
         isRefreshing = false;
       }
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -168,46 +198,51 @@ function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <SettingsProvider>
-            <Toaster />
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/oauth/login" element={<Login />} />
-              <Route path="/oauth/callback" element={<OAuthCallback />} />
-              <Route path="/select-org" element={<SelectOrg />} />
-              <Route path="/select-branch" element={<SelectBranch />} />
-              
-              {/* Protected Routes with Layout */}
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <Layout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<Navigate to="/pos" />} />
-                <Route path="pos" element={<POS />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="inventory" element={<Inventory />} />
-                <Route path="sales" element={<Sales />} />
-                <Route path="refunds" element={<Refunds />} />
-                <Route path="transfers" element={<Transfers />} />
-                <Route path="customers" element={<Customers />} />
-                <Route path="customer-groups" element={<CustomerGroups />} />
-                <Route path="staff" element={<Staff />} />
-                <Route path="roles" element={<Roles />} />
-                <Route path="branches" element={<Branches />} />
-                <Route path="reports" element={<Reports />} />
-                <Route path="settings" element={<Settings />} />
-              </Route>
+          <PermissionsProvider>
+            <SettingsProvider>
+              <Toaster />
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/kx/kxtill/oauth/callback" element={<OAuthCallback />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/oauth/login" element={<Login />} />
+                <Route path="/oauth/callback" element={<OAuthCallback />} />
+                <Route path="/select-org" element={<SelectOrg />} />
+                <Route path="/select-branch" element={<SelectBranch />} />
 
-              {/* Catch all - redirect to POS */}
-              <Route path="*" element={<Navigate to="/pos" />} />
-            </Routes>
-          </SettingsProvider>
+                {/* Protected Routes with Layout */}
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <Layout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<Navigate to="/pos" />} />
+                  <Route path="pos" element={<POS />} />
+                  <Route path="dashboard" element={<Dashboard />} />
+                  <Route path="inventory" element={<Inventory />} />
+                  <Route path="global-inventory" element={<GlobalInventory />} />
+                  <Route path="sales" element={<Sales />} />
+                  <Route path="refunds" element={<Refunds />} />
+                  <Route path="transfers" element={<Transfers />} />
+                  <Route path="customers" element={<Customers />} />
+                  <Route path="customer-groups" element={<CustomerGroups />} />
+                  <Route path="staff" element={<Staff />} />
+                  <Route path="roles" element={<Roles />} />
+                  <Route path="branches" element={<Branches />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="account" element={<Account />} />
+                </Route>
+
+                {/* Catch all - redirect to POS */}
+                <Route path="*" element={<Navigate to="/pos" />} />
+              </Routes>
+            </SettingsProvider>
+          </PermissionsProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

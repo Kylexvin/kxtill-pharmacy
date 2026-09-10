@@ -8,16 +8,34 @@ function safeLocalStorageGet(key, defaultValue) {
   if (typeof window === 'undefined') return defaultValue;
   const stored = localStorage.getItem(key);
   if (!stored || stored === 'undefined' || stored === 'null') return defaultValue;
-  
+
   if (typeof defaultValue === 'string') {
     return stored;
   }
-  
+
   try {
     const parsed = JSON.parse(stored);
     return parsed !== null && parsed !== undefined ? parsed : defaultValue;
   } catch {
     return stored;
+  }
+}
+
+// Purge per-org caches (permissions, sync flags) on logout / session failure.
+// Call this ONLY from real "logged out" moments — never from branch/org switches.
+function purgeSessionCaches() {
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach((key) => {
+      if (
+        key.startsWith('initialSyncDone:') ||
+        key.startsWith('permissions:')
+      ) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch {
+    // ignore — private mode, quota
   }
 }
 
@@ -27,10 +45,10 @@ export function AuthProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(() => safeLocalStorageGet('refreshToken', null));
   const [organizations, setOrganizations] = useState(() => safeLocalStorageGet('organizations', []));
   const [branches, setBranches] = useState(() => safeLocalStorageGet('branches', []));
-  const [activeOrganization, setActiveOrganizationState] = useState(() => 
+  const [activeOrganization, setActiveOrganizationState] = useState(() =>
     safeLocalStorageGet('activeOrganization', null)
   );
-  const [activeBranch, setActiveBranchState] = useState(() => 
+  const [activeBranch, setActiveBranchState] = useState(() =>
     safeLocalStorageGet('activeBranch', null)
   );
   const [isLoading, setIsLoading] = useState(false);
@@ -61,6 +79,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Check pending sales AND unsaved cart items, then fully reset the offline db.
+  // Note: this does NOT purge permissions — that's a separate concern handled on logout.
   const clearOfflineData = useCallback(async (force = false) => {
     try {
       const { getActiveCart, resetDb } = await import('../db/sqlite');
@@ -132,7 +151,7 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setIsSwitching(true);
     setError(null);
-    
+
     try {
       const org = organizations.find(o => o.id === orgId);
       if (!org) {
@@ -161,7 +180,7 @@ export function AuthProvider({ children }) {
 
       const response = await axios.get(`/organizations/${orgId}/branches/my`);
       const fetchedBranches = response.data.branches || [];
-      
+
       setBranches(fetchedBranches);
       localStorage.setItem('branches', JSON.stringify(fetchedBranches));
 
@@ -192,13 +211,13 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('activeBranch');
       return;
     }
-    
+
     const hasAccess = branches.some(b => b.id === branch.id);
     if (!hasAccess) {
       console.warn('User does not have access to branch:', branch.id);
       return;
     }
-    
+
     const pendingResult = await clearOfflineData(false);
     if (pendingResult.hasPendingSales) {
       const confirmSwitch = window.confirm(
@@ -209,7 +228,7 @@ export function AuthProvider({ children }) {
       }
       await clearOfflineData(true);
     }
-    
+
     setActiveBranchState(branch);
     localStorage.setItem('activeBranch', JSON.stringify(branch));
   }, [branches, clearOfflineData]);
@@ -267,7 +286,7 @@ export function AuthProvider({ children }) {
       setActiveBranchState(null);
       setError(null);
       setIsOffline(false);
-      
+
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
@@ -283,14 +302,10 @@ export function AuthProvider({ children }) {
         console.error('Failed to reset db on logout:', err);
         localStorage.removeItem('kxtill_db');
       }
-      
-      const keys = Object.keys(localStorage);
-      keys.forEach(key => {
-        if (key.startsWith('initialSyncDone:')) {
-          localStorage.removeItem(key);
-        }
-      });
-      
+
+      // Purge per-org caches (permissions + sync flags) — real logout only
+      purgeSessionCaches();
+
       delete axios.defaults.headers.common['Authorization'];
     }
   }, [refreshToken]);
@@ -298,7 +313,7 @@ export function AuthProvider({ children }) {
   // ============================================================
   // SET AUTH DATA (for OAuth callback)
   // ============================================================
-  
+
   const setAuthData = useCallback((user, accessToken, refreshToken, organizations) => {
     setUser(user);
     setAccessToken(accessToken);
@@ -322,7 +337,7 @@ export function AuthProvider({ children }) {
     const validateSession = async () => {
       const token = localStorage.getItem('accessToken');
       const refresh = localStorage.getItem('refreshToken');
-      
+
       if (!token || !refresh) {
         return;
       }
@@ -405,10 +420,6 @@ export function AuthProvider({ children }) {
 
   const isAuthenticated = !!user && !!accessToken;
 
-  // Memoized so the context value reference only changes when something in
-  // it actually changes — without this, every AuthProvider render (even from
-  // unrelated state like isLoading toggling during a branch switch) creates
-  // a brand-new object, forcing every consumer of useAuth() to re-render.
   const value = useMemo(() => ({
     user,
     accessToken,
