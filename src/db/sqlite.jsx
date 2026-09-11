@@ -120,13 +120,32 @@ const createTables = async () => {
       value TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );`,
+    `CREATE TABLE IF NOT EXISTS local_customers (
+      id TEXT PRIMARY KEY,
+      serverId TEXT,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      isSynced INTEGER DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );`,
     `CREATE INDEX IF NOT EXISTS idx_local_sales_status ON local_sales(status);`,
     `CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);`,
     `CREATE INDEX IF NOT EXISTS idx_branch_products_branch ON branch_products(branchId);`,
     `CREATE INDEX IF NOT EXISTS idx_cart_branch ON cart(branchId);`,
+    `CREATE INDEX IF NOT EXISTS idx_local_customers_phone ON local_customers(phone);`,
+    `CREATE INDEX IF NOT EXISTS idx_local_customers_name ON local_customers(name);`,
+    `CREATE INDEX IF NOT EXISTS idx_local_customers_unsynced ON local_customers(isSynced);`,
     `ALTER TABLE local_sales ADD COLUMN serverSaleId TEXT;`,
     `ALTER TABLE local_sales ADD COLUMN receiptText TEXT;`,
+    `ALTER TABLE local_sales ADD COLUMN customerId TEXT;`,
+    `ALTER TABLE local_sales ADD COLUMN customerTempId TEXT;`,
     `CREATE INDEX IF NOT EXISTS idx_local_sales_server_sale_id ON local_sales(serverSaleId);`,
+    `CREATE INDEX IF NOT EXISTS idx_local_sales_customer_temp ON local_sales(customerTempId);`,
+    `ALTER TABLE cart ADD COLUMN customerId TEXT;`,
+    `ALTER TABLE cart ADD COLUMN customerTempId TEXT;`,
+    `ALTER TABLE cart ADD COLUMN customerPhone TEXT;`,
   ];
 
   for (const query of queries) {
@@ -224,12 +243,12 @@ export const getProduct = async (id) => {
 
 export const getAllProducts = async () => {
   const products = query('SELECT * FROM products ORDER BY name ASC');
-  
+
   for (const product of products) {
     const units = query('SELECT * FROM product_units WHERE productId = ?', [product.id]);
     product.units = units;
   }
-  
+
   return products;
 };
 
@@ -306,13 +325,13 @@ export const getBranchProducts = async (branchId) => {
     LEFT JOIN products p ON bp.productId = p.id
     WHERE bp.branchId = ?
   `, [branchId]);
-  
+
   for (const bp of results) {
     bp.isAvailable = Number(bp.isAvailable);
     const units = query('SELECT * FROM product_units WHERE productId = ?', [bp.productId]);
     bp.units = units;
   }
-  
+
   return results;
 };
 
@@ -332,12 +351,24 @@ export const clearBranchProducts = async () => {
 export const saveCart = async (cart) => {
   run('DELETE FROM cart WHERE branchId = ?', [cart.branchId]);
   const sql = `
-    INSERT INTO cart (branchId, customerName, items, total, updatedAt)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO cart (
+      branchId,
+      customerName,
+      customerId,
+      customerTempId,
+      customerPhone,
+      items,
+      total,
+      updatedAt
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
   run(sql, [
     cart.branchId,
     cart.customerName || null,
+    cart.customerId || null,
+    cart.customerTempId || null,
+    cart.customerPhone || null,
     cart.items,
     cart.total || 0,
     cart.updatedAt,
@@ -360,14 +391,17 @@ export const clearCart = async (branchId) => {
 export const createLocalSale = async (sale) => {
   const sql = `
     INSERT OR REPLACE INTO local_sales (
-      id, branchId, customerName, items, payments, subtotal, taxAmount, totalAmount,
+      id, branchId, customerName, customerId, customerTempId,
+      items, payments, subtotal, taxAmount, totalAmount,
       status, syncedAt, error, createdAt, updatedAt, serverSaleId, receiptText
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   run(sql, [
     sale.id,
     sale.branchId,
     sale.customerName || null,
+    sale.customerId || null,
+    sale.customerTempId || null,
     sale.items,
     sale.payments,
     sale.subtotal || 0,
@@ -428,23 +462,19 @@ export const getSalesWithServerId = async () => {
 };
 
 // ============================================================
-// SALES HELPERS - Merge Local + Server Sales (FIXED)
+// SALES HELPERS
 // ============================================================
 
-/**
- * Get all sales for a branch (local sales only - PENDING and FAILED)
- * Returns sales in a unified format matching server response
- * ✅ FIXED: Only returns PENDING and FAILED sales (excludes SYNCED)
- */
 export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
   const { limit = 50, offset = 0, status, search, startDate, endDate } = options;
-  
-  // ✅ ONLY get PENDING and FAILED sales (not SYNCED)
+
   let localSales = query(`
     SELECT 
       id,
       branchId,
       customerName,
+      customerId,
+      customerTempId,
       items,
       payments,
       subtotal,
@@ -463,7 +493,6 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
     ORDER BY createdAt DESC
   `, [branchId]);
 
-  // Apply filters
   if (status && status !== 'all') {
     localSales = localSales.filter(s => s.status === status.toUpperCase());
   }
@@ -487,7 +516,6 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
     localSales = localSales.filter(s => new Date(s.createdAt) <= end);
   }
 
-  // Format local sales to match server format
   const formattedLocal = localSales.map(sale => {
     let items = [];
     let payments = [];
@@ -504,6 +532,8 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
       id: sale.id,
       reference: sale.serverSaleId || sale.id.slice(0, 8).toUpperCase(),
       customerName: sale.customerName || 'Walk-in Customer',
+      customerId: sale.customerId || null,
+      customerTempId: sale.customerTempId || null,
       subtotal: sale.subtotal || 0,
       taxAmount: sale.taxAmount || 0,
       discount: 0,
@@ -532,9 +562,6 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
   };
 };
 
-/**
- * Get a single sale from local storage by clientSaleId
- */
 export const getLocalSaleFormatted = async (saleId) => {
   const localSale = await getLocalSale(saleId);
   if (!localSale) return null;
@@ -552,6 +579,8 @@ export const getLocalSaleFormatted = async (saleId) => {
     id: localSale.id,
     reference: localSale.serverSaleId || localSale.id.slice(0, 8).toUpperCase(),
     customerName: localSale.customerName || 'Walk-in Customer',
+    customerId: localSale.customerId || null,
+    customerTempId: localSale.customerTempId || null,
     subtotal: localSale.subtotal || 0,
     taxAmount: localSale.taxAmount || 0,
     discount: 0,
@@ -570,17 +599,12 @@ export const getLocalSaleFormatted = async (saleId) => {
   };
 };
 
-/**
- * Get a local sale by serverSaleId (for synced sales)
- * Useful for fetching cached receiptText without network call
- * ✅ NEW: Lookup by serverSaleId
- */
 export const getLocalSaleByServerId = async (serverSaleId) => {
   const results = query('SELECT * FROM local_sales WHERE serverSaleId = ?', [serverSaleId]);
   if (results.length === 0) return null;
-  
+
   const localSale = results[0];
-  
+
   let items = [];
   let payments = [];
   try {
@@ -594,6 +618,8 @@ export const getLocalSaleByServerId = async (serverSaleId) => {
     id: localSale.id,
     reference: localSale.serverSaleId || localSale.id.slice(0, 8).toUpperCase(),
     customerName: localSale.customerName || 'Walk-in Customer',
+    customerId: localSale.customerId || null,
+    customerTempId: localSale.customerTempId || null,
     subtotal: localSale.subtotal || 0,
     taxAmount: localSale.taxAmount || 0,
     discount: 0,
@@ -612,15 +638,12 @@ export const getLocalSaleByServerId = async (serverSaleId) => {
   };
 };
 
-/**
- * Retry a failed local sale
- */
 export const retryLocalSale = async (saleId) => {
   const result = query('SELECT status FROM local_sales WHERE id = ?', [saleId]);
   if (result.length === 0) {
     throw new Error('Sale not found');
   }
-  
+
   if (result[0].status !== 'FAILED') {
     throw new Error('Sale is not in failed state');
   }
@@ -631,7 +654,6 @@ export const retryLocalSale = async (saleId) => {
     WHERE id = ?
   `, [new Date().toISOString(), saleId]);
 
-  // Re-enqueue for sync
   const sale = await getLocalSale(saleId);
   if (sale) {
     let items = [];
@@ -647,6 +669,8 @@ export const retryLocalSale = async (saleId) => {
       clientSaleId: saleId,
       branchId: sale.branchId,
       customerName: sale.customerName,
+      customerId: sale.customerId || null,
+      customerTempId: sale.customerTempId || null,
       items: items,
       paymentMethod: payments[0]?.method || 'CASH',
       paymentReference: payments[0]?.reference || null,
@@ -656,9 +680,6 @@ export const retryLocalSale = async (saleId) => {
   return { success: true };
 };
 
-/**
- * Get pending sales count for a branch
- */
 export const getPendingSalesCount = async (branchId) => {
   const result = query(`
     SELECT COUNT(*) as count 
@@ -668,9 +689,6 @@ export const getPendingSalesCount = async (branchId) => {
   return result.length > 0 ? result[0].count : 0;
 };
 
-/**
- * Get failed sales count for a branch
- */
 export const getFailedSalesCount = async (branchId) => {
   const result = query(`
     SELECT COUNT(*) as count 
@@ -678,6 +696,161 @@ export const getFailedSalesCount = async (branchId) => {
     WHERE branchId = ? AND status = 'FAILED'
   `, [branchId]);
   return result.length > 0 ? result[0].count : 0;
+};
+
+// ============================================================
+// LOCAL CUSTOMERS
+// ============================================================
+
+export const upsertLocalCustomer = async (customer) => {
+  const now = new Date().toISOString();
+  const sql = `
+    INSERT OR REPLACE INTO local_customers
+      (id, serverId, name, phone, email, isSynced, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  run(sql, [
+    customer.id,
+    customer.serverId || null,
+    customer.name,
+    customer.phone || null,
+    customer.email || null,
+    customer.isSynced ? 1 : 0,
+    customer.createdAt || now,
+    customer.updatedAt || now,
+  ]);
+};
+
+/**
+ * Write a server-sourced customer into the local cache.
+ * - Uses the server id as the local id, marks isSynced = 1
+ * - Never clobbers an unsynced local row (offline-created) with the same phone
+ */
+export const upsertServerCustomer = async (customer) => {
+  if (!customer?.id) return;
+
+  // Already have a local row pointing at this server id? Update in place.
+  const byServerId = query(
+    `SELECT id FROM local_customers WHERE serverId = ? LIMIT 1`,
+    [customer.id]
+  );
+
+  if (byServerId.length) {
+    const localId = byServerId[0].id;
+    const now = new Date().toISOString();
+    run(`
+      UPDATE local_customers
+      SET name = ?, phone = ?, email = ?, isSynced = 1, updatedAt = ?
+      WHERE id = ?
+    `, [
+      customer.name,
+      customer.phone || null,
+      customer.email || null,
+      customer.updatedAt || now,
+      localId,
+    ]);
+    return;
+  }
+
+  // Skip if a local unsynced row exists with the same phone
+  if (customer.phone) {
+    const existing = query(
+      `SELECT id, isSynced FROM local_customers WHERE phone = ? LIMIT 1`,
+      [customer.phone]
+    );
+    if (existing.length && existing[0].isSynced === 0) {
+      return;
+    }
+  }
+
+  const now = new Date().toISOString();
+  run(`
+    INSERT OR REPLACE INTO local_customers
+      (id, serverId, name, phone, email, isSynced, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  `, [
+    customer.id,
+    customer.id,
+    customer.name,
+    customer.phone || null,
+    customer.email || null,
+    customer.createdAt || now,
+    customer.updatedAt || now,
+  ]);
+};
+
+export const searchLocalCustomers = async (searchTerm) => {
+  if (!searchTerm || !searchTerm.trim()) return [];
+  const like = `%${searchTerm.trim().toLowerCase()}%`;
+  const phoneLike = `%${searchTerm.trim()}%`;
+
+  const rows = query(`
+    SELECT id, serverId, name, phone, email, isSynced, createdAt, updatedAt
+    FROM local_customers
+    WHERE LOWER(name) LIKE ? OR phone LIKE ?
+    ORDER BY name ASC
+    LIMIT 20
+  `, [like, phoneLike]);
+
+  return rows.map(r => ({
+    id: r.id,
+    serverId: r.serverId,
+    name: r.name,
+    phone: r.phone,
+    email: r.email,
+    isSynced: r.isSynced === 1,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+};
+
+export const getLocalCustomerByTempId = async (tempId) => {
+  const rows = query(
+    'SELECT * FROM local_customers WHERE id = ?',
+    [tempId]
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return { ...r, isSynced: r.isSynced === 1 };
+};
+
+export const getUnsyncedCustomers = async () => {
+  const rows = query(`
+    SELECT id, serverId, name, phone, email, isSynced, createdAt, updatedAt
+    FROM local_customers
+    WHERE isSynced = 0
+    ORDER BY createdAt ASC
+  `);
+  return rows.map(r => ({
+    id: r.id,
+    serverId: r.serverId,
+    name: r.name,
+    phone: r.phone,
+    email: r.email,
+    isSynced: r.isSynced === 1,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+};
+
+export const markCustomerSynced = async (tempId, serverId) => {
+  run(`
+    UPDATE local_customers
+    SET serverId = ?, isSynced = 1, updatedAt = ?
+    WHERE id = ?
+  `, [serverId, new Date().toISOString(), tempId]);
+};
+
+export const replaceCustomerIdInSales = async (tempId, serverId) => {
+  run(`
+    UPDATE local_sales
+    SET customerId = ?, customerTempId = NULL, updatedAt = ?
+    WHERE customerTempId = ?
+  `, [serverId, new Date().toISOString(), tempId]);
+};
+
+export const clearLocalCustomers = async () => {
+  runNoSave('DELETE FROM local_customers');
 };
 
 // ============================================================
@@ -764,4 +937,12 @@ export const getLastBranchSync = async () => {
 
 export const setLastBranchSync = async (value) => {
   await setSyncMetadata('last_branch_sync', value);
+};
+
+export const getLastCustomerSync = async () => {
+  return await getSyncMetadata('last_customer_sync');
+};
+
+export const setLastCustomerSync = async (value) => {
+  await setSyncMetadata('last_customer_sync', value);
 };

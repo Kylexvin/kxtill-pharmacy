@@ -1,6 +1,7 @@
 // src/pages/Refunds/Refunds.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -38,11 +39,11 @@ const Refunds = () => {
     activeOrganization,
     activeBranch,
     branches,
-    accessToken,
     setActiveBranch,
     isOffline: contextIsOffline,
-    userPermissions,
   } = useAuth();
+
+  const { isOwner, can, loading: permissionsLoading } = usePermissions();
 
   const {
     formatCurrency,
@@ -78,21 +79,21 @@ const Refunds = () => {
   const [refundMethod, setRefundMethod] = useState('ORIGINAL');
   const [refundError, setRefundError] = useState('');
 
-  // Permission state
-  const [canRefund, setCanRefund] = useState(false);
-  const [permissionsChecked, setPermissionsChecked] = useState(false);
-
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
 
-const orgId = activeOrganization?.id;
-const limit = 20;
-const isOwner = useMemo(() => userPermissions?.includes('*') || false, [userPermissions]);
-const canViewAllBranches = useMemo(() => isOwner, [isOwner]);
-const availableBranches = useMemo(() => branches || [], [branches]);
+  const orgId = activeOrganization?.id;
+  const limit = 20;
+  const canViewAllBranches = isOwner;
+  const availableBranches = useMemo(() => branches || [], [branches]);
+  const showBranchFilter = canViewAllBranches && availableBranches.length > 1;
 
-  // Helper functions with useCallback
+  // Permission-derived flags
+  const canRefund = isOwner || can('kxtill.sales.refund') || can('REFUND');
+  const permissionsChecked = !permissionsLoading;
+
+  // Helper functions
   const getServerBranchId = useCallback(() => {
     if (branchFilter !== 'all') return branchFilter;
     if (!canViewAllBranches) return activeBranch?.id || null;
@@ -144,8 +145,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
     };
   }, [dateRange]);
 
-
-
   const getPaymentMethod = (method) => {
     const methodMap = {
       'CASH': { icon: Banknote, label: 'Cash' },
@@ -176,32 +175,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
 
   const isAbortError = (error) =>
     error?.name === 'CanceledError' || error?.name === 'AbortError' || axios.isCancel?.(error);
-
-  // Check permissions
-  useEffect(() => {
-    const checkRefundPermissions = async () => {
-      if (!orgId || !accessToken) {
-        setPermissionsChecked(true);
-        return;
-      }
-      try {
-        const response = await axios.get(`/auth/me/dashboard?organizationId=${orgId}`);
-        const perms = response.data.permissions || [];
-        const hasRefundPerm = perms.includes('*') ||
-          perms.includes('REFUND') ||
-          perms.includes('REFUND_SALES') ||
-          perms.includes('MANAGE_REFUNDS') ||
-          perms.includes('kxtill.sales.refund');
-        setCanRefund(hasRefundPerm);
-        setPermissionsChecked(true);
-      } catch (error) {
-        console.error('Failed to check refund permissions:', error);
-        setCanRefund(false);
-        setPermissionsChecked(true);
-      }
-    };
-    checkRefundPermissions();
-  }, [orgId, accessToken]);
 
   // Search sales
   const searchSales = useCallback(async () => {
@@ -708,18 +681,20 @@ const availableBranches = useMemo(() => branches || [], [branches]);
             {getActiveBranchName()}
           </span>
         </div>
-        {!isOnline && (
-          <span className={styles.offlineBadge}>
-            <WifiOff size={14} />
-            Offline
-          </span>
-        )}
-        {isOwner && (
-          <span className={styles.ownerBadge}>Owner</span>
-        )}
-        {!canRefund && permissionsChecked && (
-          <span className={styles.permissionBadge}>View Only</span>
-        )}
+        <div className={styles.headerRight}>
+          {!isOnline && (
+            <span className={styles.offlineBadge}>
+              <WifiOff size={14} />
+              Offline
+            </span>
+          )}
+          {isOwner && (
+            <span className={styles.ownerBadge}>Owner</span>
+          )}
+          {!canRefund && permissionsChecked && (
+            <span className={styles.permissionBadge}>View Only</span>
+          )}
+        </div>
       </div>
 
       {/* Permission Notice */}
@@ -889,6 +864,21 @@ const availableBranches = useMemo(() => branches || [], [branches]);
       {/* Filters */}
       <div className={styles.filtersBar}>
         <div className={styles.filterGroup}>
+          {showBranchFilter && (
+            <select
+              value={branchFilter}
+              onChange={(e) => handleFilterChange('branch', e.target.value)}
+              className={styles.filterSelect}
+            >
+              <option value="all">All Branches</option>
+              {availableBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           <select
             value={statusFilter}
             onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -993,7 +983,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
               </thead>
               <tbody>
                 {paginatedRefunds.map((sale) => {
-
                   const payment = getPaymentMethod(paymentMethodOf(sale));
                   const PaymentIcon = payment.icon;
                   const reference = referenceOf(sale);
@@ -1123,7 +1112,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
             </div>
 
             <div className={styles.modalBody}>
-              {/* Sale Info */}
               <div className={styles.saleInfo}>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Reference</span>
@@ -1153,7 +1141,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
                 )}
               </div>
 
-              {/* Items Selection */}
               {selectedSale.status !== 'REFUNDED' && (
                 <>
                   <div className={styles.itemsSection}>
@@ -1197,7 +1184,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
                     </div>
                   </div>
 
-                  {/* Refund Method */}
                   <div className={styles.refundMethodSection}>
                     <label className={styles.methodLabel}>Refund Method</label>
                     <div className={styles.methodOptions}>
@@ -1228,7 +1214,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
                     </div>
                   </div>
 
-                  {/* Reason */}
                   <div className={styles.reasonSection}>
                     <label className={styles.reasonLabel}>Reason for Refund (Optional)</label>
                     <textarea
@@ -1240,7 +1225,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
                     />
                   </div>
 
-                  {/* Error */}
                   {refundError && (
                     <div className={styles.errorMessage}>
                       <AlertCircle size={16} />
@@ -1248,7 +1232,6 @@ const availableBranches = useMemo(() => branches || [], [branches]);
                     </div>
                   )}
 
-                  {/* Summary */}
                   <div className={styles.summarySection}>
                     <div className={styles.summaryRow}>
                       <span>Total Refund Amount</span>

@@ -17,26 +17,24 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const { can, canAny } = usePermissions();
 
   // ---------- permissions ----------
-  const showPos          = can('kxtill.sales.create');
-  const showSales        = can('kxtill.sales.view');
-  const showRefunds      = can('kxtill.sales.refund');
+  const showPos             = can('kxtill.sales.create');
+  const showSales           = can('kxtill.sales.view');
+  const showRefunds         = can('kxtill.sales.refund');
 
-  const showProducts     = can('kxtill.inventory.view');
-  const showGlobalInv    = can('kxtill.inventory.view');
-  const showTransfers    = canAny(['kxtill.inventory.view', 'branches.manage']);
-  const showInventoryGroup = showProducts || showGlobalInv || showTransfers;
+  const showProducts        = can('kxtill.inventory.view');
+  const showGlobalInv       = can('kxtill.inventory.view');
+  const showTransfers       = canAny(['kxtill.inventory.view', 'branches.manage']);
+  const showInventoryGroup  = showProducts || showGlobalInv || showTransfers;
 
-  const showCustomers    = can('kxtill.customers.view');
-  const showCustomerGroups = showCustomers;
-  const showCustomersGroup = showCustomers || showCustomerGroups;
+  const showCustomers       = can('customers.view');
 
-  const showStaffList    = canAny(['members.view', 'members.manage']);
-  const showRoles        = can('members.manage');
-  const showStaffGroup   = showStaffList || showRoles;
+  const showStaffList       = canAny(['members.view', 'members.manage']);
+  const showRoles           = can('members.manage');
+  const showStaffGroup      = showStaffList || showRoles;
 
-  const showBranches     = canAny(['branches.view', 'branches.manage']);
-  const showReports      = can('kxtill.reports.view');
-  const showSettings     = can('kxtill.settings.view');
+  const showBranches        = canAny(['branches.view', 'branches.manage']);
+  const showReports         = can('kxtill.reports.view');
+  const showSettings        = can('kxtill.settings.view');
 
   // ---------- route matching ----------
   const path = location.pathname;
@@ -49,12 +47,6 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
     path.startsWith('/global-inventory/') ||
     path.startsWith('/transfers/');
 
-  const isCustomersActive =
-    path === '/customers' ||
-    path === '/customer-groups' ||
-    path.startsWith('/customers/') ||
-    path.startsWith('/customer-groups/');
-
   const isStaffActive =
     path === '/staff' ||
     path === '/roles' ||
@@ -63,21 +55,19 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
 
   // ---------- open/close state ----------
   // At most one group expanded at a time. Synced to the current route.
-  const [openGroup, setOpenGroup] = useState(null); // null | 'inventory' | 'customers' | 'staff'
+  const [openGroup, setOpenGroup] = useState(null); // null | 'inventory' | 'staff'
 
   useEffect(() => {
     if (isInventoryActive) setOpenGroup('inventory');
-    else if (isCustomersActive) setOpenGroup('customers');
     else if (isStaffActive) setOpenGroup('staff');
     else setOpenGroup(null);
-  }, [isInventoryActive, isCustomersActive, isStaffActive]);
+  }, [isInventoryActive, isStaffActive]);
 
   const toggleGroup = (group) => {
     setOpenGroup((current) => (current === group ? null : group));
   };
 
   const inventoryOpen = openGroup === 'inventory';
-  const customersOpen = openGroup === 'customers';
   const staffOpen     = openGroup === 'staff';
 
   // ---------- handlers ----------
@@ -133,6 +123,12 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
           </NavLink>
         )}
 
+        {showCustomers && (
+          <NavLink to="/customers" className={navLinkClass} onClick={handleNavClick}>
+            <Users size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Customers</span>
+          </NavLink>
+        )}
+
         {/* Inventory */}
         {showInventoryGroup && (
           <div>
@@ -161,36 +157,6 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
                 {showTransfers && (
                   <NavLink to="/transfers" className={subLinkClass} onClick={handleNavClick}>
                     Stock Transfers
-                  </NavLink>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Customers */}
-        {showCustomersGroup && (
-          <div>
-            <button
-              type="button"
-              className={`${styles.navLinkExpandable} ${isCustomersActive ? styles.navLinkActive : ''}`}
-              onClick={() => toggleGroup('customers')}
-            >
-              <span className={styles.navLinkExpandableLabel}>
-                <Users size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Customers</span>
-              </span>
-              <ChevronDown size={13} className={styles.chevron} data-open={customersOpen} />
-            </button>
-            {customersOpen && !collapsed && (
-              <div className={styles.subNav}>
-                {showCustomers && (
-                  <NavLink to="/customers" className={subLinkClass} onClick={handleNavClick}>
-                    All Customers
-                  </NavLink>
-                )}
-                {showCustomerGroups && (
-                  <NavLink to="/customer-groups" className={subLinkClass} onClick={handleNavClick}>
-                    Groups
                   </NavLink>
                 )}
               </div>

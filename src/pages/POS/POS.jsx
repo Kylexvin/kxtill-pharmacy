@@ -109,11 +109,10 @@ const buildLocalReceiptText = (data) => {
 const POS = () => {
   const { activeOrganization, activeBranch, branches } = useAuth();
 
-  // Use settings from SettingsContext
   const {
     getCurrency,
     getDecimalPlaces,
-    getDefaultPaymentMethod,   
+    getDefaultPaymentMethod,
     getShopName,
   } = useSettings();
 
@@ -132,7 +131,6 @@ const POS = () => {
   const [dbReady, setDbReady] = useState(false);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
 
-  // Mobile cart sheet
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [cartOpen, setCartOpen] = useState(false);
 
@@ -144,14 +142,12 @@ const POS = () => {
   const currency = getCurrency();
   const decimals = getDecimalPlaces();
   const defaultPaymentMethod = getDefaultPaymentMethod();
- 
 
   const hasValidBranch = branchId && branches?.some(b => b.id === branchId);
   const shouldFetch = orgId && hasValidBranch && dbReady;
 
   const syncFlagKey = orgId && branchId ? `initialSyncDone:${orgId}:${branchId}` : null;
 
-  // Track viewport for mobile cart sheet
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
@@ -165,7 +161,6 @@ const POS = () => {
   const toggleCart = () => setCartOpen((open) => !open);
   const closeCart = () => setCartOpen(false);
 
-  // Check database readiness
   useEffect(() => {
     let cancelled = false;
     let retryTimeout;
@@ -189,28 +184,39 @@ const POS = () => {
     };
   }, []);
 
-  // Load saved cart from SQLite
-  useEffect(() => {
-    if (!dbReady || !branchId) return;
+  
+// Save cart to SQLite on changes — now also clears when customer is removed
+useEffect(() => {
+  if (!dbReady || !branchId) return;
 
-    const loadSavedCart = async () => {
-      try {
-        const savedCart = await getActiveCart(branchId);
-        if (savedCart) {
-          const items = JSON.parse(savedCart.items || '[]');
-          setCartItems(items);
-          if (savedCart.customerName) {
-            setCustomer({ name: savedCart.customerName });
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load cart:', err);
+  const persistCart = async () => {
+    try {
+      // If both cart and customer are gone, wipe the row entirely
+      if (cartItems.length === 0 && !customer?.name) {
+        await clearCart(branchId);
+        return;
       }
-    };
-    loadSavedCart();
-  }, [dbReady, branchId]);
 
-  // Save cart to SQLite on changes
+      const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
+      await saveCart({
+        branchId: branchId,
+        customerName: customer?.name || null,
+        customerId: customer?.id || null,
+        customerTempId: customer?.tempId || null,
+        customerPhone: customer?.phone || null,
+        items: JSON.stringify(cartItems),
+        total: subtotal,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Failed to save cart:', err);
+    }
+  };
+
+  persistCart();
+}, [cartItems, customer, branchId, dbReady]);
+
+  // Save cart to SQLite on changes — now persists customer id/tempId/phone
   useEffect(() => {
     if (!dbReady || !branchId) return;
 
@@ -220,6 +226,9 @@ const POS = () => {
         await saveCart({
           branchId: branchId,
           customerName: customer?.name || null,
+          customerId: customer?.id || null,
+          customerTempId: customer?.tempId || null,
+          customerPhone: customer?.phone || null,
           items: JSON.stringify(cartItems),
           total: subtotal,
           updatedAt: new Date().toISOString(),
@@ -234,7 +243,6 @@ const POS = () => {
     }
   }, [cartItems, customer, branchId, dbReady]);
 
-  // Fetch products from SQLite - DEFINED EARLY SO IT'S AVAILABLE TO ALL USEFFECTS
   const fetchProducts = useCallback(async () => {
     if (!dbReady || !shouldFetch || !branchId) return;
     setLoading(true);
@@ -243,7 +251,6 @@ const POS = () => {
       const allProducts = await getAllProducts();
       const branchProds = await getBranchProducts(branchId);
 
-      // Filter products to only those available in this branch
       const branchProductIds = new Set(branchProds.map(bp => bp.productId));
       const filteredByBranch = allProducts.filter(p => branchProductIds.has(p.id));
 
@@ -284,7 +291,6 @@ const POS = () => {
     }
   }, [dbReady, branchId, shouldFetch, debouncedSearch, selectedCategory]);
 
-  // Initial sync
   useEffect(() => {
     if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
       return;
@@ -294,7 +300,6 @@ const POS = () => {
       const done = localStorage.getItem(syncFlagKey);
       if (done === 'true') {
         setInitialSyncDone(true);
-        // Fetch products immediately if already synced
         fetchProducts();
         return;
       }
@@ -306,7 +311,6 @@ const POS = () => {
         localStorage.setItem(syncFlagKey, 'true');
         setInitialSyncDone(true);
         toast.success('Products synced', { id: 'initial-sync' });
-        // Fetch products immediately after sync
         fetchProducts();
       } catch (err) {
         console.error('Initial sync failed:', err);
@@ -320,7 +324,6 @@ const POS = () => {
     runInitialSync();
   }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
 
-  // Categories from SQLite
   useEffect(() => {
     if (!dbReady || !shouldFetch || !initialSyncDone) return;
 
@@ -336,7 +339,6 @@ const POS = () => {
     loadCategories();
   }, [dbReady, shouldFetch, initialSyncDone]);
 
-  // Refresh when branch changes
   useEffect(() => {
     if (initialSyncDone && branchId) {
       fetchProducts();
@@ -344,14 +346,12 @@ const POS = () => {
     }
   }, [branchId, initialSyncDone, fetchProducts]);
 
-  // Also fetch when initialSyncDone becomes true (for initial load)
   useEffect(() => {
     if (initialSyncDone) {
       fetchProducts();
     }
   }, [initialSyncDone, fetchProducts]);
 
-  // Manual sync
   const handleManualSync = useCallback(async () => {
     if (syncing || !branchId || !syncFlagKey) return;
     setSyncing(true);
@@ -373,7 +373,6 @@ const POS = () => {
     }
   }, [syncing, branchId, syncFlagKey, fetchProducts]);
 
-  // Barcode scan from SQLite
   const handleBarcodeSubmit = async (e) => {
     e.preventDefault();
     const code = barcodeValue.trim();
@@ -390,14 +389,12 @@ const POS = () => {
 
       for (const p of availableProducts) {
         const units = p.units || [];
-        // Check barcode first
         const match = units.find(u => u.barcode === code);
         if (match) {
           foundProduct = p;
           foundUnit = match;
           break;
         }
-        // Fallback to SKU
         if (p.sku === code) {
           foundProduct = p;
           foundUnit = units[0];
@@ -574,10 +571,16 @@ const POS = () => {
         reference: reference || `PAY_${Date.now()}`,
       }];
 
+      // Resolve customerId vs customerTempId for the local sale row
+      const hasSyncedCustomer = customer && customer.id && !customer.tempId;
+      const hasTempCustomer = customer && customer.tempId;
+
       const localSale = {
         id: clientSaleId,
         branchId: branchId,
         customerName: customer?.name || null,
+        customerId: hasSyncedCustomer ? customer.id : null,
+        customerTempId: hasTempCustomer ? customer.tempId : null,
         items: JSON.stringify(saleItems),
         payments: JSON.stringify(payments),
         subtotal: subtotal,
@@ -591,17 +594,18 @@ const POS = () => {
       };
 
       await createLocalSale(localSale);
+
       await enqueueSync('sale', clientSaleId, 'CREATE', {
         clientSaleId,
         branchId: branchId,
+        customerId: hasSyncedCustomer ? customer.id : null,
+        customerTempId: hasTempCustomer ? customer.tempId : null,
         customerName: customer?.name || null,
         items: saleItems,
         paymentMethod: method,
         paymentReference: reference,
       });
 
-      // Fire-and-forget: don't block checkout on the network.
-      // Real ETIMS receipt gets cached in the background by fetchPendingReceipts().
       sync(branchId).catch(() => {});
 
       const localReceiptData = {
@@ -658,7 +662,6 @@ const POS = () => {
     }
   };
 
-  // Reusable cart element — same props regardless of desktop/mobile placement
   const cartElement = (
     <Cart
       items={cartItems}
@@ -676,8 +679,6 @@ const POS = () => {
     />
   );
 
-  // On mobile the cart renders inside a bottom sheet (toggled via cartOpen);
-  // on desktop it renders inline as before.
   const cartRegion = isMobile ? (
     <>
       {cartOpen && <div className={styles.cartOverlay} onClick={closeCart} />}
@@ -704,7 +705,6 @@ const POS = () => {
     </button>
   );
 
-  // Loading states
   if (!dbReady) {
     return (
       <div className={styles.pos}>

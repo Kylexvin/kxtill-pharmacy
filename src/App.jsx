@@ -22,6 +22,7 @@ import Sales from './pages/Sales/Sales';
 import Refunds from './pages/Refunds/Refunds';
 import Transfers from './pages/Transfers/Transfers';
 import Customers from './pages/Customers/Customers';
+import CustomerDetail from './pages/Customers/CustomerDetail';
 import CustomerGroups from './pages/CustomerGroups/CustomerGroups';
 import Staff from './pages/Staff/Staff';
 import Roles from './pages/Roles/Roles';
@@ -228,7 +229,7 @@ function App() {
                   <Route path="refunds" element={<Refunds />} />
                   <Route path="transfers" element={<Transfers />} />
                   <Route path="customers" element={<Customers />} />
-                  <Route path="customer-groups" element={<CustomerGroups />} />
+                  <Route path="customers/:id" element={<CustomerDetail />} />
                   <Route path="staff" element={<Staff />} />
                   <Route path="roles" element={<Roles />} />
                   <Route path="branches" element={<Branches />} />
