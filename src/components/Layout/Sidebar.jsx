@@ -14,23 +14,20 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
-  const { can, canAny } = usePermissions();
+  const { can, canAny, isOwner } = usePermissions();
 
   // ---------- permissions ----------
   const showPos             = can('kxtill.sales.create');
   const showSales           = can('kxtill.sales.view');
   const showRefunds         = can('kxtill.sales.refund');
 
+  const showCustomers       = can('customers.view');
+  const showKxTillStaff     = isOwner || can('kxtill.staff.view');
+
   const showProducts        = can('kxtill.inventory.view');
   const showGlobalInv       = can('kxtill.inventory.view');
   const showTransfers       = canAny(['kxtill.inventory.view', 'branches.manage']);
   const showInventoryGroup  = showProducts || showGlobalInv || showTransfers;
-
-  const showCustomers       = can('customers.view');
-
-  const showStaffList       = canAny(['members.view', 'members.manage']);
-  const showRoles           = can('members.manage');
-  const showStaffGroup      = showStaffList || showRoles;
 
   const showBranches        = canAny(['branches.view', 'branches.manage']);
   const showReports         = can('kxtill.reports.view');
@@ -47,28 +44,19 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
     path.startsWith('/global-inventory/') ||
     path.startsWith('/transfers/');
 
-  const isStaffActive =
-    path === '/staff' ||
-    path === '/roles' ||
-    path.startsWith('/staff/') ||
-    path.startsWith('/roles/');
-
   // ---------- open/close state ----------
-  // At most one group expanded at a time. Synced to the current route.
-  const [openGroup, setOpenGroup] = useState(null); // null | 'inventory' | 'staff'
+  const [openGroup, setOpenGroup] = useState(null); // null | 'inventory'
 
   useEffect(() => {
     if (isInventoryActive) setOpenGroup('inventory');
-    else if (isStaffActive) setOpenGroup('staff');
     else setOpenGroup(null);
-  }, [isInventoryActive, isStaffActive]);
+  }, [isInventoryActive]);
 
   const toggleGroup = (group) => {
     setOpenGroup((current) => (current === group ? null : group));
   };
 
   const inventoryOpen = openGroup === 'inventory';
-  const staffOpen     = openGroup === 'staff';
 
   // ---------- handlers ----------
   const handleLogout = async () => {
@@ -164,34 +152,10 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
           </div>
         )}
 
-        {/* Staff */}
-        {showStaffGroup && (
-          <div>
-            <button
-              type="button"
-              className={`${styles.navLinkExpandable} ${isStaffActive ? styles.navLinkActive : ''}`}
-              onClick={() => toggleGroup('staff')}
-            >
-              <span className={styles.navLinkExpandableLabel}>
-                <UserCog size={16} className={styles.navIcon} /> <span className={styles.navLabel}>Staff</span>
-              </span>
-              <ChevronDown size={13} className={styles.chevron} data-open={staffOpen} />
-            </button>
-            {staffOpen && !collapsed && (
-              <div className={styles.subNav}>
-                {showStaffList && (
-                  <NavLink to="/staff" className={subLinkClass} onClick={handleNavClick}>
-                    All Staff
-                  </NavLink>
-                )}
-                {showRoles && (
-                  <NavLink to="/roles" className={subLinkClass} onClick={handleNavClick}>
-                    Roles &amp; Permissions
-                  </NavLink>
-                )}
-              </div>
-            )}
-          </div>
+        {showKxTillStaff && (
+          <NavLink to="/kxtill/staff" className={navLinkClass} onClick={handleNavClick}>
+            <UserCog size={16} className={styles.navIcon} /> <span className={styles.navLabel}>KxTill Staff</span>
+          </NavLink>
         )}
 
         {showBranches && (

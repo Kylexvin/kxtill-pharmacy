@@ -23,9 +23,7 @@ import Refunds from './pages/Refunds/Refunds';
 import Transfers from './pages/Transfers/Transfers';
 import Customers from './pages/Customers/Customers';
 import CustomerDetail from './pages/Customers/CustomerDetail';
-import CustomerGroups from './pages/CustomerGroups/CustomerGroups';
-import Staff from './pages/Staff/Staff';
-import Roles from './pages/Roles/Roles';
+import KxTillStaff from './pages/KxTillStaff/KxTillStaff';
 import Branches from './pages/Branches/Branches';
 import Account from './pages/Account/Account';
 import { initDb } from './db/sqlite';
@@ -39,10 +37,6 @@ axios.defaults.withCredentials = true;
 // ============================================================
 // SESSION CACHE PURGE
 // ============================================================
-// Called when the session truly ends (logout or refresh failure).
-// Removes per-org caches so a different user on the same device
-// never sees stale permissions or sync flags.
-// ============================================================
 function purgeSessionCaches() {
   try {
     const keys = Object.keys(localStorage);
@@ -55,7 +49,7 @@ function purgeSessionCaches() {
       }
     });
   } catch {
-    // ignore — private mode, quota
+    // ignore
   }
 }
 
@@ -64,7 +58,7 @@ let isRefreshing = false;
 let failedQueue = [];
 
 const processQueue = (error, token = null) => {
-  failedQueue.forEach(promise => {
+  failedQueue.forEach((promise) => {
     if (error) {
       promise.reject(error);
     } else {
@@ -92,10 +86,12 @@ axios.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (originalRequest.url === '/auth/refresh' ||
-        originalRequest.url?.endsWith('/auth/refresh') ||
-        originalRequest.url === '/auth/login' ||
-        originalRequest.url === '/auth/register') {
+    if (
+      originalRequest.url === '/auth/refresh' ||
+      originalRequest.url?.endsWith('/auth/refresh') ||
+      originalRequest.url === '/auth/login' ||
+      originalRequest.url === '/auth/register'
+    ) {
       localStorage.clear();
       window.location.href = '/login';
       return Promise.reject(error);
@@ -105,10 +101,12 @@ axios.interceptors.response.use(
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
-        }).then(token => {
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          return axios(originalRequest);
-        }).catch(err => Promise.reject(err));
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return axios(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
       }
 
       originalRequest._retry = true;
@@ -139,7 +137,6 @@ axios.interceptors.response.use(
         localStorage.removeItem('activeOrganization');
         localStorage.removeItem('activeBranch');
 
-        // Purge per-org caches so the next login starts clean
         purgeSessionCaches();
 
         delete axios.defaults.headers.common['Authorization'];
@@ -154,6 +151,10 @@ axios.interceptors.response.use(
   }
 );
 
+// ============================================================
+// PROTECTED ROUTE
+// ============================================================
+
 const ProtectedRoute = ({ children }) => {
   const { accessToken } = useAuth();
   if (!accessToken) {
@@ -161,6 +162,69 @@ const ProtectedRoute = ({ children }) => {
   }
   return children;
 };
+
+// ============================================================
+// DB LOADING SCREEN
+// ============================================================
+
+const DbLoadingScreen = () => (
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '16px',
+      background: 'var(--bg-app, #0f0f12)',
+      color: 'var(--text-muted, #8b8d98)',
+      fontFamily: 'inherit',
+      zIndex: 9999,
+    }}
+  >
+    <div
+      style={{
+        width: '40px',
+        height: '40px',
+        border: '3px solid var(--border, #2a2a2e)',
+        borderTopColor: 'var(--accent, #ff6b2b)',
+        borderRadius: '50%',
+        animation: 'appDbSpin 0.8s linear infinite',
+      }}
+    />
+    <div
+      style={{
+        fontSize: '14px',
+        fontWeight: 500,
+        letterSpacing: '0.01em',
+      }}
+    >
+      Loading local database…
+    </div>
+    <div
+      style={{
+        fontSize: '12px',
+        color: 'var(--text-faint, #5a5c66)',
+        marginTop: '-8px',
+      }}
+    >
+      This only takes a moment
+    </div>
+
+    <style>
+      {`
+        @keyframes appDbSpin {
+          to { transform: rotate(360deg); }
+        }
+      `}
+    </style>
+  </div>
+);
+
+// ============================================================
+// APP
+// ============================================================
 
 function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -180,19 +244,7 @@ function App() {
   }, []);
 
   if (!dbReady) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontSize: '16px',
-        color: 'var(--text-muted)',
-        background: 'var(--bg-app)'
-      }}>
-        Loading database...
-      </div>
-    );
+    return <DbLoadingScreen />;
   }
 
   return (
@@ -221,20 +273,31 @@ function App() {
                   }
                 >
                   <Route index element={<Navigate to="/pos" />} />
+
+                  {/* Core */}
                   <Route path="pos" element={<POS />} />
                   <Route path="dashboard" element={<Dashboard />} />
-                  <Route path="inventory" element={<Inventory />} />
-                  <Route path="global-inventory" element={<GlobalInventory />} />
+
+                  {/* Sales */}
                   <Route path="sales" element={<Sales />} />
                   <Route path="refunds" element={<Refunds />} />
-                  <Route path="transfers" element={<Transfers />} />
+
+                  {/* Customers */}
                   <Route path="customers" element={<Customers />} />
                   <Route path="customers/:id" element={<CustomerDetail />} />
-                  <Route path="staff" element={<Staff />} />
-                  <Route path="roles" element={<Roles />} />
+
+                  {/* Inventory */}
+                  <Route path="inventory" element={<Inventory />} />
+                  <Route path="global-inventory" element={<GlobalInventory />} />
+                  <Route path="transfers" element={<Transfers />} />
+
+                  {/* Staff & Permissions */}
+                 
+                  <Route path="kxtill/staff" element={<KxTillStaff />} />
+
+                  {/* Platform */}
                   <Route path="branches" element={<Branches />} />
                   <Route path="reports" element={<Reports />} />
-                  <Route path="settings" element={<Settings />} />
                   <Route path="settings" element={<Settings />} />
                   <Route path="account" element={<Account />} />
                 </Route>
