@@ -1,5 +1,4 @@
-// src/components/layout/TopBar.jsx
-
+// src/components/Layout/TopBar.jsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,7 +7,8 @@ import axios from 'axios';
 import {
   Bell, User, Settings, HelpCircle, LogOut, AlertTriangle,
   Menu, Moon, Sun, Building2, Check, ChevronRight,
-  Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, UserCircle
+  Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, UserCircle,
+  CreditCard,
 } from 'lucide-react';
 import styles from './TopBar.module.css';
 import { sync, setOnlineStatus } from '../../sync/engine';
@@ -19,8 +19,6 @@ const HEARTBEAT_URL = '/auth/me';
 const HEARTBEAT_INTERVAL_MS = 20000;
 const HEARTBEAT_TIMEOUT_MS = 5000;
 
-// Sync cadence: POS needs fresh stock every minute; everywhere else
-// can wait 5 minutes without hurting anyone.
 const SYNC_INTERVAL_POS_MS = 60 * 1000;
 const SYNC_INTERVAL_IDLE_MS = 5 * 60 * 1000;
 
@@ -38,7 +36,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     setActiveBranch,
     // eslint-disable-next-line no-unused-vars
     isOffline: contextIsOffline,
-    setIsOffline: setContextIsOffline
+    setIsOffline: setContextIsOffline,
   } = useAuth();
   const { darkMode, toggleTheme } = useTheme();
 
@@ -156,14 +154,12 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   }, [checkPendingSales]);
 
   // ------------------------------------------------------------
-  // Auto-sync — now via usePolling (pauses when hidden)
-  // POS: every 60s. Everywhere else: every 5 min.
+  // Auto-sync — via usePolling (pauses when hidden)
   // ------------------------------------------------------------
   const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
 
   usePolling(
     () => {
-      // Don't sync while offline or if we have no branch
       if (!isOnline) return;
       if (!activeBranchRef.current?.id) return;
       if (isSyncingRef.current) return;
@@ -174,7 +170,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   );
 
   // ------------------------------------------------------------
-  // Connectivity heartbeat — via usePolling (pauses when hidden)
+  // Connectivity heartbeat
   // ------------------------------------------------------------
   const checkConnectivity = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
@@ -205,7 +201,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   usePolling(checkConnectivity, HEARTBEAT_INTERVAL_MS, [checkConnectivity]);
 
   // ------------------------------------------------------------
-  // Browser online/offline events (still useful, orthogonal to polling)
+  // Browser online/offline events
   // ------------------------------------------------------------
   useEffect(() => {
     const handleBrowserOnline = () => checkConnectivity();
@@ -248,7 +244,8 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const branchName = activeBranch?.name || '';
 
   const userRole = activeOrganization?.role || 'MEMBER';
-  const displayRole = userRole === 'OWNER' || userRole === 'Owner' ? 'Owner' : 'Member';
+  const displayRole =
+    userRole === 'OWNER' || userRole === 'Owner' ? 'Owner' : 'Member';
 
   const handleSwitchOrg = async (org) => {
     try {
@@ -270,6 +267,20 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     setOrgDropdownOpen(false);
     setBranchDropdownOpen(false);
     navigate(path);
+  };
+
+  // Open a Suite page with SSO token (Help, Billing, etc.)
+  const openSuitePath = (path = '') => {
+    const suiteUrl =
+      process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
+    const token = localStorage.getItem('accessToken');
+    const url = token
+      ? `${suiteUrl}${path}?sso_token=${token}`
+      : `${suiteUrl}${path}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setUserMenuOpen(false);
+    setOrgDropdownOpen(false);
+    setBranchDropdownOpen(false);
   };
 
   const getSyncStatusColor = () => {
@@ -303,7 +314,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         icon: <RefreshCw size={15} />,
         title: `${pendingCount} sale${pendingCount > 1 ? 's' : ''} pending sync`,
         desc: isOnline ? 'Click sync to upload' : 'Will sync when online',
-        type: 'pending'
+        type: 'pending',
       });
     }
 
@@ -313,7 +324,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         icon: <AlertTriangle size={15} />,
         title: 'Low Stock Alert',
         desc: `${lowStockCount} items below minimum stock`,
-        type: 'warning'
+        type: 'warning',
       });
     }
 
@@ -323,7 +334,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         icon: null,
         title: 'No notifications',
         desc: 'All caught up',
-        type: 'empty'
+        type: 'empty',
       });
     }
 
@@ -395,7 +406,9 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <WifiOff size={16} />
             )}
           </button>
-          <span className={`${styles.syncStatusText} ${styles[getSyncStatusColor()]}`}>
+          <span
+            className={`${styles.syncStatusText} ${styles[getSyncStatusColor()]}`}
+          >
             {getSyncStatusLabel()}
             {pendingCount > 0 && !isSyncing && (
               <span className={styles.pendingBadge}>{pendingCount}</span>
@@ -421,7 +434,9 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
             aria-expanded={notifOpen}
           >
             <Bell size={17} />
-            {pendingCount > 0 && <span className={styles.notifBadge}>{pendingCount}</span>}
+            {pendingCount > 0 && (
+              <span className={styles.notifBadge}>{pendingCount}</span>
+            )}
           </button>
 
           {notifOpen && (
@@ -442,10 +457,18 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                 {getNotificationContent().map((item) => (
                   <div
                     key={item.id}
-                    className={`${styles.notifItem} ${item.type === 'pending' ? styles.pendingItem : ''}`}
+                    className={`${styles.notifItem} ${
+                      item.type === 'pending' ? styles.pendingItem : ''
+                    }`}
                   >
                     {item.icon && (
-                      <span className={item.type === 'pending' ? styles.notifIconPending : styles.notifIconLowStock}>
+                      <span
+                        className={
+                          item.type === 'pending'
+                            ? styles.notifIconPending
+                            : styles.notifIconLowStock
+                        }
+                      >
                         {item.icon}
                       </span>
                     )}
@@ -510,13 +533,22 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <button
                 className={styles.menuItem}
                 role="menuitem"
-                onClick={() => navigateAndClose('/help')}
+                onClick={() => openSuitePath('/help')}
               >
                 <HelpCircle size={15} />
                 Help &amp; Support
               </button>
+              <button
+                className={styles.menuItem}
+                role="menuitem"
+                onClick={() => openSuitePath('/billing')}
+              >
+                <CreditCard size={15} />
+                Billing &amp; Subscription
+              </button>
 
-              {((organizations && organizations.length > 0) || (branches && branches.length > 0)) && (
+              {((organizations && organizations.length > 0) ||
+                (branches && branches.length > 0)) && (
                 <>
                   <div className={styles.divider} />
                   <div className={styles.menuSectionLabel}>Organization</div>
@@ -536,7 +568,9 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                     </span>
                     <ChevronRight
                       size={14}
-                      className={`${styles.switcherChevron} ${orgDropdownOpen ? styles.open : ''}`}
+                      className={`${styles.switcherChevron} ${
+                        orgDropdownOpen ? styles.open : ''
+                      }`}
                     />
                   </div>
                   {orgDropdownOpen && (
@@ -544,10 +578,16 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                       {organizations.map((org) => (
                         <button
                           key={org.id}
-                          className={`${styles.switcherOption} ${activeOrganization?.id === org.id ? styles.active : ''}`}
+                          className={`${styles.switcherOption} ${
+                            activeOrganization?.id === org.id
+                              ? styles.active
+                              : ''
+                          }`}
                           onClick={() => handleSwitchOrg(org)}
                         >
-                          <span className={styles.switcherOptionName}>{org.name}</span>
+                          <span className={styles.switcherOptionName}>
+                            {org.name}
+                          </span>
                           {activeOrganization?.id === org.id && (
                             <Check size={14} className={styles.checkIcon} />
                           )}
@@ -571,7 +611,9 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                     </span>
                     <ChevronRight
                       size={14}
-                      className={`${styles.switcherChevron} ${branchDropdownOpen ? styles.open : ''}`}
+                      className={`${styles.switcherChevron} ${
+                        branchDropdownOpen ? styles.open : ''
+                      }`}
                     />
                   </div>
                   {branchDropdownOpen && (
@@ -579,10 +621,16 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                       {branches.map((branch) => (
                         <button
                           key={branch.id}
-                          className={`${styles.switcherOption} ${activeBranch?.id === branch.id ? styles.active : ''}`}
+                          className={`${styles.switcherOption} ${
+                            activeBranch?.id === branch.id
+                              ? styles.active
+                              : ''
+                          }`}
                           onClick={() => handleSwitchBranch(branch)}
                         >
-                          <span className={styles.switcherOptionName}>{branch.name}</span>
+                          <span className={styles.switcherOptionName}>
+                            {branch.name}
+                          </span>
                           {activeBranch?.id === branch.id && (
                             <Check size={14} className={styles.checkIcon} />
                           )}

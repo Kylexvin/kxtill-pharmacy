@@ -1,0 +1,530 @@
+/* Products/kxtill/src/pages/Reports/Reports.module.css */
+
+/* ============================================================
+   PAGE
+   ============================================================ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 24px 32px;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  color: var(--text-primary);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.headerIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(255, 106, 43, 0.12);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 3px 0 0;
+}
+
+/* ============================================================
+   FILTERS
+   ============================================================ */
+.filtersCard {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.filtersRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filterLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dateRange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dateInput {
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  color-scheme: dark;
+}
+
+.dateInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.08);
+}
+
+.dateSeparator {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.branchSelector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.branchSelector svg:first-child {
+  color: var(--accent);
+}
+
+.branchSelector svg:last-child {
+  color: var(--text-faint);
+  margin-left: 2px;
+}
+
+/* ============================================================
+   REPORT GRID
+   ============================================================ */
+.reportsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.reportCard {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.reportCard:hover:not(.reportCardDisabled) {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.reportCardDisabled {
+  opacity: 0.6;
+}
+
+.reportCardHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.reportIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(255, 106, 43, 0.12);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.reportIconDisabled {
+  background: var(--bg-panel);
+  color: var(--text-faint);
+}
+
+.reportTitleWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.reportTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 3px;
+  line-height: 1.3;
+}
+
+.reportDescription {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.comingSoonBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 204, 0, 0.14);
+  color: #ffcc00;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   EXPORT BUTTONS
+   ============================================================ */
+.reportActions {
+  display: flex;
+  gap: 8px;
+}
+
+.exportBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.exportBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.exportBtnCsv {
+  background: rgba(52, 199, 89, 0.12);
+  color: #34c759;
+  border-color: rgba(52, 199, 89, 0.25);
+}
+
+.exportBtnCsv:hover:not(:disabled) {
+  background: rgba(52, 199, 89, 0.2);
+  border-color: rgba(52, 199, 89, 0.5);
+}
+
+.exportBtnPdf {
+  background: rgba(239, 83, 80, 0.12);
+  color: #ef5350;
+  border-color: rgba(239, 83, 80, 0.25);
+}
+
+.exportBtnPdf:hover:not(:disabled) {
+  background: rgba(239, 83, 80, 0.2);
+  border-color: rgba(239, 83, 80, 0.5);
+}
+
+.exportBtnDisabled {
+  background: var(--bg-panel);
+  color: var(--text-faint);
+  border-color: var(--border);
+}
+
+.exportBtnDisabled:hover {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+
+.spinnerSmall {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   FOOTER NOTE
+   ============================================================ */
+.footerNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.footerNoteIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(90, 200, 250, 0.12);
+  color: #5ac8fa;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.footerNoteText {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.footerNoteText strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.footerNoteLink {
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.footerNoteLink:hover {
+  text-decoration: underline;
+}
+
+/* ============================================================
+   STATES
+   ============================================================ */
+.noAccess {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 80px 24px;
+  text-align: center;
+}
+
+.noAccessIcon {
+  color: var(--text-faint);
+}
+
+.noAccess h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.noAccess p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.noAccessSub {
+  font-size: 12px !important;
+  color: var(--text-faint) !important;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 640px) {
+  .page {
+    padding: 16px 14px 24px;
+    gap: 14px;
+  }
+
+  .reportsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .filtersRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dateRange {
+    flex-wrap: wrap;
+  }
+
+  .dateInput {
+    flex: 1;
+    min-width: 0;
+  }
+}
+/* ============================================================
+   BRANCH SELECTOR (interactive)
+   ============================================================ */
+.branchSelectorWrap {
+  position: relative;
+  display: inline-block;
+}
+
+.branchSelector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  min-width: 180px;
+}
+
+.branchSelector:hover {
+  border-color: var(--border-strong);
+}
+
+.branchSelector:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.08);
+}
+
+.branchSelector svg:first-child {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.branchSelector svg:last-child {
+  color: var(--text-faint);
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.branchMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  z-index: 50;
+  animation: slideUp 0.12s ease;
+}
+
+.branchMenu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.branchMenu::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.branchMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.branchMenuItem:hover {
+  background: var(--bg-panel);
+}
+
+.branchMenuItemActive {
+  color: var(--accent);
+}
+
+.branchMenuItemActive svg {
+  color: var(--accent);
+}

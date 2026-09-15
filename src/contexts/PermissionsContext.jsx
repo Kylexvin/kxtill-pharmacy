@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
+import { expandPermissions } from '../constants/permissions';
 
 const PermissionsContext = createContext(null);
 
@@ -32,13 +33,11 @@ function patternMatches(pattern, key) {
   if (!pattern || !key) return false;
   if (pattern === '*') return true;
 
-  // Prefix wildcard: "kxtill.inventory.*"
   if (pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -1); // keep trailing dot
     return key.startsWith(prefix);
   }
 
-  // Exact match
   return pattern === key;
 }
 
@@ -51,10 +50,7 @@ function grantMatches(permissions, key) {
 // LOCAL CACHE (per organization)
 // ============================================================
 //
-// Prevents the "flash of no permissions" on page reload:
-// - On mount, hydrate synchronously from cache.
-// - Then refetch in the background to pick up any changes.
-//
+// Prevents the "flash of no permissions" on page reload.
 // Keyed by organizationId because permissions are org-scoped.
 // ============================================================
 
@@ -99,11 +95,10 @@ export function PermissionsProvider({ children }) {
   const { activeOrganization, accessToken } = useAuth();
   const orgId = activeOrganization?.id || null;
 
-  // Hydrate from cache synchronously so first render is instant.
   const initialPermissions = useMemo(() => {
     const cached = readCache(orgId);
     return cached?.permissions || [];
-  }, []); // intentionally only once — subsequent org changes handled below
+  }, [orgId]);
 
   const [permissions, setPermissions] = useState(initialPermissions);
   const [loading, setLoading] = useState(false);
@@ -136,9 +131,13 @@ export function PermissionsProvider({ children }) {
 
       if (controller.signal.aborted || !isMountedRef.current) return;
 
-      const next = Array.isArray(response.data?.permissions)
+      const raw = Array.isArray(response.data?.permissions)
         ? response.data.permissions
         : [];
+
+      // Expand platform → kxtill implied permissions so `can()` works
+      // against either scope without changing the matcher.
+      const next = expandPermissions(raw);
 
       setPermissions(next);
       writeCache(orgId, {
@@ -148,7 +147,6 @@ export function PermissionsProvider({ children }) {
     } catch (err) {
       if (err.name === 'CanceledError' || err.name === 'AbortError') return;
 
-      // Fall back to cache if we have one; otherwise empty list.
       const cached = readCache(orgId);
       if (cached) {
         setPermissions(cached.permissions || []);
@@ -178,10 +176,8 @@ export function PermissionsProvider({ children }) {
   }, []);
 
   // -------- refetch triggers --------
-  // Whenever the active org or auth token changes:
-  // 1. Instantly hydrate from cache (no flash).
-  // 2. Kick off a background fetch to reconcile.
-  // 3. If we've logged out (no token), clear state.
+  // Permissions are ORG-scoped. Only refetch on org or auth token change.
+  // Branch switching does NOT trigger a refetch.
   useEffect(() => {
     if (!orgId || !accessToken) {
       setPermissions([]);
@@ -200,16 +196,12 @@ export function PermissionsProvider({ children }) {
   // -------- manual refresh --------
   const refresh = useCallback(async () => {
     if (!orgId) return;
-    // Clear cache so the fresh fetch always writes new data.
     clearCache(orgId);
     await fetchPermissions();
   }, [orgId, fetchPermissions]);
 
   // -------- derived API --------
-  const isOwner = useMemo(
-    () => permissions.includes('*'),
-    [permissions]
-  );
+  const isOwner = useMemo(() => permissions.includes('*'), [permissions]);
 
   const hasPermission = useCallback(
     (key) => grantMatches(permissions, key),
@@ -237,11 +229,9 @@ export function PermissionsProvider({ children }) {
       hasPermission,
       hasAnyPermission,
       hasAllPermissions,
-      // Short aliases
       can: hasPermission,
       canAny: hasAnyPermission,
       canAll: hasAllPermissions,
-      // Manual refresh — for edge cases where you know roles changed
       refresh,
     }),
     [

@@ -1,6 +1,5 @@
 // src/pages/KxTillStaff/KxTillStaff.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -16,7 +15,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Crown,
-  Pencil,
   Trash2,
   Power,
   ExternalLink,
@@ -64,13 +62,13 @@ const StatusBadge = ({ isActive }) => (
 // ============================================================
 
 const KxTillStaff = () => {
-  const navigate = useNavigate();
   const { activeOrganization, branches, loadBranches } = useAuth();
-  const { can, isOwner } = usePermissions();
+  const { isOwner } = usePermissions();
   const { formatDateTime } = useSettings();
 
-  const canView = isOwner || can('kxtill.staff.view');
-  const canManage = isOwner || can('kxtill.staff.manage');
+  // Owner-only (enforced at route level too via <RequirePermission ownerOnly>)
+  const canView = isOwner;
+  const canManage = isOwner;
 
   const orgId = activeOrganization?.id;
 
@@ -229,6 +227,17 @@ const KxTillStaff = () => {
     }
   };
 
+  // Open Suite Members & Roles page with SSO
+  const openSuiteMembers = () => {
+    const suiteUrl =
+      process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
+    const token = localStorage.getItem('accessToken');
+    const url = token
+      ? `${suiteUrl}/members?sso_token=${token}`
+      : `${suiteUrl}/members`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const filteredStaff = staff.filter((member) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -238,7 +247,6 @@ const KxTillStaff = () => {
   });
 
   const getRoleDisplay = (member) => {
-    const isOwnerStaff = member.permissions?.some((p) => p.key === '*');
     if (member.hasAllBranches && !member.role?.name) return 'Owner';
     if (member.role?.name) return member.role.name;
     return 'No Role';
@@ -259,10 +267,7 @@ const KxTillStaff = () => {
         <div className={styles.noAccess}>
           <Shield size={48} className={styles.noAccessIcon} />
           <h2>Access Denied</h2>
-          <p>You don't have permission to view KxTill staff.</p>
-          <p className={styles.noAccessSub}>
-            Contact your organization owner for access.
-          </p>
+          <p>Only the organization owner can view KxTill staff.</p>
         </div>
       </div>
     );
@@ -330,7 +335,7 @@ const KxTillStaff = () => {
           </button>
           <button
             className={styles.manageLink}
-            onClick={() => navigate('/staff')}
+            onClick={openSuiteMembers}
           >
             <ExternalLink size={12} />
             Manage Members
@@ -555,7 +560,7 @@ const KxTillStaff = () => {
         <span className={styles.footerText}>
           Only KxTill permissions are shown here. Other platform permissions are managed in Members &amp; Roles.
         </span>
-        <button className={styles.footerLink} onClick={() => navigate('/staff')}>
+        <button className={styles.footerLink} onClick={openSuiteMembers}>
           Go to Members &amp; Roles →
         </button>
       </div>
