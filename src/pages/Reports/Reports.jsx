@@ -1,7 +1,8 @@
 // Products/kxtill/src/pages/Reports/Reports.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -17,11 +18,23 @@ import {
   Shield,
   ClipboardList,
   Check,
+  RefreshCw,
+  Award,
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
 import styles from './Reports.module.css';
 
 // ============================================================
-// REPORT CATALOG
+// REPORT CATALOG (export cards)
 // ============================================================
 const REPORT_OPTIONS = [
   {
@@ -74,6 +87,306 @@ const REPORT_OPTIONS = [
 ];
 
 // ============================================================
+// TABS
+// ============================================================
+const TABS = [
+  { id: 'exports', label: 'Exports', icon: FileText },
+  { id: 'top-products', label: 'Top Products', icon: Award },
+];
+
+// ============================================================
+// CHART TOOLTIP
+// ============================================================
+const ChartTooltip = ({ active, payload, label, currency, formatCurrency }) => {
+  if (!active || !payload || !payload.length) return null;
+  const value = payload[0].value;
+  return (
+    <div className={styles.chartTooltip}>
+      <div className={styles.chartTooltipLabel}>{label}</div>
+      <div className={styles.chartTooltipValue}>
+        {typeof formatCurrency === 'function'
+          ? formatCurrency(value)
+          : `${currency} ${Number(value).toLocaleString()}`}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// TOP PRODUCTS VIEW
+// ============================================================
+const TopProductsView = ({ orgId, branchId, dateRange }) => {
+  const { formatCurrency, formatCompactCurrency } = useSettings();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const isMountedRef = useRef(true);
+  const fetchControllerRef = useRef(null);
+
+  const fetchTopProducts = useCallback(async () => {
+    if (!orgId) return;
+
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
+    setError(null);
+
+    try {
+      const params = {
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+        limit: 20,
+      };
+      if (branchId) params.branchId = branchId;
+
+      const res = await axios.get(
+        `/organizations/${orgId}/kxtill/dashboard/top-products`,
+        { params, signal: controller.signal, timeout: 15000 }
+      );
+
+      if (controller.signal.aborted || !isMountedRef.current) return;
+
+      const data = res.data;
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.products)
+        ? data.products
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+      setProducts(list);
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+      console.error('Failed to fetch top products:', err);
+      if (isMountedRef.current) {
+        setError(
+          err.response?.data?.error ||
+            err.response?.data?.message ||
+            'Failed to load top products'
+        );
+      }
+    } finally {
+      if (isMountedRef.current && !controller.signal.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [orgId, branchId, dateRange.start, dateRange.end]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      fetchControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
+    fetchTopProducts();
+  }, [orgId, fetchTopProducts]);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchTopProducts();
+      toast.success('Refreshed');
+    } catch {
+      toast.error('Failed to refresh');
+    } finally {
+      if (isMountedRef.current) setIsRefreshing(false);
+    }
+  };
+
+  const chartData = products.map((p) => ({
+    name: p.sku || p.name,
+    fullName: p.name,
+    total: p.total || 0,
+    quantity: p.quantity || 0,
+  }));
+
+  const totalRevenue = products.reduce((sum, p) => sum + (p.total || 0), 0);
+  const totalQuantity = products.reduce(
+    (sum, p) => sum + (p.quantity || 0),
+    0
+  );
+
+  if (loading) {
+    return (
+      <div className={styles.tabLoading}>
+        <div className={styles.loader} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={styles.tabError}>
+        <AlertCircle size={32} className={styles.tabErrorIcon} />
+        <p>{error}</p>
+        <button onClick={fetchTopProducts} type="button" className={styles.retryBtn}>
+          <RefreshCw size={14} />
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (products.length === 0) {
+    return (
+      <div className={styles.tabEmpty}>
+        <Award size={48} className={styles.tabEmptyIcon} />
+        <h3>No product data</h3>
+        <p>Complete a few sales to see your best-selling products here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.productsView}>
+      {/* Summary row */}
+      <div className={styles.productsSummary}>
+        <div className={styles.summaryTile}>
+          <div className={styles.summaryTileLabel}>Products</div>
+          <div className={styles.summaryTileValue}>{products.length}</div>
+        </div>
+        <div className={styles.summaryTile}>
+          <div className={styles.summaryTileLabel}>Units Sold</div>
+          <div className={styles.summaryTileValue}>{totalQuantity}</div>
+        </div>
+        <div className={styles.summaryTile}>
+          <div className={styles.summaryTileLabel}>Total Revenue</div>
+          <div className={styles.summaryTileValue}>
+            {formatCompactCurrency(totalRevenue)}
+          </div>
+        </div>
+        <div className={styles.summaryTileActions}>
+          <button
+            type="button"
+            className={styles.refreshBtn}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
+            {isRefreshing ? '...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className={styles.chartCard}>
+        <div className={styles.chartCardHeader}>
+          <h3 className={styles.chartCardTitle}>
+            <TrendingUp size={14} />
+            Revenue by Product
+          </h3>
+          <span className={styles.chartCardSubtitle}>
+            Top {products.length}
+          </span>
+        </div>
+        <div className={styles.chartCardBody}>
+          <ResponsiveContainer width="100%" height={Math.max(260, products.length * 32)}>
+            <BarChart
+              data={chartData}
+              layout="vertical"
+              margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--border)"
+                horizontal={false}
+              />
+              <XAxis
+                type="number"
+                tickFormatter={formatCompactCurrency}
+                tick={{ fill: 'var(--text-faint)', fontSize: 11 }}
+                axisLine={{ stroke: 'var(--border)' }}
+                tickLine={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={110}
+                tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(255,106,43,0.06)' }}
+                content={
+                  <ChartTooltip
+                    currency="KES"
+                    formatCurrency={formatCurrency}
+                  />
+                }
+              />
+              <Bar dataKey="total" radius={[0, 6, 6, 0]}>
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={
+                      index === 0
+                        ? 'var(--accent)'
+                        : 'rgba(255, 106, 43, 0.55)'
+                    }
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className={styles.productsTableCard}>
+        <div className={styles.productsTableHeader}>
+          <span className={styles.colRank}>#</span>
+          <span className={styles.colName}>Product</span>
+          <span className={styles.colSku}>SKU</span>
+          <span className={styles.colQty}>Qty</span>
+          <span className={styles.colTotal}>Revenue</span>
+        </div>
+        <div className={styles.productsTableBody}>
+          {products.map((p, index) => (
+            <div key={p.productId || index} className={styles.productsTableRow}>
+              <span className={styles.colRank}>
+                <span
+                  className={`${styles.rankBadge} ${
+                    index === 0 ? styles.rankBadgeTop : ''
+                  }`}
+                >
+                  {index + 1}
+                </span>
+              </span>
+              <span className={styles.colName}>
+                <span className={styles.productNameText}>
+                  {p.name || 'Unknown'}
+                </span>
+              </span>
+              <span className={styles.colSku}>
+                <span className={styles.skuText}>{p.sku || '—'}</span>
+              </span>
+              <span className={styles.colQty}>{p.quantity || 0}</span>
+              <span className={styles.colTotal}>
+                {formatCurrency(p.total || 0)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 // MAIN PAGE
 // ============================================================
 const Reports = () => {
@@ -90,7 +403,7 @@ const Reports = () => {
 
   const canViewReports = isOwner || can('kxtill.reports.view');
 
-  // ---------- state ----------
+  const [activeTab, setActiveTab] = useState('exports');
   const [exporting, setExporting] = useState(null);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const branchMenuRef = useRef(null);
@@ -105,7 +418,6 @@ const Reports = () => {
     };
   });
 
-  // ---------- derived ----------
   const visibleReports = useMemo(() => {
     return REPORT_OPTIONS.filter((report) => {
       if (report.requiresOwner && !isOwner) return false;
@@ -115,10 +427,8 @@ const Reports = () => {
 
   const contextName = activeBranch?.name || 'All Branches';
 
-  // ---------- click-outside for branch menu ----------
   useEffect(() => {
     if (!branchMenuOpen) return;
-
     const handleClick = (e) => {
       if (
         branchMenuRef.current &&
@@ -127,12 +437,10 @@ const Reports = () => {
         setBranchMenuOpen(false);
       }
     };
-
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [branchMenuOpen]);
 
-  // ---------- handlers ----------
   const handleDateChange = (field, value) => {
     setDateRange((prev) => ({ ...prev, [field]: value }));
   };
@@ -140,7 +448,7 @@ const Reports = () => {
   const handleSelectBranch = async (branch) => {
     setBranchMenuOpen(false);
     try {
-      await setActiveBranch(branch); // null = All Branches
+      await setActiveBranch(branch);
     } catch (err) {
       console.error('Failed to switch branch:', err);
       toast.error('Failed to switch branch');
@@ -246,7 +554,6 @@ const Reports = () => {
     );
   }
 
-  // ---------- render ----------
   return (
     <div className={styles.page}>
       {/* ===== HEADER ===== */}
@@ -258,10 +565,30 @@ const Reports = () => {
           <div>
             <h1 className={styles.title}>Reports</h1>
             <p className={styles.subtitle}>
-              Export reports for {contextName} · {activeOrganization?.name}
+              Analytics & exports for {contextName} · {activeOrganization?.name}
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ===== TABS ===== */}
+      <div className={styles.tabs}>
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              className={`${styles.tab} ${
+                activeTab === tab.id ? styles.tabActive : ''
+              }`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <Icon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* ===== FILTERS ===== */}
@@ -339,99 +666,110 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* ===== REPORT GRID ===== */}
-      <div className={styles.reportsGrid}>
-        {visibleReports.map((report) => {
-          const Icon = report.icon;
-          const isCsvExporting = exporting === `${report.id}-csv`;
-          const isPdfExporting = exporting === `${report.id}-pdf`;
-          const isAnyExporting = isCsvExporting || isPdfExporting;
-          const isDisabled = report.disabled;
+      {/* ===== TAB CONTENT ===== */}
+      {activeTab === 'exports' && (
+        <>
+          <div className={styles.reportsGrid}>
+            {visibleReports.map((report) => {
+              const Icon = report.icon;
+              const isCsvExporting = exporting === `${report.id}-csv`;
+              const isPdfExporting = exporting === `${report.id}-pdf`;
+              const isAnyExporting = isCsvExporting || isPdfExporting;
+              const isDisabled = report.disabled;
 
-          return (
-            <div
-              key={report.id}
-              className={`${styles.reportCard} ${
-                isDisabled ? styles.reportCardDisabled : ''
-              }`}
-            >
-              <div className={styles.reportCardHeader}>
+              return (
                 <div
-                  className={`${styles.reportIcon} ${
-                    isDisabled ? styles.reportIconDisabled : ''
+                  key={report.id}
+                  className={`${styles.reportCard} ${
+                    isDisabled ? styles.reportCardDisabled : ''
                   }`}
                 >
-                  <Icon size={20} />
-                </div>
-                <div className={styles.reportTitleWrap}>
-                  <h3 className={styles.reportTitle}>
-                    {report.label}
-                    {report.comingSoon && (
-                      <span className={styles.comingSoonBadge}>
-                        Coming Soon
-                      </span>
-                    )}
-                  </h3>
-                  <p className={styles.reportDescription}>
-                    {report.description}
-                  </p>
-                </div>
-              </div>
+                  <div className={styles.reportCardHeader}>
+                    <div
+                      className={`${styles.reportIcon} ${
+                        isDisabled ? styles.reportIconDisabled : ''
+                      }`}
+                    >
+                      <Icon size={20} />
+                    </div>
+                    <div className={styles.reportTitleWrap}>
+                      <h3 className={styles.reportTitle}>
+                        {report.label}
+                        {report.comingSoon && (
+                          <span className={styles.comingSoonBadge}>
+                            Coming Soon
+                          </span>
+                        )}
+                      </h3>
+                      <p className={styles.reportDescription}>
+                        {report.description}
+                      </p>
+                    </div>
+                  </div>
 
-              <div className={styles.reportActions}>
-                <button
-                  type="button"
-                  className={`${styles.exportBtn} ${styles.exportBtnCsv} ${
-                    isDisabled ? styles.exportBtnDisabled : ''
-                  }`}
-                  onClick={() =>
-                    handleExport(report.id, report.endpoint, 'csv')
-                  }
-                  disabled={isAnyExporting || isDisabled}
-                >
-                  {isCsvExporting ? (
-                    <span className={styles.spinnerSmall} />
-                  ) : (
-                    <FileSpreadsheet size={14} />
-                  )}
-                  CSV
-                </button>
+                  <div className={styles.reportActions}>
+                    <button
+                      type="button"
+                      className={`${styles.exportBtn} ${styles.exportBtnCsv} ${
+                        isDisabled ? styles.exportBtnDisabled : ''
+                      }`}
+                      onClick={() =>
+                        handleExport(report.id, report.endpoint, 'csv')
+                      }
+                      disabled={isAnyExporting || isDisabled}
+                    >
+                      {isCsvExporting ? (
+                        <span className={styles.spinnerSmall} />
+                      ) : (
+                        <FileSpreadsheet size={14} />
+                      )}
+                      CSV
+                    </button>
 
-                <button
-                  type="button"
-                  className={`${styles.exportBtn} ${styles.exportBtnPdf} ${
-                    isDisabled ? styles.exportBtnDisabled : ''
-                  }`}
-                  onClick={() =>
-                    handleExport(report.id, report.endpoint, 'pdf')
-                  }
-                  disabled={isAnyExporting || isDisabled}
-                >
-                  {isPdfExporting ? (
-                    <span className={styles.spinnerSmall} />
-                  ) : (
-                    <File size={14} />
-                  )}
-                  PDF
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      className={`${styles.exportBtn} ${styles.exportBtnPdf} ${
+                        isDisabled ? styles.exportBtnDisabled : ''
+                      }`}
+                      onClick={() =>
+                        handleExport(report.id, report.endpoint, 'pdf')
+                      }
+                      disabled={isAnyExporting || isDisabled}
+                    >
+                      {isPdfExporting ? (
+                        <span className={styles.spinnerSmall} />
+                      ) : (
+                        <File size={14} />
+                      )}
+                      PDF
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={styles.footerNote}>
+            <div className={styles.footerNoteIcon}>
+              <AlertCircle size={16} />
             </div>
-          );
-        })}
-      </div>
+            <div className={styles.footerNoteText}>
+              <strong>Reports are export-only.</strong> For viewing sales,
+              inventory, and performance data, visit the{' '}
+              <span className={styles.footerNoteLink}>Overview</span> or{' '}
+              <span className={styles.footerNoteLink}>Sales</span> dashboard.
+            </div>
+          </div>
+        </>
+      )}
 
-      {/* ===== FOOTER NOTE ===== */}
-      <div className={styles.footerNote}>
-        <div className={styles.footerNoteIcon}>
-          <AlertCircle size={16} />
-        </div>
-        <div className={styles.footerNoteText}>
-          <strong>Reports are export-only.</strong> For viewing sales,
-          inventory, and performance data, visit the{' '}
-          <span className={styles.footerNoteLink}>Overview</span> or{' '}
-          <span className={styles.footerNoteLink}>Sales</span> dashboard.
-        </div>
-      </div>
+      {activeTab === 'top-products' && (
+        <TopProductsView
+          orgId={orgId}
+          branchId={branchId}
+          dateRange={dateRange}
+        />
+      )}
     </div>
   );
 };

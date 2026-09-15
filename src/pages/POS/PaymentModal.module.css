@@ -1,3 +1,8 @@
+/* src/pages/POS/PaymentModal.module.css */
+
+/* ============================================================
+   OVERLAY
+   ============================================================ */
 .overlay {
   position: fixed;
   inset: 0;
@@ -10,6 +15,9 @@
   padding: 16px;
 }
 
+/* ============================================================
+   MODAL
+   ============================================================ */
 .modal {
   width: 100%;
   max-width: 440px;
@@ -80,7 +88,9 @@
   margin: 0 0 10px;
 }
 
-/* Order summary */
+/* ============================================================
+   ORDER SUMMARY
+   ============================================================ */
 .orderSummary {
   padding: 12px 14px;
   border-radius: 12px;
@@ -132,7 +142,9 @@
   color: var(--text-muted);
 }
 
-/* Payment methods */
+/* ============================================================
+   PAYMENT METHODS
+   ============================================================ */
 .paymentMethods {
   display: flex;
   flex-direction: column;
@@ -184,7 +196,9 @@
   color: var(--accent);
 }
 
-/* Payment details */
+/* ============================================================
+   PAYMENT DETAILS
+   ============================================================ */
 .paymentDetails {
   display: flex;
   flex-direction: column;
@@ -276,13 +290,22 @@
   font-size: 12.5px;
 }
 
-/* Footer */
+/* ============================================================
+   FOOTER
+   ============================================================ */
 .modalFooter {
   display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding: 16px 18px;
+  padding: 14px 18px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  background: var(--bg-raised);
+}
+
+.modalFooterActions {
+  display: flex;
+  gap: 10px;
 }
 
 .cancelBtn {
@@ -346,4 +369,136 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   MPESA STICKY PROMPT BAR
+   ============================================================ */
+.mpesaPromptBar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(52, 199, 89, 0.06);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+  border-radius: 10px;
+}
+
+.mpesaPromptBarLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mpesaPromptBarIcon {
+  color: #34c759;
+  flex-shrink: 0;
+}
+
+.mpesaPromptBarLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.comingSoonBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 204, 0, 0.14);
+  color: #ffcc00;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mpesaPhoneWrap {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  overflow: hidden;
+  opacity: 0.65;
+  min-width: 0;
+}
+
+.mpesaPhonePrefix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-shrink: 0;
+}
+
+.mpesaPhoneInput {
+  flex: 1;
+  height: 100%;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.mpesaPhoneInput::placeholder {
+  color: var(--text-faint);
+}
+
+.mpesaPushBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  border-radius: 8px;
+  background: rgba(52, 199, 89, 0.12);
+  color: #34c759;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: not-allowed;
+  opacity: 0.75;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 480px) {
+  .modal {
+    max-width: 100%;
+    max-height: 95vh;
+  }
+
+  .mpesaPromptBar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .mpesaPromptBarLeft {
+    justify-content: space-between;
+  }
+
+  .mpesaPushBtn {
+    width: 100%;
+  }
 }

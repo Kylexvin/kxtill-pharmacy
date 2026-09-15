@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Minus, Trash2, ShoppingCart,
-  User, Users, CreditCard, X, Search, UserPlus, Phone, Loader
+  User, Users, CreditCard, X, Search, UserPlus, Phone, Loader,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -19,28 +19,23 @@ const Cart = ({
   subtotal,
   taxAmount,
   total,
-  currency,
-  decimals,
   customer,
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
   onCheckout,
-  onCustomerSelect
+  onCustomerSelect,
 }) => {
   const { activeOrganization } = useAuth();
   const { formatCurrency } = useSettings();
 
   const orgId = activeOrganization?.id;
 
-  const fmt = (n) => Number(n).toFixed(decimals ?? 2);
-  const formatPrice = (amount) => {
-    try {
-      return formatCurrency(amount);
-    } catch {
-      return `${fmt(amount)} ${currency}`;
-    }
-  };
+  // Safe wrapper — never produces "NaN" or "undefined"
+  const formatPrice = useCallback(
+    (amount) => formatCurrency(Number(amount) || 0),
+    [formatCurrency]
+  );
 
   const handleIncrement = (item) => {
     const stock = Number(item.stock || 0);
@@ -86,8 +81,7 @@ const Cart = ({
     };
   }, []);
 
-  // Reset panel state whenever the customer prop changes
-  // (cashier picked one, removed one, or POS cleared after a sale)
+  // Reset panel when customer changes
   useEffect(() => {
     setPanelOpen(false);
     setQuery('');
@@ -97,7 +91,7 @@ const Cart = ({
     setNewPhone('');
   }, [customer]);
 
-  // Debounced search: local first, then server if online
+  // Debounced search — local first, then server if online
   useEffect(() => {
     if (!panelOpen) return;
     if (!query.trim()) {
@@ -158,15 +152,18 @@ const Cart = ({
     };
   }, [query, online, orgId, panelOpen]);
 
-  const handleSelect = useCallback((c) => {
-    onCustomerSelect({
-      id: c.id,
-      tempId: c.tempId,
-      name: c.name,
-      phone: c.phone,
-    });
-    setPanelOpen(false);
-  }, [onCustomerSelect]);
+  const handleSelect = useCallback(
+    (c) => {
+      onCustomerSelect({
+        id: c.id,
+        tempId: c.tempId,
+        name: c.name,
+        phone: c.phone,
+      });
+      setPanelOpen(false);
+    },
+    [onCustomerSelect]
+  );
 
   const handleQuickAdd = async () => {
     if (!newName.trim()) {
@@ -217,7 +214,9 @@ const Cart = ({
                 isSynced: true,
                 updatedAt: new Date().toISOString(),
               });
-            } catch {}
+            } catch {
+              // ignore
+            }
 
             onCustomerSelect({
               id: created.id,
@@ -263,7 +262,12 @@ const Cart = ({
         </div>
         <div className={styles.cartActions}>
           {items.length > 0 && (
-            <button className={styles.clearBtn} onClick={onClearCart} title="Clear cart">
+            <button
+              className={styles.clearBtn}
+              onClick={onClearCart}
+              title="Clear cart"
+              type="button"
+            >
               <Trash2 size={15} />
             </button>
           )}
@@ -336,7 +340,9 @@ const Cart = ({
                       {c.name.charAt(0).toUpperCase()}
                     </div>
                     <div className={styles.customerResultInfo}>
-                      <span className={styles.customerResultName}>{c.name}</span>
+                      <span className={styles.customerResultName}>
+                        {c.name}
+                      </span>
                       {c.phone && (
                         <span className={styles.customerResultPhone}>
                           <Phone size={11} /> {c.phone}
@@ -434,6 +440,7 @@ const Cart = ({
                 <button
                   className={styles.qtyBtn}
                   onClick={() => handleDecrement(item)}
+                  type="button"
                 >
                   <Minus size={14} />
                 </button>
@@ -441,12 +448,14 @@ const Cart = ({
                 <button
                   className={styles.qtyBtn}
                   onClick={() => handleIncrement(item)}
+                  type="button"
                 >
                   <Plus size={14} />
                 </button>
                 <button
                   className={styles.removeBtn}
                   onClick={() => onRemoveItem(item.id)}
+                  type="button"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -480,6 +489,7 @@ const Cart = ({
             className={styles.checkoutBtn}
             onClick={onCheckout}
             disabled={items.length === 0}
+            type="button"
           >
             <CreditCard size={16} />
             Pay {formatPrice(total)}

@@ -11,7 +11,7 @@ import {
   Clock, RefreshCw, ChevronRight, Award, BarChart3,
   Building2, AlertCircle, AlertTriangle, WifiOff,
   Plus, FileText, Package as PackageIcon, Store,
-  ArrowRight, Eye
+  Users, Receipt,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -20,20 +20,18 @@ import {
 import styles from './Dashboard.module.css';
 import usePolling from '../../hooks/usePolling';
 
-const DASHBOARD_POLL_MS = 5 * 60 * 1000; // 5 minutes
+const DASHBOARD_POLL_MS = 5 * 60 * 1000;
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const {
     activeOrganization,
     activeBranch,
-    accessToken,
     isOffline: contextIsOffline,
     branches,
     setActiveBranch,
   } = useAuth();
   const { isOwner } = usePermissions();
-
   const { formatCurrency, formatCompactCurrency } = useSettings();
 
   const [loading, setLoading] = useState(true);
@@ -42,19 +40,15 @@ const Dashboard = () => {
   const [period, setPeriod] = useState('today');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [, setTodayStats] = useState({
-    todaySales: 0, transactions: 0, profit: 0, itemsSold: 0,
-  });
   const [profitData, setProfitData] = useState({
     period: 'today', startDate: null, revenue: 0, cost: 0, profit: 0, margin: 0, salesCount: 0,
   });
   const [salesTrend, setSalesTrend] = useState({ labels: [], values: [] });
   const [todaySalesTrend, setTodaySalesTrend] = useState({ labels: [], values: [] });
   const [topProducts, setTopProducts] = useState([]);
-  const [lowStockItems, setLowStockItems] = useState([]);
-  const [recentSales, setRecentSales] = useState([]);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [recentSalesCount, setRecentSalesCount] = useState(0);
 
-  // Local branch view filter — init from localStorage or default 'own'
   const [branchViewFilter, setBranchViewFilter] = useState(() => {
     const stored = localStorage.getItem('dashboardBranchFilter');
     return stored || 'own';
@@ -69,7 +63,6 @@ const Dashboard = () => {
     localStorage.setItem('dashboardBranchFilter', branchViewFilter);
   }, [branchViewFilter]);
 
-  // Keep branch filter in sync with the active branch when it changes externally
   useEffect(() => {
     if (activeBranch && branchViewFilter !== 'all' && branchViewFilter !== activeBranch.id) {
       if (branchViewFilter === 'own' || branchViewFilter !== activeBranch.id) {
@@ -77,22 +70,6 @@ const Dashboard = () => {
       }
     }
   }, [activeBranch, branchViewFilter]);
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
 
   const getServerBranchId = useCallback(() => {
     if (branchViewFilter === 'all' && canViewAllBranches) return null;
@@ -102,12 +79,9 @@ const Dashboard = () => {
 
   const handleBranchViewChange = useCallback((value) => {
     setBranchViewFilter(value);
-
     if (value !== 'own' && value !== 'all') {
       const selectedBranch = branches.find(b => b.id === value);
-      if (selectedBranch) {
-        setActiveBranch(selectedBranch);
-      }
+      if (selectedBranch) setActiveBranch(selectedBranch);
     }
   }, [branches, setActiveBranch]);
 
@@ -131,9 +105,6 @@ const Dashboard = () => {
 
       const results = await Promise.allSettled([
         isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/today-stats`, { params })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
           ? axios.get(`/organizations/${orgId}/kxtill/dashboard/profit`, { params: { ...params, period: apiPeriod } })
           : Promise.resolve({ data: null }),
         isCurrentlyOnline
@@ -149,23 +120,13 @@ const Dashboard = () => {
           ? axios.get(`/organizations/${orgId}/kxtill/dashboard/low-stock`, { params })
           : Promise.resolve({ data: null }),
         isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/recent-sales`, { params: { ...params, limit: 5 } })
+          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/recent-sales`, { params: { ...params, limit: 100 } })
           : Promise.resolve({ data: null }),
       ]);
 
       if (thisRequestId !== requestIdRef.current) return;
 
-      const [todayStatsRes, profitRes, salesTrendRes, todaySalesTrendRes, topProductsRes, lowStockRes, recentSalesRes] = results;
-
-      if (todayStatsRes.status === 'fulfilled' && todayStatsRes.value?.data) {
-        const data = todayStatsRes.value.data;
-        setTodayStats({
-          todaySales: data.todaySales || data.totalSales || 0,
-          transactions: data.transactions || data.count || 0,
-          profit: data.profit || 0,
-          itemsSold: data.itemsSold || 0,
-        });
-      }
+      const [profitRes, salesTrendRes, todaySalesTrendRes, topProductsRes, lowStockRes, recentSalesRes] = results;
 
       if (profitRes.status === 'fulfilled' && profitRes.value?.data) {
         const data = profitRes.value.data;
@@ -197,15 +158,23 @@ const Dashboard = () => {
       }
 
       if (topProductsRes.status === 'fulfilled' && topProductsRes.value?.data) {
-        setTopProducts(topProductsRes.value.data || []);
+        const raw = topProductsRes.value.data;
+        const list = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.products)
+          ? raw.products
+          : [];
+        setTopProducts(list);
       }
 
       if (lowStockRes.status === 'fulfilled' && lowStockRes.value?.data) {
-        setLowStockItems(lowStockRes.value.data || []);
+        const list = Array.isArray(lowStockRes.value.data) ? lowStockRes.value.data : [];
+        setLowStockCount(list.length);
       }
 
       if (recentSalesRes.status === 'fulfilled' && recentSalesRes.value?.data) {
-        setRecentSales(recentSalesRes.value.data || []);
+        const list = Array.isArray(recentSalesRes.value.data) ? recentSalesRes.value.data : [];
+        setRecentSalesCount(list.length);
       }
     } catch (error) {
       if (thisRequestId !== requestIdRef.current) return;
@@ -230,13 +199,11 @@ const Dashboard = () => {
     await fetchDashboardData();
   }, [fetchDashboardData, isRefreshing]);
 
-  // Fetch immediately when org, period, or branch filter changes
   useEffect(() => {
     if (!orgId) return;
     fetchDashboardData();
   }, [fetchDashboardData, orgId]);
 
-  // Background poll — 5 min cadence, pauses when hidden
   usePolling(
     () => {
       if (contextIsOffline) return;
@@ -315,12 +282,6 @@ const Dashboard = () => {
     return styles.statChangeNeutral;
   };
 
-  const getLowStockStatus = (stock) => {
-    if (stock === 0) return { label: 'Out of Stock', variant: 'danger' };
-    if (stock <= 2) return { label: 'Critical', variant: 'critical' };
-    return { label: 'Low', variant: 'warning' };
-  };
-
   return (
     <div className={styles.dashboard}>
       {/* Quick Actions */}
@@ -329,7 +290,7 @@ const Dashboard = () => {
           <Plus size={18} />
           New Sale
         </button>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/global-inventory')}>
+        <button className={styles.quickActionBtn} onClick={() => navigate('/inventory')}>
           <PackageIcon size={18} />
           Add Product
         </button>
@@ -347,9 +308,7 @@ const Dashboard = () => {
       <div className={styles.headerCard}>
         <div className={styles.headerLeft}>
           <Store size={18} className={styles.orgIcon} />
-          <span className={styles.branchTitle}>
-            {getBranchDisplayName()}
-          </span>
+          <span className={styles.branchTitle}>{getBranchDisplayName()}</span>
         </div>
 
         <div className={styles.headerRight}>
@@ -506,142 +465,114 @@ const Dashboard = () => {
                   fontSize={11}
                   interval={isTodayView ? Math.floor(chartData.length / 8) : 0}
                 />
-                <YAxis stroke="#6b7280" fontSize={11} tickFormatter={(value) => formatCompactCurrency(value)} />
+                <YAxis
+                  stroke="#6b7280"
+                  fontSize={11}
+                  tickFormatter={(value) => formatCompactCurrency(value)}
+                />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="sales" stroke="#FF6B2B" fillOpacity={1} fill="url(#salesGradient)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="sales"
+                  stroke="#FF6B2B"
+                  fillOpacity={1}
+                  fill="url(#salesGradient)"
+                  strokeWidth={2}
+                />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
             <div className={styles.chartEmpty}>
               <BarChart3 size={32} />
               <p>No sales data available</p>
-              <span>{isTodayView ? 'Sales will appear here as they happen' : 'Complete more sales to see your trend'}</span>
+              <span>
+                {isTodayView
+                  ? 'Sales will appear here as they happen'
+                  : 'Complete more sales to see your trend'}
+              </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Low Stock */}
-      {lowStockItems.length > 0 && (
-        <div className={styles.lowStockSection}>
-          <div className={styles.lowStockHeader}>
-            <div className={styles.lowStockTitle}>
-              <AlertTriangle size={18} />
-              <span>Low Stock Alert</span>
-              <span className={styles.lowStockCount}>{lowStockItems.length} items</span>
-            </div>
-            <button
-              className={styles.viewAllBtn}
-              onClick={() => navigate('/inventory')}
-            >
-              View All <ChevronRight size={14} />
-            </button>
+      {/* Counter cards — navigable */}
+      <div className={styles.countersGrid}>
+        <button
+          type="button"
+          className={styles.counterCard}
+          onClick={() => navigate('/inventory')}
+        >
+          <div className={`${styles.counterIcon} ${styles.counterIconWarning}`}>
+            <AlertTriangle size={20} />
           </div>
-          <div className={styles.lowStockGrid}>
-            {lowStockItems.slice(0, 6).map((item) => {
-              const status = getLowStockStatus(item.stock);
-              return (
-                <div key={item.id} className={`${styles.lowStockCard} ${styles[status.variant]}`}>
-                  <div className={styles.lowStockCardHeader}>
-                    <span className={styles.lowStockCardName}>{item.name}</span>
-                    <span className={`${styles.lowStockCardStatus} ${styles[status.variant]}`}>
-                      {status.label}
-                    </span>
-                  </div>
-                  <div className={styles.lowStockCardBody}>
-                    <div className={styles.lowStockCardStock}>
-                      <Package size={14} />
-                      <span>{item.stock || 0} {item.unit || 'units'} left</span>
-                    </div>
-                    {item.sku && (
-                      <span className={styles.lowStockCardSku}>SKU: {item.sku}</span>
-                    )}
-                  </div>
-                  <button
-                    className={styles.lowStockCardAction}
-                    onClick={() => navigate('/inventory')}
-                  >
-                    <Eye size={14} />
-                    View Product
-                  </button>
-                </div>
-              );
-            })}
+          <div className={styles.counterInfo}>
+            <span className={styles.counterValue}>{lowStockCount}</span>
+            <span className={styles.counterLabel}>Low Stock Items</span>
           </div>
-          {lowStockItems.length > 6 && (
-            <button
-              className={styles.lowStockViewMore}
-              onClick={() => navigate('/inventory')}
-            >
-              View all {lowStockItems.length} low stock items <ArrowRight size={14} />
-            </button>
-          )}
-        </div>
-      )}
+          <ChevronRight size={16} className={styles.counterArrow} />
+        </button>
 
-      {/* Bottom Row */}
-      <div className={styles.bottomRow}>
+        <button
+          type="button"
+          className={styles.counterCard}
+          onClick={() => navigate('/sales')}
+        >
+          <div className={`${styles.counterIcon} ${styles.counterIconSuccess}`}>
+            <Receipt size={20} />
+          </div>
+          <div className={styles.counterInfo}>
+            <span className={styles.counterValue}>{recentSalesCount}</span>
+            <span className={styles.counterLabel}>Recent Sales</span>
+          </div>
+          <ChevronRight size={16} className={styles.counterArrow} />
+        </button>
+
+        <button
+          type="button"
+          className={styles.counterCard}
+          onClick={() => navigate('/customers')}
+        >
+          <div className={`${styles.counterIcon} ${styles.counterIconInfo}`}>
+            <Users size={20} />
+          </div>
+          <div className={styles.counterInfo}>
+            <span className={styles.counterValue}>—</span>
+            <span className={styles.counterLabel}>Customers</span>
+          </div>
+          <ChevronRight size={16} className={styles.counterArrow} />
+        </button>
+      </div>
+
+      {/* Top Products preview — read-only, everyone can see */}
+      {topProducts.length > 0 && (
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div className={styles.cardTitle}>
               <Award size={18} />
               <span>Top Products</span>
             </div>
+            <span className={styles.cardSubtitle}>
+              Top {Math.min(topProducts.length, 5)} · {getPeriodLabel()}
+            </span>
           </div>
           <div className={styles.cardBody}>
-            {loading ? (
-              <div className={styles.productSkeleton} />
-            ) : topProducts.length > 0 ? (
-              <div className={styles.topProducts}>
-                {topProducts.map((product, index) => (
-                  <div key={product.productId || index} className={styles.productItem}>
-                    <div className={styles.productRank}>{index + 1}</div>
-                    <span className={styles.productName}>{product.name}</span>
-                    <span className={styles.productTotal}>{formatCurrency(product.total)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.emptyState}>
-                <Package size={32} />
-                <p>No product data</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div className={styles.cardTitle}>
-              <Clock size={18} />
-              <span>Recent Sales</span>
+            <div className={styles.topProducts}>
+              {topProducts.slice(0, 5).map((product, index) => (
+                <div
+                  key={product.productId || product.id || index}
+                  className={styles.productItem}
+                >
+                  <div className={styles.productRank}>{index + 1}</div>
+                  <span className={styles.productName}>{product.name}</span>
+                  <span className={styles.productTotal}>
+                    {formatCurrency(product.total)}
+                  </span>
+                </div>
+              ))}
             </div>
-            <button className={styles.viewAllBtn} onClick={() => navigate('/sales')}>
-              View All <ChevronRight size={14} />
-            </button>
-          </div>
-          <div className={styles.cardBody}>
-            {loading ? (
-              <div className={styles.recentSkeleton} />
-            ) : recentSales.length > 0 ? (
-              <div className={styles.recentList}>
-                {recentSales.slice(0, 5).map((sale) => (
-                  <div key={sale.id} className={styles.recentItem}>
-                    <span className={styles.recentRef}>{sale.reference || sale.id?.slice(0, 8)}</span>
-                    <span className={styles.recentTotal}>{formatCurrency(sale.total)}</span>
-                    <span className={styles.recentTime}>{formatDate(sale.createdAt)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.emptyState}>
-                <Clock size={32} />
-                <p>No recent sales</p>
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

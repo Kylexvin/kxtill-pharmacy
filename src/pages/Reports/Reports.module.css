@@ -528,3 +528,424 @@
 .branchMenuItemActive svg {
   color: var(--accent);
 }
+/* ============================================================
+   TABS
+   ============================================================ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.tab:hover:not(.tabActive) {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.tabActive {
+  background: rgba(255, 106, 43, 0.12);
+  color: var(--accent);
+}
+
+.tabActive svg {
+  color: var(--accent);
+}
+
+/* ============================================================
+   TOP PRODUCTS VIEW
+   ============================================================ */
+.productsView {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Summary tiles */
+.productsSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.summaryTile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.summaryTileLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summaryTileValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.summaryTileActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 4px;
+}
+
+/* Chart card */
+.chartCard {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.chartCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chartCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.chartCardTitle svg {
+  color: var(--accent);
+}
+
+.chartCardSubtitle {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.chartCardBody {
+  padding: 8px 8px 12px;
+}
+
+.chartTooltip {
+  background: var(--bg-raised-hi, var(--bg-raised));
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.chartTooltipLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.chartTooltipValue {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Products table */
+.productsTableCard {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.productsTableHeader {
+  display: grid;
+  grid-template-columns: 44px 1fr 130px 80px 130px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.productsTableBody {
+  display: flex;
+  flex-direction: column;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.productsTableBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.productsTableBody::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.productsTableRow {
+  display: grid;
+  grid-template-columns: 44px 1fr 130px 80px 130px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s ease;
+}
+
+.productsTableRow:last-child {
+  border-bottom: none;
+}
+
+.productsTableRow:hover {
+  background: var(--bg-panel);
+}
+
+.colRank {
+  display: flex;
+  align-items: center;
+}
+
+.rankBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.rankBadgeTop {
+  background: rgba(255, 106, 43, 0.14);
+  color: var(--accent);
+}
+
+.colName {
+  min-width: 0;
+}
+
+.productNameText {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.colSku {
+  min-width: 0;
+}
+
+.skuText {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.colQty {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.colTotal {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+/* Tab states */
+.tabLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+}
+
+.loader {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+.tabError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.tabErrorIcon {
+  color: var(--danger);
+}
+
+.tabError p {
+  font-size: 13px;
+  margin: 0;
+}
+
+.retryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.retryBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tabEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.tabEmptyIcon {
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.tabEmpty h3 {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.tabEmpty p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 340px;
+}
+
+/* Refresh button (reused by TopProductsView) */
+.refreshBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 720px) {
+  .productsTableHeader,
+  .productsTableRow {
+    grid-template-columns: 36px 1fr 70px 100px;
+  }
+
+  .colSku {
+    display: none;
+  }
+}

@@ -12,15 +12,18 @@ import styles from './POS.module.css';
 import {
   getAllProducts,
   getBranchProducts,
-  getActiveCart,
   saveCart,
   clearCart,
+  getActiveCart,
   createLocalSale,
   enqueueSync,
   getDb,
 } from '../../db/sqlite';
 import { initialSync, sync } from '../../sync/engine';
 
+// ============================================================
+// HELPERS
+// ============================================================
 function useDebouncedValue(value, delayMs) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -30,90 +33,17 @@ function useDebouncedValue(value, delayMs) {
   return debounced;
 }
 
-const buildLocalReceiptText = (data) => {
-  const lines = [];
-  const width = 40;
-  const line = '-'.repeat(width);
-
-  const shopName = data.organizationName || data.branchName || 'KXBYTE';
-  const padding = Math.max(0, (width - shopName.length) / 2);
-  lines.push(' '.repeat(padding) + shopName);
-  lines.push(line);
-
-  if (data.sale?.id) {
-    const ref = data.sale.reference || data.sale.id.substring(0, 8).toUpperCase();
-    lines.push(`Receipt #${ref}`);
-  }
-
-  if (data.sale?.createdAt) {
-    const date = new Date(data.sale.createdAt);
-    lines.push(`Date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
-  }
-
-  if (data.sale?.customerName) {
-    lines.push(`Customer: ${data.sale.customerName}`);
-  }
-
-  lines.push(line);
-  lines.push(`Item`.padEnd(20) + `Qty`.padEnd(8) + `Price`.padStart(12));
-  lines.push(line);
-
-  const items = data.items || [];
-  let subtotal = 0;
-
-  for (const item of items) {
-    const name = item.productName || item.name || 'Unknown';
-    const qty = item.quantity || 1;
-    const price = item.unitPrice || item.price || 0;
-    const totalPrice = qty * price;
-    subtotal += totalPrice;
-
-    const nameDisplay = name.length > 18 ? name.substring(0, 18) + '…' : name;
-    lines.push(
-      nameDisplay.padEnd(20) +
-      qty.toString().padEnd(8) +
-      totalPrice.toFixed(2).padStart(12)
-    );
-  }
-
-  lines.push(line);
-
-  const taxAmount = data.taxAmount || 0;
-  const totalAmount = data.total || subtotal;
-
-  lines.push(`Subtotal`.padEnd(28) + subtotal.toFixed(2).padStart(12));
-  if (taxAmount > 0) {
-    lines.push(`Tax`.padEnd(28) + taxAmount.toFixed(2).padStart(12));
-  }
-  lines.push(`TOTAL`.padEnd(28) + totalAmount.toFixed(2).padStart(12));
-  lines.push(line);
-
-  const payments = data.payments || [];
-  if (payments.length > 0) {
-    for (const p of payments) {
-      const method = p.method || 'CASH';
-      const amount = p.amount || totalAmount;
-      lines.push(`${method}`.padEnd(28) + amount.toFixed(2).padStart(12));
-    }
-  } else {
-    lines.push(`CASH`.padEnd(28) + totalAmount.toFixed(2).padStart(12));
-  }
-
-  lines.push(line);
-  lines.push(' '.repeat((width - 12) / 2) + 'THANK YOU');
-  lines.push(' '.repeat((width - 18) / 2) + 'Visit us again');
-
-  return lines.join('\n');
-};
-
+// ============================================================
+// POS
+// ============================================================
 const POS = () => {
   const { activeOrganization, activeBranch, branches } = useAuth();
 
   const {
+    formatCurrency,
     getCurrency,
     getDecimalPlaces,
-    getDefaultPaymentMethod,
-    getShopName,
+    getDefaultPaymentMethod,    
   } = useSettings();
 
   const [products, setProducts] = useState([]);
@@ -140,14 +70,16 @@ const POS = () => {
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
   const currency = getCurrency();
-  const decimals = getDecimalPlaces();
+  const decimalPlaces = getDecimalPlaces();
   const defaultPaymentMethod = getDefaultPaymentMethod();
 
-  const hasValidBranch = branchId && branches?.some(b => b.id === branchId);
+  const hasValidBranch = branchId && branches?.some((b) => b.id === branchId);
   const shouldFetch = orgId && hasValidBranch && dbReady;
 
-  const syncFlagKey = orgId && branchId ? `initialSyncDone:${orgId}:${branchId}` : null;
+  const syncFlagKey =
+    orgId && branchId ? `initialSyncDone:${orgId}:${branchId}` : null;
 
+  // ---------- responsive ----------
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
@@ -161,6 +93,7 @@ const POS = () => {
   const toggleCart = () => setCartOpen((open) => !open);
   const closeCart = () => setCartOpen(false);
 
+  // ---------- DB readiness ----------
   useEffect(() => {
     let cancelled = false;
     let retryTimeout;
@@ -184,53 +117,28 @@ const POS = () => {
     };
   }, []);
 
-  
-// Save cart to SQLite on changes — now also clears when customer is removed
-useEffect(() => {
-  if (!dbReady || !branchId) return;
-
-  const persistCart = async () => {
-    try {
-      // If both cart and customer are gone, wipe the row entirely
-      if (cartItems.length === 0 && !customer?.name) {
-        await clearCart(branchId);
-        return;
-      }
-
-      const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
-      await saveCart({
-        branchId: branchId,
-        customerName: customer?.name || null,
-        customerId: customer?.id || null,
-        customerTempId: customer?.tempId || null,
-        customerPhone: customer?.phone || null,
-        items: JSON.stringify(cartItems),
-        total: subtotal,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('Failed to save cart:', err);
-    }
-  };
-
-  persistCart();
-}, [cartItems, customer, branchId, dbReady]);
-
-  // Save cart to SQLite on changes — now persists customer id/tempId/phone
+  // ---------- persist cart ----------
+  // Saves cart + customer to SQLite. Clears the row entirely when
+  // both cart and customer are gone.
   useEffect(() => {
     if (!dbReady || !branchId) return;
 
     const persistCart = async () => {
       try {
-        const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
+        if (cartItems.length === 0 && !customer?.name) {
+          await clearCart(branchId);
+          return;
+        }
+
+        const cartSubtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
         await saveCart({
-          branchId: branchId,
+          branchId,
           customerName: customer?.name || null,
           customerId: customer?.id || null,
           customerTempId: customer?.tempId || null,
           customerPhone: customer?.phone || null,
           items: JSON.stringify(cartItems),
-          total: subtotal,
+          total: cartSubtotal,
           updatedAt: new Date().toISOString(),
         });
       } catch (err) {
@@ -238,11 +146,48 @@ useEffect(() => {
       }
     };
 
-    if (cartItems.length > 0 || customer?.name) {
-      persistCart();
-    }
+    persistCart();
   }, [cartItems, customer, branchId, dbReady]);
+// ---------- restore cart from SQLite on mount / branch change ----------
+useEffect(() => {
+  if (!dbReady || !branchId) return;
 
+  const restore = async () => {
+    try {
+      const saved = await getActiveCart(branchId);
+      if (!saved) return;
+
+      // Don't clobber an in-memory cart if POS is already mid-sale
+      setCartItems((current) => {
+        if (current.length > 0) return current;
+        try {
+          const parsed = JSON.parse(saved.items || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      });
+
+      if (saved.customerName) {
+        setCustomer((current) => {
+          if (current) return current;
+          return {
+            id: saved.customerId || saved.customerTempId || null,
+            tempId: saved.customerTempId || null,
+            name: saved.customerName,
+            phone: saved.customerPhone || null,
+          };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to restore cart:', err);
+    }
+  };
+
+  restore();
+}, [dbReady, branchId]);
+
+  // ---------- product fetch ----------
   const fetchProducts = useCallback(async () => {
     if (!dbReady || !shouldFetch || !branchId) return;
     setLoading(true);
@@ -251,25 +196,28 @@ useEffect(() => {
       const allProducts = await getAllProducts();
       const branchProds = await getBranchProducts(branchId);
 
-      const branchProductIds = new Set(branchProds.map(bp => bp.productId));
-      const filteredByBranch = allProducts.filter(p => branchProductIds.has(p.id));
+      const branchProductIds = new Set(branchProds.map((bp) => bp.productId));
+      const filteredByBranch = allProducts.filter((p) =>
+        branchProductIds.has(p.id)
+      );
 
       let filtered = filteredByBranch;
 
       if (selectedCategory !== 'All') {
-        filtered = filtered.filter(p => p.category === selectedCategory);
+        filtered = filtered.filter((p) => p.category === selectedCategory);
       }
 
       if (debouncedSearch.trim()) {
         const query = debouncedSearch.trim().toLowerCase();
-        filtered = filtered.filter(p =>
-          p.name.toLowerCase().includes(query) ||
-          (p.sku && p.sku.toLowerCase().includes(query))
+        filtered = filtered.filter(
+          (p) =>
+            p.name.toLowerCase().includes(query) ||
+            (p.sku && p.sku.toLowerCase().includes(query))
         );
       }
 
-      const merged = filtered.map(p => {
-        const bp = branchProds.find(b => b.productId === p.id);
+      const merged = filtered.map((p) => {
+        const bp = branchProds.find((b) => b.productId === p.id);
         const firstUnit = p.units && p.units.length > 0 ? p.units[0] : null;
         return {
           ...p,
@@ -291,6 +239,7 @@ useEffect(() => {
     }
   }, [dbReady, branchId, shouldFetch, debouncedSearch, selectedCategory]);
 
+  // ---------- initial sync + auto fetch ----------
   useEffect(() => {
     if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
       return;
@@ -324,13 +273,16 @@ useEffect(() => {
     runInitialSync();
   }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
 
+  // ---------- categories ----------
   useEffect(() => {
     if (!dbReady || !shouldFetch || !initialSyncDone) return;
 
     const loadCategories = async () => {
       try {
         const allProducts = await getAllProducts();
-        const unique = Array.from(new Set(allProducts.map((p) => p.category).filter(Boolean)));
+        const unique = Array.from(
+          new Set(allProducts.map((p) => p.category).filter(Boolean))
+        );
         setCategories(['All', ...unique]);
       } catch (err) {
         console.error('Failed to load categories:', err);
@@ -339,6 +291,7 @@ useEffect(() => {
     loadCategories();
   }, [dbReady, shouldFetch, initialSyncDone]);
 
+  // ---------- refetch on branch / sync change ----------
   useEffect(() => {
     if (initialSyncDone && branchId) {
       fetchProducts();
@@ -352,6 +305,7 @@ useEffect(() => {
     }
   }, [initialSyncDone, fetchProducts]);
 
+  // ---------- manual sync ----------
   const handleManualSync = useCallback(async () => {
     if (syncing || !branchId || !syncFlagKey) return;
     setSyncing(true);
@@ -364,7 +318,9 @@ useEffect(() => {
         toast.success('Sync completed', { id: 'manual-sync' });
         fetchProducts();
       } else {
-        toast.error('Sync failed: ' + (result.error || 'Unknown error'), { id: 'manual-sync' });
+        toast.error('Sync failed: ' + (result.error || 'Unknown error'), {
+          id: 'manual-sync',
+        });
       }
     } catch (err) {
       toast.error('Sync failed', { id: 'manual-sync' });
@@ -373,6 +329,7 @@ useEffect(() => {
     }
   }, [syncing, branchId, syncFlagKey, fetchProducts]);
 
+  // ---------- barcode ----------
   const handleBarcodeSubmit = async (e) => {
     e.preventDefault();
     const code = barcodeValue.trim();
@@ -381,15 +338,17 @@ useEffect(() => {
     try {
       const allProducts = await getAllProducts();
       const branchProds = await getBranchProducts(branchId);
-      const branchProductIds = new Set(branchProds.map(bp => bp.productId));
-      const availableProducts = allProducts.filter(p => branchProductIds.has(p.id));
+      const branchProductIds = new Set(branchProds.map((bp) => bp.productId));
+      const availableProducts = allProducts.filter((p) =>
+        branchProductIds.has(p.id)
+      );
 
       let foundProduct = null;
       let foundUnit = null;
 
       for (const p of availableProducts) {
         const units = p.units || [];
-        const match = units.find(u => u.barcode === code);
+        const match = units.find((u) => u.barcode === code);
         if (match) {
           foundProduct = p;
           foundUnit = match;
@@ -407,7 +366,7 @@ useEffect(() => {
         return;
       }
 
-      const bp = branchProds.find(b => b.productId === foundProduct.id);
+      const bp = branchProds.find((b) => b.productId === foundProduct.id);
 
       if (!bp || !bp.isAvailable || bp.stock <= 0) {
         toast.error(`${foundProduct.name} is not available`);
@@ -439,6 +398,7 @@ useEffect(() => {
     }
   };
 
+  // ---------- cart operations ----------
   const addToCart = (product, unit) => {
     const productId = product.productId || product.id;
     const stock = Number(product.stock || 0);
@@ -463,7 +423,12 @@ useEffect(() => {
       if (existing) {
         return prev.map((item) =>
           item.productId === productId && item.unitId === unit.id
-            ? { ...item, quantity: newQty, total: newQty * item.unitPrice, stock: stock }
+            ? {
+                ...item,
+                quantity: newQty,
+                total: newQty * item.unitPrice,
+                stock,
+              }
             : item
         );
       }
@@ -479,7 +444,7 @@ useEffect(() => {
           quantity: 1,
           total: Number(unit.price || 0),
           sku: product.sku,
-          stock: stock,
+          stock,
           branchProductId: product.branchProductId,
         },
       ];
@@ -505,7 +470,11 @@ useEffect(() => {
     setCartItems((items) =>
       items.map((item) =>
         item.id === itemId
-          ? { ...item, quantity: newQuantity, total: item.unitPrice * newQuantity }
+          ? {
+              ...item,
+              quantity: newQuantity,
+              total: item.unitPrice * newQuantity,
+            }
           : item
       )
     );
@@ -524,11 +493,14 @@ useEffect(() => {
     }
   };
 
+  // ---------- totals ----------
   const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
+  // TODO: compute tax from settings once tax config exists
   const taxAmount = 0;
   const total = subtotal + taxAmount;
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
+  // ---------- checkout ----------
   const handleCheckout = () => {
     if (cartItems.length === 0) {
       toast.error('Cart is empty');
@@ -542,7 +514,9 @@ useEffect(() => {
     for (const item of cartItems) {
       const stock = Number(item.stock || 0);
       if (stock < item.quantity) {
-        toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
+        toast.error(
+          `Not enough stock for ${item.productName}. Available: ${stock}`
+        );
         return;
       }
     }
@@ -554,10 +528,12 @@ useEffect(() => {
   const handlePaymentComplete = async ({ method, reference }) => {
     setCheckingOut(true);
     try {
-      const clientSaleId = `sale_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const clientSaleId = `sale_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 8)}`;
       const now = new Date().toISOString();
 
-      const saleItems = cartItems.map(item => ({
+      const saleItems = cartItems.map((item) => ({
         productId: item.productId,
         branchProductId: item.branchProductId,
         unitId: item.unitId,
@@ -565,26 +541,27 @@ useEffect(() => {
         unitPrice: item.unitPrice,
       }));
 
-      const payments = [{
-        method,
-        amount: total,
-        reference: reference || `PAY_${Date.now()}`,
-      }];
+      const payments = [
+        {
+          method,
+          amount: total,
+          reference: reference || `PAY_${Date.now()}`,
+        },
+      ];
 
-      // Resolve customerId vs customerTempId for the local sale row
       const hasSyncedCustomer = customer && customer.id && !customer.tempId;
       const hasTempCustomer = customer && customer.tempId;
 
       const localSale = {
         id: clientSaleId,
-        branchId: branchId,
+        branchId,
         customerName: customer?.name || null,
         customerId: hasSyncedCustomer ? customer.id : null,
         customerTempId: hasTempCustomer ? customer.tempId : null,
         items: JSON.stringify(saleItems),
         payments: JSON.stringify(payments),
-        subtotal: subtotal,
-        taxAmount: taxAmount,
+        subtotal,
+        taxAmount,
         totalAmount: total,
         status: 'PENDING',
         syncedAt: null,
@@ -597,7 +574,7 @@ useEffect(() => {
 
       await enqueueSync('sale', clientSaleId, 'CREATE', {
         clientSaleId,
-        branchId: branchId,
+        branchId,
         customerId: hasSyncedCustomer ? customer.id : null,
         customerTempId: hasTempCustomer ? customer.tempId : null,
         customerName: customer?.name || null,
@@ -608,41 +585,25 @@ useEffect(() => {
 
       sync(branchId).catch(() => {});
 
-      const localReceiptData = {
-        sale: { ...localSale, reference: clientSaleId },
-        items: cartItems.map(item => ({
+      // Hand raw data to ReceiptModal — it builds the text from settings.
+      const receipt = {
+        sale: {
+          id: clientSaleId,
+          reference: clientSaleId,
+          createdAt: now,
+          customerName: customer?.name || null,
+        },
+        items: cartItems.map((item) => ({
           productName: item.productName,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.unitPrice * item.quantity,
         })),
-        total: total,
-        subtotal: subtotal,
-        taxAmount: taxAmount,
+        subtotal,
+        taxAmount,
+        total,
+        payments,
         branchName: activeBranch?.name,
-        organizationName: getShopName(),
-        payments: payments,
-      };
-
-      const receipt = {
-        text: buildLocalReceiptText(localReceiptData),
-        data: {
-          shopName: getShopName(),
-          items: cartItems.map(item => ({
-            name: item.productName,
-            quantity: item.quantity,
-            unit: item.unitName,
-            price: item.unitPrice,
-            total: item.unitPrice * item.quantity,
-          })),
-          subtotal: subtotal,
-          tax: taxAmount,
-          total: total,
-          paymentMethod: method,
-          paymentReference: reference,
-          isOffline: true,
-          clientSaleId: clientSaleId,
-        }
       };
 
       setCartItems([]);
@@ -662,14 +623,13 @@ useEffect(() => {
     }
   };
 
+  // ---------- render helpers ----------
   const cartElement = (
     <Cart
       items={cartItems}
       subtotal={subtotal}
       taxAmount={taxAmount}
       total={total}
-      currency={currency}
-      decimals={decimals}
       customer={customer}
       onUpdateQuantity={handleUpdateQuantity}
       onRemoveItem={handleRemoveItem}
@@ -701,10 +661,13 @@ useEffect(() => {
       title="View cart"
     >
       <ShoppingCart size={18} />
-      {cartItemCount > 0 && <span className={styles.cartBadge}>{cartItemCount}</span>}
+      {cartItemCount > 0 && (
+        <span className={styles.cartBadge}>{cartItemCount}</span>
+      )}
     </button>
   );
 
+  // ---------- guard screens ----------
   if (!dbReady) {
     return (
       <div className={styles.pos}>
@@ -724,7 +687,7 @@ useEffect(() => {
           <p>
             {!activeOrganization
               ? 'Select an organization to start selling'
-              : 'No branch selected or you don\'t have access'}
+              : "No branch selected or you don't have access"}
           </p>
         </div>
       </div>
@@ -743,6 +706,7 @@ useEffect(() => {
     );
   }
 
+  // ---------- empty products state ----------
   if (!loading && products.length === 0 && initialSyncDone) {
     return (
       <div className={styles.pos}>
@@ -775,6 +739,7 @@ useEffect(() => {
               className={styles.syncBtnLarge}
               onClick={handleManualSync}
               disabled={syncing}
+              type="button"
             >
               <RefreshCw size={16} className={syncing ? styles.spinning : ''} />
               {syncing ? 'Syncing...' : 'Sync Now'}
@@ -786,6 +751,7 @@ useEffect(() => {
     );
   }
 
+  // ---------- main render ----------
   return (
     <div className={styles.pos}>
       <div className={styles.productsPanel}>
@@ -813,6 +779,7 @@ useEffect(() => {
             onClick={handleManualSync}
             disabled={syncing}
             title="Sync now"
+            type="button"
           >
             <RefreshCw size={16} className={syncing ? styles.spinning : ''} />
           </button>
@@ -823,7 +790,10 @@ useEffect(() => {
           {categories.map((cat) => (
             <button
               key={cat}
-              className={`${styles.categoryBtn} ${selectedCategory === cat ? styles.active : ''}`}
+              type="button"
+              className={`${styles.categoryBtn} ${
+                selectedCategory === cat ? styles.active : ''
+              }`}
               onClick={() => setSelectedCategory(cat)}
             >
               {cat}
@@ -848,6 +818,8 @@ useEffect(() => {
           onPaymentComplete={handlePaymentComplete}
           total={total}
           currency={currency}
+          decimalPlaces={decimalPlaces}
+          formatCurrency={formatCurrency}
           cartItems={cartItems}
           customer={customer}
           isProcessing={checkingOut}
@@ -856,7 +828,10 @@ useEffect(() => {
       )}
 
       {lastReceipt && (
-        <ReceiptModal receipt={lastReceipt} onClose={() => setLastReceipt(null)} />
+        <ReceiptModal
+          receipt={lastReceipt}
+          onClose={() => setLastReceipt(null)}
+        />
       )}
     </div>
   );

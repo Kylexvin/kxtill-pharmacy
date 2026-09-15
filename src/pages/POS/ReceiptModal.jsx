@@ -1,93 +1,119 @@
 // src/pages/POS/ReceiptModal.jsx
 import React from 'react';
-import { X, Printer, Check } from 'lucide-react';
+import { X, Check } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import styles from './ReceiptModal.module.css';
 
 const ReceiptModal = ({ receipt, onClose }) => {
   const {
+    settings,
     getShopName,
     getTaxNumber,
     getReceiptHeader,
     getReceiptFooter,
     getDecimalPlaces,
+    getCurrency,
+    formatDate,
+    formatTime,
   } = useSettings();
 
   if (!receipt) return null;
 
   const decimals = getDecimalPlaces();
+  const currency = getCurrency();
   const shopName = getShopName();
   const taxNumber = getTaxNumber();
   const receiptHeader = getReceiptHeader();
   const receiptFooter = getReceiptFooter();
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const showTax = settings.showTax !== false;
+  const showCustomer = settings.showCustomer !== false;
+  const showCashier = settings.showCashier !== false;
 
-  // Build receipt text from structured data
+  // Build receipt text from structured data.
+  // Monospace layout — keep numbers aligned, no currency symbol inline
+  // (symbol only appears on the TOTAL line for clarity).
   const buildReceiptText = () => {
     const lines = [];
     const width = 40;
     const line = '-'.repeat(width);
+    const center = (str) => {
+      const pad = Math.max(0, Math.floor((width - str.length) / 2));
+      return ' '.repeat(pad) + str;
+    };
+    const formatAmount = (n) => Number(n || 0).toFixed(decimals);
 
-    // Header
-    lines.push(' '.repeat((width - shopName.length) / 2) + shopName);
-    if (taxNumber) {
-      lines.push(' '.repeat((width - taxNumber.length) / 2) + `Tax: ${taxNumber}`);
-    }
-    lines.push(' '.repeat((width - 16) / 2) + 'KxTill POS');
+    // -------- Header --------
+    lines.push(center(shopName));
+    if (taxNumber) lines.push(center(`Tax: ${taxNumber}`));
+    lines.push(center('KxTill POS'));
     lines.push(line);
 
-    // Receipt Header
+    // -------- Receipt Header --------
     if (receiptHeader) {
       lines.push(receiptHeader);
       lines.push(line);
     }
 
-    // Branch
+    // -------- Branch --------
     if (receipt.branchName) {
       lines.push(receipt.branchName);
     }
 
-    // Sale ID / Reference
+    // -------- Reference --------
     if (receipt.sale?.reference) {
       lines.push(`Receipt #: ${receipt.sale.reference}`);
     } else if (receipt.sale?.id) {
       lines.push(`Sale #: ${receipt.sale.id.substring(0, 8).toUpperCase()}`);
     }
 
-    // Date
+    // -------- Date --------
     if (receipt.sale?.createdAt) {
-      const date = new Date(receipt.sale.createdAt);
-      lines.push(`Date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+      const d = receipt.sale.createdAt;
+      lines.push(`Date: ${formatDate(d)} ${formatTime(d)}`);
     }
 
-    // Customer
-    if (receipt.sale?.customerName) {
+    // -------- Customer (conditional) --------
+    if (showCustomer && receipt.sale?.customerName) {
       lines.push(`Customer: ${receipt.sale.customerName}`);
+    }
+
+    // -------- Cashier (conditional) --------
+    if (showCashier) {
+      const cashierName =
+        receipt.sale?.cashierName ||
+        receipt.cashierName ||
+        receipt.sale?.user?.firstName ||
+        null;
+      if (cashierName) {
+        lines.push(`Cashier: ${cashierName}`);
+      }
     }
 
     lines.push(line);
 
-    // Items
-    const items = receipt.items || [];
-    if (items.length === 0 && receipt.sale?.items) {
+    // -------- Items (non-mutating) --------
+    let items = [];
+    if (Array.isArray(receipt.items) && receipt.items.length > 0) {
+      items = receipt.items;
+    } else if (receipt.sale?.items) {
       try {
-        const parsed = JSON.parse(receipt.sale.items);
-        items.push(...parsed);
-      } catch (e) {}
+        const parsed =
+          typeof receipt.sale.items === 'string'
+            ? JSON.parse(receipt.sale.items)
+            : receipt.sale.items;
+        if (Array.isArray(parsed)) items = parsed;
+      } catch {
+        // ignore malformed
+      }
+    }
+    if (items.length === 0 && Array.isArray(receipt.cartItems)) {
+      items = receipt.cartItems;
+    }
+    if (items.length === 0 && Array.isArray(receipt.saleItems)) {
+      items = receipt.saleItems;
     }
 
-    if (items.length === 0 && receipt.cartItems) {
-      items.push(...receipt.cartItems);
-    }
-
-    if (items.length === 0 && receipt.saleItems) {
-      items.push(...receipt.saleItems);
-    }
-
-    // Headers
     lines.push(`Item`.padEnd(20) + `Qty`.padEnd(8) + `Price`.padStart(12));
     lines.push(line);
 
@@ -96,75 +122,76 @@ const ReceiptModal = ({ receipt, onClose }) => {
       const name = item.productName || item.name || 'Unknown';
       const qty = item.quantity || 1;
       const price = item.unitPrice || item.price || 0;
-      const totalPrice = qty * price;
-      subtotal += totalPrice;
+      const lineTotal = qty * price;
+      subtotal += lineTotal;
 
       const nameDisplay = name.length > 18 ? name.substring(0, 18) + '…' : name;
       lines.push(
         nameDisplay.padEnd(20) +
-        qty.toString().padEnd(8) +
-        totalPrice.toFixed(decimals).padStart(12)
+          qty.toString().padEnd(8) +
+          formatAmount(lineTotal).padStart(12)
       );
     }
 
     lines.push(line);
 
-    // Totals
+    // -------- Totals --------
     const taxAmount = receipt.taxAmount || receipt.sale?.taxAmount || 0;
     const totalAmount = receipt.total || receipt.sale?.totalAmount || subtotal;
 
-    lines.push(`Subtotal`.padEnd(28) + subtotal.toFixed(decimals).padStart(12));
-    if (taxAmount > 0) {
-      lines.push(`Tax`.padEnd(28) + taxAmount.toFixed(decimals).padStart(12));
+    lines.push(`Subtotal`.padEnd(28) + formatAmount(subtotal).padStart(12));
+
+    if (showTax && taxAmount > 0) {
+      lines.push(`Tax`.padEnd(28) + formatAmount(taxAmount).padStart(12));
     }
-    lines.push(`TOTAL`.padEnd(28) + totalAmount.toFixed(decimals).padStart(12));
+
+    lines.push(
+      `TOTAL (${currency})`.padEnd(28) + formatAmount(totalAmount).padStart(12)
+    );
     lines.push(line);
 
-    // Payment info
-    let payments = receipt.payments || [];
-    if (payments.length === 0 && receipt.sale?.payments) {
+    // -------- Payments --------
+    let payments = [];
+    if (Array.isArray(receipt.payments) && receipt.payments.length > 0) {
+      payments = receipt.payments;
+    } else if (receipt.sale?.payments) {
       try {
-        payments = JSON.parse(receipt.sale.payments);
-      } catch (e) {}
+        const parsed =
+          typeof receipt.sale.payments === 'string'
+            ? JSON.parse(receipt.sale.payments)
+            : receipt.sale.payments;
+        if (Array.isArray(parsed)) payments = parsed;
+      } catch {
+        // ignore
+      }
     }
 
     if (payments.length > 0) {
       for (const p of payments) {
-        const method = p.method || 'CASH';
+        const method = (p.method || 'CASH').toUpperCase();
         const amount = p.amount || totalAmount;
-        lines.push(`${method}`.padEnd(28) + amount.toFixed(decimals).padStart(12));
+        lines.push(method.padEnd(28) + formatAmount(amount).padStart(12));
       }
     } else {
-      lines.push(`CASH`.padEnd(28) + totalAmount.toFixed(decimals).padStart(12));
+      lines.push('CASH'.padEnd(28) + formatAmount(totalAmount).padStart(12));
     }
 
     lines.push(line);
 
-    // Footer
+    // -------- Footer --------
     if (receiptFooter) {
       lines.push(receiptFooter);
     } else {
-      lines.push(' '.repeat((width - 12) / 2) + 'THANK YOU');
-      lines.push(' '.repeat((width - 18) / 2) + 'Visit us again');
+      lines.push(center('THANK YOU'));
+      lines.push(center('Visit us again'));
     }
 
     return lines.join('\n');
   };
 
+  // Prefer pre-built text if present (historical receipts preserve what
+  // was originally printed). Fresh sales build from current settings.
   const receiptText = receipt.text || buildReceiptText();
-
-  // Build formatted receipt data for display
-  const receiptData = receipt.data || {
-    shopName,
-    items: receipt.items || [],
-    subtotal: receipt.subtotal || 0,
-    tax: receipt.taxAmount || 0,
-    total: receipt.total || 0,
-    paymentMethod: receipt.payments?.[0]?.method || 'CASH',
-    paymentReference: receipt.payments?.[0]?.reference || null,
-    isOffline: receipt.isOffline || false,
-    clientSaleId: receipt.clientSaleId || null,
-  };
 
   return (
     <div className={styles.overlay}>
@@ -174,10 +201,12 @@ const ReceiptModal = ({ receipt, onClose }) => {
             <Check size={18} className={styles.successIcon} />
             <span>Sale Complete</span>
           </div>
-          {receiptData.isOffline && (
-            <span className={styles.offlineBadge}>Offline</span>
-          )}
-          <button className={styles.closeBtn} onClick={onClose}>
+          <button
+            className={styles.closeBtn}
+            onClick={onClose}
+            type="button"
+            aria-label="Close"
+          >
             <X size={20} />
           </button>
         </div>
@@ -187,11 +216,11 @@ const ReceiptModal = ({ receipt, onClose }) => {
         </div>
 
         <div className={styles.footer}>
-          <button className={styles.printBtn} onClick={handlePrint}>
-            <Printer size={16} />
-            Print receipt
-          </button>
-          <button className={styles.newSaleBtn} onClick={onClose}>
+          <button
+            className={styles.newSaleBtn}
+            onClick={onClose}
+            type="button"
+          >
             New sale
           </button>
         </div>
