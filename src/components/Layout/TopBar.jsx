@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import axios from 'axios';
 import {
   Bell, User, Settings, HelpCircle, LogOut, AlertTriangle,
@@ -39,6 +40,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     setIsOffline: setContextIsOffline,
   } = useAuth();
   const { darkMode, toggleTheme } = useTheme();
+  const { settings } = useSettings();
+
+  // Feature flags
+  const allowBranchSwitch = settings?.allowBranchSwitch !== false;
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -70,9 +75,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
   const lowStockCount = 0;
 
-  // ------------------------------------------------------------
-  // Click-outside: close open dropdowns when clicking elsewhere
-  // ------------------------------------------------------------
+  // ---------- click-outside ----------
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
@@ -84,7 +87,6 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         setOrgDropdownOpen(false);
         setBranchDropdownOpen(false);
       }
-
       if (
         notifOpen &&
         notifMenuRef.current &&
@@ -93,14 +95,11 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         setNotifOpen(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [userMenuOpen, notifOpen]);
 
-  // ------------------------------------------------------------
-  // Escape closes all dropdowns
-  // ------------------------------------------------------------
+  // ---------- escape ----------
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
@@ -110,14 +109,11 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         setBranchDropdownOpen(false);
       }
     };
-
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // ------------------------------------------------------------
-  // Pending sales count (SQLite read — cheap, no network)
-  // ------------------------------------------------------------
+  // ---------- pending sales ----------
   const checkPendingSales = useCallback(async () => {
     try {
       const pending = await getPendingSales();
@@ -131,9 +127,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     checkPendingSales();
   }, [isOnline, lastSyncStatus, checkPendingSales]);
 
-  // ------------------------------------------------------------
-  // Manual sync (also used by the sync button)
-  // ------------------------------------------------------------
+  // ---------- manual sync ----------
   const handleManualSync = useCallback(async () => {
     if (isSyncingRef.current) return;
     if (!activeBranchRef.current?.id) return;
@@ -153,11 +147,8 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     }
   }, [checkPendingSales]);
 
-  // ------------------------------------------------------------
-  // Auto-sync — via usePolling (pauses when hidden)
-  // ------------------------------------------------------------
+  // ---------- auto sync ----------
   const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
-
   usePolling(
     () => {
       if (!isOnline) return;
@@ -169,9 +160,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     [syncInterval, isOnline, activeBranch?.id]
   );
 
-  // ------------------------------------------------------------
-  // Connectivity heartbeat
-  // ------------------------------------------------------------
+  // ---------- connectivity heartbeat ----------
   const checkConnectivity = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
     heartbeatInFlightRef.current = true;
@@ -200,9 +189,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
   usePolling(checkConnectivity, HEARTBEAT_INTERVAL_MS, [checkConnectivity]);
 
-  // ------------------------------------------------------------
-  // Browser online/offline events
-  // ------------------------------------------------------------
+  // ---------- browser online/offline ----------
   useEffect(() => {
     const handleBrowserOnline = () => checkConnectivity();
     const handleBrowserOffline = () => {
@@ -210,19 +197,15 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
       setOnlineStatus(false);
       setContextIsOffline(true);
     };
-
     window.addEventListener('online', handleBrowserOnline);
     window.addEventListener('offline', handleBrowserOffline);
-
     return () => {
       window.removeEventListener('online', handleBrowserOnline);
       window.removeEventListener('offline', handleBrowserOffline);
     };
   }, [checkConnectivity, setContextIsOffline]);
 
-  // ------------------------------------------------------------
-  // Sync immediately when coming back online
-  // ------------------------------------------------------------
+  // ---------- sync on coming back online ----------
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
@@ -231,6 +214,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     wasOnlineRef.current = isOnline;
   }, [isOnline, handleManualSync]);
 
+  // ---------- handlers ----------
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -257,6 +241,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   };
 
   const handleSwitchBranch = (branch) => {
+    if (!allowBranchSwitch) return;
     setActiveBranch(branch);
     setBranchDropdownOpen(false);
     sync(branch.id).catch(() => {});
@@ -269,7 +254,6 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     navigate(path);
   };
 
-  // Open a Suite page with SSO token (Help, Billing, etc.)
   const openSuitePath = (path = '') => {
     const suiteUrl =
       process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
@@ -347,6 +331,12 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     .slice(0, 2)
     .map((w) => w[0].toUpperCase())
     .join('');
+
+  // Section label condition — depends on both switchers
+  const showOrgSwitcher = organizations && organizations.length > 0;
+  const showBranchSwitcher =
+    allowBranchSwitch && branches && branches.length > 0;
+  const showOrgSection = showOrgSwitcher || showBranchSwitcher;
 
   return (
     <header className={styles.topBar}>
@@ -547,15 +537,14 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                 Billing &amp; Subscription
               </button>
 
-              {((organizations && organizations.length > 0) ||
-                (branches && branches.length > 0)) && (
+              {showOrgSection && (
                 <>
                   <div className={styles.divider} />
                   <div className={styles.menuSectionLabel}>Organization</div>
                 </>
               )}
 
-              {organizations && organizations.length > 0 && (
+              {showOrgSwitcher && (
                 <div className={styles.switcherSection}>
                   <div
                     className={styles.switcherHeader}
@@ -598,7 +587,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                 </div>
               )}
 
-              {branches && branches.length > 0 && (
+              {showBranchSwitcher && (
                 <div className={styles.switcherSection}>
                   <div
                     className={styles.switcherHeader}

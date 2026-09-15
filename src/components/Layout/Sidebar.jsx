@@ -21,14 +21,14 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const showPos           = can(KXTILL.SALES.CREATE);
   const showSales         = can(KXTILL.SALES.VIEW);
   const showRefunds       = can(KXTILL.SALES.REFUND);
-  const showCustomers     = can(KXTILL.CUSTOMERS.VIEW);
+  const showCustomers     = can(PLATFORM.CUSTOMERS.VIEW);
 
   // Owner-only for now (per decision Q1A — no kxtill.staff.* in DB)
   // Placeholder: gate by members.view; App.jsx route enforces owner too.
   const showKxTillStaff   = can(PLATFORM.MEMBERS.VIEW);
 
   const showProducts      = can(KXTILL.INVENTORY.VIEW);
-  const showGlobalInv     = can(KXTILL.INVENTORY.VIEW);
+  const showGlobalInv = can(KXTILL.INVENTORY.GLOBAL_VIEW);
   const showTransfers     = canAny([
     KXTILL.INVENTORY.TRANSFERS.CREATE,
     KXTILL.INVENTORY.TRANSFERS.APPROVE,

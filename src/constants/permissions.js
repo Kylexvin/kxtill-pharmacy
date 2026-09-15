@@ -22,6 +22,7 @@ export const KXTILL = {
     CREATE: 'kxtill.inventory.create',
     UPDATE: 'kxtill.inventory.update',
     DELETE: 'kxtill.inventory.delete',
+    GLOBAL_VIEW: 'kxtill.inventory.global.view',
     TRANSFERS: {
       CREATE:   'kxtill.inventory.transfers.create',
       APPROVE:  'kxtill.inventory.transfers.approve',

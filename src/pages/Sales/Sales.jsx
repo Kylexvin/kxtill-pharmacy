@@ -2,14 +2,17 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { renderReceipt } from '../../utils/receipt/templates';
+import { openPrintWindow } from '../../utils/receipt/print';
 import toast from 'react-hot-toast';
 import {
   Search, Filter, Eye, ChevronLeft, ChevronRight,
   DollarSign, ShoppingBag, Users, FileText, Printer,
   RefreshCw, Clock, CheckCircle, XCircle, AlertCircle,
   Receipt, Copy, Check, User, Building2, CreditCard, X,
-  Banknote, Smartphone, CloudOff, RotateCw, WifiOff, 
+  Banknote, Smartphone, CloudOff, RotateCw, WifiOff,
 } from 'lucide-react';
 import axios from 'axios';
 import {
@@ -18,15 +21,15 @@ import {
   getLocalSaleByServerId,
   retryLocalSale,
   getPendingSalesCount,
-  getFailedSalesCount
+  getFailedSalesCount,
 } from '../../db/sqlite';
 import styles from './Sales.module.css';
 
 // ---------------------------------------------------------------------------
 // Tuning constants
 // ---------------------------------------------------------------------------
-const POLL_INTERVAL_IDLE_MS = 30000;     // normal background refresh
-const POLL_INTERVAL_PENDING_MS = 8000;   // faster refresh while anything is pending/failed
+const POLL_INTERVAL_IDLE_MS = 30000;
+const POLL_INTERVAL_PENDING_MS = 8000;
 const SEARCH_DEBOUNCE_MS = 400;
 const SYNC_EVENT_NAME = 'kxtill:sync-complete';
 
@@ -53,17 +56,19 @@ const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) 
 
   if (statusFilter && statusFilter !== 'all') {
     const target = statusFilter.toUpperCase();
-    result = result.filter(sale => (sale.status || '').toUpperCase() === target);
+    result = result.filter((sale) => (sale.status || '').toUpperCase() === target);
   }
 
   if (paymentFilter && paymentFilter !== 'all') {
     const target = paymentFilter.toUpperCase();
-    result = result.filter(sale => (paymentMethodOf(sale) || '').toUpperCase() === target);
+    result = result.filter(
+      (sale) => (paymentMethodOf(sale) || '').toUpperCase() === target
+    );
   }
 
   if (searchTerm && searchTerm.trim()) {
     const term = searchTerm.trim().toLowerCase();
-    result = result.filter(sale => {
+    result = result.filter((sale) => {
       const ref = referenceOf(sale).toLowerCase();
       const customer = (sale.customerName || '').toLowerCase();
       const id = (sale.id || '').toLowerCase();
@@ -75,29 +80,22 @@ const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) 
 };
 
 const isAbortError = (error) =>
-  error?.name === 'CanceledError' || error?.name === 'AbortError' || axios.isCancel?.(error);
+  error?.name === 'CanceledError' ||
+  error?.name === 'AbortError' ||
+  axios.isCancel?.(error);
 
 const Sales = () => {
   const navigate = useNavigate();
   const {
     activeOrganization,
     activeBranch,
-    branches,
-
-    accessToken,
-    setActiveBranch,
-    isOffline: contextIsOffline
+    branches,   
+    isOffline: contextIsOffline,
   } = useAuth();
 
-  // Use settings from SettingsContext
-  const {
+  const { isOwner, hasAllBranches } = usePermissions();
+  const { formatCurrency, formatDate, formatDateTime } = useSettings();
 
-    formatCurrency,
-    formatDate,
-    formatDateTime,
-  } = useSettings();
-
-  // Raw merged (server + local) sales for the current branch/date scope.
   const [rawSales, setRawSales] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -107,11 +105,11 @@ const Sales = () => {
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [dateRange, setDateRange] = useState('all');
 
-  const [branchFilter, setBranchFilter] = useState(() => activeBranch?.id || 'all');
+  const [branchFilter, setBranchFilter] = useState(
+    () => activeBranch?.id || 'all'
+  );
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [userPermissions, setUserPermissions] = useState([]);
-  const [hasAllBranches, setHasAllBranches] = useState(false);
   const [localPendingCount, setLocalPendingCount] = useState(0);
   const [localFailedCount, setLocalFailedCount] = useState(0);
   const [showReceipt, setShowReceipt] = useState(null);
@@ -148,49 +146,24 @@ const Sales = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBranch?.id]);
 
-  useEffect(() => {
-    const fetchPermissions = async () => {
-      if (!orgId || !accessToken) return;
-      try {
-        const response = await axios.get(
-          `/auth/me/dashboard?organizationId=${orgId}`
-        );
-        const data = response.data;
-        setUserPermissions(data.permissions || []);
-        setHasAllBranches(data.membership?.hasAllBranches || false);
-      } catch (error) {
-        console.error('Failed to fetch permissions:', error);
-      }
-    };
-    fetchPermissions();
-  }, [orgId, accessToken]);
-
-  const isOwner = userPermissions.includes('*');
+  // ---------- derived branch helpers ----------
   const canViewAllBranches = hasAllBranches || isOwner;
   const availableBranches = useMemo(() => branches || [], [branches]);
   const showBranchFilter = canViewAllBranches && availableBranches.length > 1;
 
   const getActiveBranchName = useCallback(() => {
-    if (canViewAllBranches && branchFilter === 'all') {
-      return 'All Branches';
-    }
+    if (canViewAllBranches && branchFilter === 'all') return 'All Branches';
     if (branchFilter !== 'all') {
-      const branch = availableBranches.find(b => b.id === branchFilter);
+      const branch = availableBranches.find((b) => b.id === branchFilter);
       return branch?.name || 'Unknown Branch';
     }
-    if (activeBranch) {
-      return activeBranch.name;
-    }
+    if (activeBranch) return activeBranch.name;
     return 'No Branch Selected';
   }, [canViewAllBranches, branchFilter, availableBranches, activeBranch]);
 
   const getActiveBranchId = useCallback(() => {
-    if (branchFilter !== 'all') {
-      return branchFilter;
-    }
-    if (activeBranch) {
-      return activeBranch.id;
-    }
+    if (branchFilter !== 'all') return branchFilter;
+    if (activeBranch) return activeBranch.id;
     return null;
   }, [branchFilter, activeBranch]);
 
@@ -218,14 +191,13 @@ const Sales = () => {
 
   const mergeSales = useCallback((serverSales, localSales) => {
     const localMap = {};
-    localSales.forEach(local => {
+    localSales.forEach((local) => {
       const key = local.serverSaleId || local.id;
       localMap[key] = local;
     });
 
-    const merged = serverSales.map(server => {
+    const merged = serverSales.map((server) => {
       const local = localMap[server.id] || localMap[server.clientSaleId];
-
       if (local) {
         return {
           ...server,
@@ -238,16 +210,16 @@ const Sales = () => {
       return { ...server, isLocal: false };
     });
 
-    const serverIds = new Set(serverSales.map(s => s.id));
-    const localOnly = localSales.filter(local =>
-      !serverIds.has(local.serverSaleId) &&
-      !serverIds.has(local.id) &&
-      (local.localStatus === 'PENDING' || local.localStatus === 'FAILED')
+    const serverIds = new Set(serverSales.map((s) => s.id));
+    const localOnly = localSales.filter(
+      (local) =>
+        !serverIds.has(local.serverSaleId) &&
+        !serverIds.has(local.id) &&
+        (local.localStatus === 'PENDING' || local.localStatus === 'FAILED')
     );
 
     const all = [...merged, ...localOnly];
     all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
     return all;
   }, []);
 
@@ -262,7 +234,11 @@ const Sales = () => {
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         break;
       case 'yesterday':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        startDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() - 1
+        );
         break;
       case 'week':
         startDate = new Date(now);
@@ -291,9 +267,7 @@ const Sales = () => {
       return;
     }
 
-    if (!hasLoadedOnceRef.current) {
-      setLoading(true);
-    }
+    if (!hasLoadedOnceRef.current) setLoading(true);
 
     fetchSalesControllerRef.current?.abort();
     const controller = new AbortController();
@@ -311,17 +285,18 @@ const Sales = () => {
       };
 
       const serverBranchId = getServerBranchId();
-      if (serverBranchId) {
-        params.branchId = serverBranchId;
-      }
+      if (serverBranchId) params.branchId = serverBranchId;
 
       if (isCurrentlyOnline) {
         try {
-          const response = await axios.get(`/organizations/${orgId}/kxtill/sales`, {
-            params,
-            timeout: 10000,
-            signal: controller.signal,
-          });
+          const response = await axios.get(
+            `/organizations/${orgId}/kxtill/sales`,
+            {
+              params,
+              timeout: 10000,
+              signal: controller.signal,
+            }
+          );
           serverSales = response.data.items || [];
           if (!controller.signal.aborted) setLastSyncTime(new Date());
         } catch (error) {
@@ -345,7 +320,6 @@ const Sales = () => {
       hasLoadedOnceRef.current = true;
 
       await fetchLocalCounts();
-
     } catch (error) {
       if (isAbortError(error)) return;
       console.error('Error fetching sales:', error);
@@ -366,8 +340,13 @@ const Sales = () => {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
   }, [
-    orgId, getActiveBranchId, getServerBranchId, fetchLocalCounts, mergeSales,
-    buildDateParams, contextIsOffline
+    orgId,
+    getActiveBranchId,
+    getServerBranchId,
+    fetchLocalCounts,
+    mergeSales,
+    buildDateParams,
+    contextIsOffline,
   ]);
 
   const filteredSales = useMemo(
@@ -384,12 +363,18 @@ const Sales = () => {
   }, [filteredSales, currentPage, limit]);
 
   const stats = useMemo(() => {
-    const totalRevenue = filteredSales.reduce((sum, s) => sum + parseFloat(s.totalAmount || 0), 0);
+    const totalRevenue = filteredSales.reduce(
+      (sum, s) => sum + parseFloat(s.totalAmount || 0),
+      0
+    );
     return {
       totalSales: filteredSales.length,
       totalRevenue,
-      averageOrderValue: filteredSales.length > 0 ? totalRevenue / filteredSales.length : 0,
-      uniqueCustomers: new Set(filteredSales.map(s => s.customerName || 'Walk-in Customer')).size,
+      averageOrderValue:
+        filteredSales.length > 0 ? totalRevenue / filteredSales.length : 0,
+      uniqueCustomers: new Set(
+        filteredSales.map((s) => s.customerName || 'Walk-in Customer')
+      ).size,
     };
   }, [filteredSales]);
 
@@ -398,7 +383,10 @@ const Sales = () => {
   }, [currentPage, totalPages]);
 
   useEffect(() => {
-    const handle = setTimeout(() => setSearchTerm(searchInput), SEARCH_DEBOUNCE_MS);
+    const handle = setTimeout(
+      () => setSearchTerm(searchInput),
+      SEARCH_DEBOUNCE_MS
+    );
     return () => clearTimeout(handle);
   }, [searchInput]);
 
@@ -431,7 +419,9 @@ const Sales = () => {
     if (!isOnline || contextIsOffline) return;
 
     const hasPendingWork = localPendingCount > 0 || localFailedCount > 0;
-    const intervalMs = hasPendingWork ? POLL_INTERVAL_PENDING_MS : POLL_INTERVAL_IDLE_MS;
+    const intervalMs = hasPendingWork
+      ? POLL_INTERVAL_PENDING_MS
+      : POLL_INTERVAL_IDLE_MS;
 
     const interval = setInterval(() => {
       if (navigator.onLine && !contextIsOffline) {
@@ -440,11 +430,21 @@ const Sales = () => {
     }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isOnline, contextIsOffline, handleRefresh, localPendingCount, localFailedCount]);
+  }, [
+    isOnline,
+    contextIsOffline,
+    handleRefresh,
+    localPendingCount,
+    localFailedCount,
+  ]);
 
   useEffect(() => {
-    const onOnline = () => { if (orgId) handleRefresh(); };
-    const onSyncComplete = () => { if (orgId) handleRefresh(); };
+    const onOnline = () => {
+      if (orgId) handleRefresh();
+    };
+    const onSyncComplete = () => {
+      if (orgId) handleRefresh();
+    };
 
     window.addEventListener('online', onOnline);
     window.addEventListener(SYNC_EVENT_NAME, onSyncComplete);
@@ -459,15 +459,16 @@ const Sales = () => {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
+    if (e.key === 'Enter') handleSearch();
   };
 
   const handlePageChange = (newPage) => {
     setCurrentPage(newPage);
   };
 
+  // NOTE: `branch` filter is LOCAL to this page — it does NOT change the
+  // user's active branch globally. Switching the working branch is done
+  // from the TopBar and is gated by `allowBranchSwitch` setting.
   const handleFilterChange = useCallback((type, value) => {
     switch (type) {
       case 'status':
@@ -479,20 +480,13 @@ const Sales = () => {
       case 'date':
         setDateRange(value);
         break;
-      case 'branch': {
+      case 'branch':
         setBranchFilter(value);
-        if (canViewAllBranches && value !== 'all') {
-          const selectedBranch = availableBranches.find(b => b.id === value);
-          if (selectedBranch) {
-            setActiveBranch(selectedBranch);
-          }
-        }
         break;
-      }
       default:
         break;
     }
-  }, [canViewAllBranches, availableBranches, setActiveBranch]);
+  }, []);
 
   const clearFilters = () => {
     setStatusFilter('all');
@@ -507,7 +501,7 @@ const Sales = () => {
   const handleRetryLocalSale = async (saleId) => {
     if (retryingIds.has(saleId)) return;
 
-    setRetryingIds(prev => new Set(prev).add(saleId));
+    setRetryingIds((prev) => new Set(prev).add(saleId));
     try {
       toast.loading('Retrying sync...', { id: 'retry' });
       await retryLocalSale(saleId);
@@ -516,7 +510,7 @@ const Sales = () => {
     } catch (error) {
       toast.error(error.message || 'Failed to retry', { id: 'retry' });
     } finally {
-      setRetryingIds(prev => {
+      setRetryingIds((prev) => {
         const newSet = new Set(prev);
         newSet.delete(saleId);
         return newSet;
@@ -552,32 +546,29 @@ const Sales = () => {
     }
   };
 
-  const handlePrintReceipt = async (saleId) => {
-    if (!orgId) return;
-    try {
-      let localSale = await getLocalSaleByServerId(saleId);
+const handlePrintReceipt = async (saleId) => {
+  if (!orgId) return;
+  try {
+    toast.loading('Loading receipt...', { id: 'receipt' });
 
-      if (!localSale) {
-        localSale = await getLocalSaleFormatted(saleId);
-      }
+    const response = await axios.get(
+      `/organizations/${orgId}/kxtill/sales/${saleId}/receipt`
+    );
 
-      if (localSale && localSale.receiptText) {
-        setShowReceipt({ text: localSale.receiptText, data: {} });
-        return;
-      }
+    const data = response.data;
+    const text = renderReceipt(data, data?.receipt?.template);
 
-      toast.loading('Loading receipt...', { id: 'receipt' });
-      const response = await axios.get(
-        `/organizations/${orgId}/kxtill/sales/${saleId}/receipt`
-      );
-
-      setShowReceipt(response.data);
-      toast.dismiss('receipt');
-    } catch (error) {
-      console.error('Error fetching receipt:', error);
-      toast.error('Failed to load receipt', { id: 'receipt' });
+    if (!openPrintWindow(text, `Receipt ${data?.receipt?.number || ''}`)) {
+      toast.error('Please allow popups for this site', { id: 'receipt' });
+      return;
     }
-  };
+
+    toast.dismiss('receipt');
+  } catch (error) {
+    console.error('Error fetching receipt:', error);
+    toast.error('Failed to load receipt', { id: 'receipt' });
+  }
+};
 
   const handlePrint = () => {
     const receiptText = showReceipt?.text;
@@ -661,36 +652,69 @@ const Sales = () => {
   const getStatusBadgeWithLocal = (sale) => {
     if (sale.isLocal) {
       const statusMap = {
-        'PENDING': { label: 'Pending Sync', className: styles.statusPending, icon: Clock },
-        'SYNCED': { label: 'Synced', className: styles.statusSynced, icon: CheckCircle },
-        'FAILED': { label: 'Sync Failed', className: styles.statusFailed, icon: XCircle },
+        PENDING: {
+          label: 'Pending Sync',
+          className: styles.statusPending,
+          icon: Clock,
+        },
+        SYNCED: {
+          label: 'Synced',
+          className: styles.statusSynced,
+          icon: CheckCircle,
+        },
+        FAILED: {
+          label: 'Sync Failed',
+          className: styles.statusFailed,
+          icon: XCircle,
+        },
       };
-      const match = statusMap[sale.localStatus] || statusMap['PENDING'];
+      const match = statusMap[sale.localStatus] || statusMap.PENDING;
       return match;
     }
 
     const statusMap = {
-      'COMPLETED': { label: 'Completed', className: styles.statusCompleted, icon: CheckCircle },
-      'PAID': { label: 'Paid', className: styles.statusCompleted, icon: CheckCircle },
-      'PENDING': { label: 'Pending', className: styles.statusPending, icon: Clock },
-      'REFUNDED': { label: 'Refunded', className: styles.statusRefunded, icon: XCircle },
-      'VOIDED': { label: 'Voided', className: styles.statusVoided, icon: XCircle },
-      'CANCELLED': { label: 'Cancelled', className: styles.statusVoided, icon: XCircle }
+      COMPLETED: {
+        label: 'Completed',
+        className: styles.statusCompleted,
+        icon: CheckCircle,
+      },
+      PAID: {
+        label: 'Paid',
+        className: styles.statusCompleted,
+        icon: CheckCircle,
+      },
+      PENDING: {
+        label: 'Pending',
+        className: styles.statusPending,
+        icon: Clock,
+      },
+      REFUNDED: {
+        label: 'Refunded',
+        className: styles.statusRefunded,
+        icon: XCircle,
+      },
+      VOIDED: {
+        label: 'Voided',
+        className: styles.statusVoided,
+        icon: XCircle,
+      },
+      CANCELLED: {
+        label: 'Cancelled',
+        className: styles.statusVoided,
+        icon: XCircle,
+      },
     };
-    const match = statusMap[sale.status] || statusMap['PENDING'];
+    const match = statusMap[sale.status] || statusMap.PENDING;
     return match;
   };
 
-  // REMOVED: formatCurrency function (now using from SettingsContext)
-  // REMOVED: formatDate function (now using from SettingsContext)
-
   const getPaymentMethod = (method) => {
     const methodMap = {
-      'CASH': { icon: Banknote, label: 'Cash' },
-      'MPESA': { icon: Smartphone, label: 'M-PESA' },
-      'CARD': { icon: CreditCard, label: 'Card' },
-      'BANK': { icon: Building2, label: 'Bank Transfer' },
-      'MOBILE': { icon: Smartphone, label: 'Mobile Money' }
+      CASH: { icon: Banknote, label: 'Cash' },
+      MPESA: { icon: Smartphone, label: 'M-PESA' },
+      CARD: { icon: CreditCard, label: 'Card' },
+      BANK: { icon: Building2, label: 'Bank Transfer' },
+      MOBILE: { icon: Smartphone, label: 'Mobile Money' },
     };
     return methodMap[method] || { icon: CreditCard, label: method || 'N/A' };
   };
@@ -717,7 +741,9 @@ const Sales = () => {
           <Building2 size={20} className={styles.branchCardIcon} />
           <div className={styles.branchCardInfo}>
             <span className={styles.branchCardLabel}>Current View</span>
-            <span className={styles.branchCardName}>{getActiveBranchName()}</span>
+            <span className={styles.branchCardName}>
+              {getActiveBranchName()}
+            </span>
           </div>
           {showOffline && (
             <span className={styles.offlineBadge}>
@@ -725,9 +751,7 @@ const Sales = () => {
               Offline
             </span>
           )}
-          {isOwner && (
-            <span className={styles.ownerBadge}>Owner</span>
-          )}
+          {isOwner && <span className={styles.ownerBadge}>Owner</span>}
           {!isOwner && canViewAllBranches && (
             <span className={styles.managerBadge}>Manager</span>
           )}
@@ -783,7 +807,9 @@ const Sales = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Revenue</span>
-            <span className={styles.statValue}>{formatCurrency(stats.totalRevenue)}</span>
+            <span className={styles.statValue}>
+              {formatCurrency(stats.totalRevenue)}
+            </span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -792,7 +818,9 @@ const Sales = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Avg. Order Value</span>
-            <span className={styles.statValue}>{formatCurrency(stats.averageOrderValue)}</span>
+            <span className={styles.statValue}>
+              {formatCurrency(stats.averageOrderValue)}
+            </span>
           </div>
         </div>
         <div className={styles.statCard}>
@@ -864,26 +892,25 @@ const Sales = () => {
             disabled={isRefreshing}
             title="Refresh sales"
           >
-            <RefreshCw size={16} className={isRefreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={16}
+              className={isRefreshing ? styles.spinning : ''}
+            />
             {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
 
-          <button
-            className={styles.filterBtn}
-            onClick={handleSearch}
-          >
+          <button className={styles.filterBtn} onClick={handleSearch}>
             <Filter size={16} />
             Apply
             {getActiveFilterCount() > 0 && (
-              <span className={styles.filterBadge}>{getActiveFilterCount()}</span>
+              <span className={styles.filterBadge}>
+                {getActiveFilterCount()}
+              </span>
             )}
           </button>
 
           {getActiveFilterCount() > 0 && (
-            <button
-              className={styles.clearFiltersBtn}
-              onClick={clearFilters}
-            >
+            <button className={styles.clearFiltersBtn} onClick={clearFilters}>
               Clear All
             </button>
           )}
@@ -931,7 +958,9 @@ const Sales = () => {
                 <button
                   className={styles.goToPosBtn}
                   onClick={() => navigate('/pos')}
-                  style={{ marginTop: getActiveFilterCount() > 0 ? '8px' : '12px' }}
+                  style={{
+                    marginTop: getActiveFilterCount() > 0 ? '8px' : '12px',
+                  }}
                 >
                   Go to POS
                 </button>
@@ -950,7 +979,14 @@ const Sales = () => {
                 )}
                 {isRefreshing && (
                   <span className={styles.lastSyncTime}>
-                    {' '}• <RefreshCw size={11} className={styles.spinning} style={{ display: 'inline', verticalAlign: 'middle' }} /> refreshing…
+                    {' '}
+                    •{' '}
+                    <RefreshCw
+                      size={11}
+                      className={styles.spinning}
+                      style={{ display: 'inline', verticalAlign: 'middle' }}
+                    />{' '}
+                    refreshing…
                   </span>
                 )}
               </span>
@@ -991,23 +1027,37 @@ const Sales = () => {
                   const isRetrying = retryingIds.has(sale.id);
 
                   return (
-                    <tr key={sale.id} className={`${styles.tableRow} ${isLocal ? styles.localRow : ''}`}>
+                    <tr
+                      key={sale.id}
+                      className={`${styles.tableRow} ${
+                        isLocal ? styles.localRow : ''
+                      }`}
+                    >
                       <td className={styles.referenceCell}>
                         <div className={styles.referenceWrapper}>
                           <span className={styles.referenceNumber}>
                             {reference}
                           </span>
                           {isLocal && (
-                            <span className={styles.localBadge} title="Offline Sale">
+                            <span
+                              className={styles.localBadge}
+                              title="Offline Sale"
+                            >
                               <CloudOff size={12} />
                             </span>
                           )}
                           <button
                             className={styles.copyBtn}
-                            onClick={() => handleCopyReference(reference, sale.id)}
+                            onClick={() =>
+                              handleCopyReference(reference, sale.id)
+                            }
                             title="Copy reference"
                           >
-                            {copiedId === sale.id ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedId === sale.id ? (
+                              <Check size={12} />
+                            ) : (
+                              <Copy size={12} />
+                            )}
                           </button>
                         </div>
                       </td>
@@ -1039,7 +1089,9 @@ const Sales = () => {
                         </div>
                       </td>
                       <td>
-                        <span className={`${styles.statusBadge} ${status.className}`}>
+                        <span
+                          className={`${styles.statusBadge} ${status.className}`}
+                        >
                           <StatusIcon size={12} />
                           {status.label}
                         </span>
@@ -1068,7 +1120,10 @@ const Sales = () => {
                               title="Retry Sync"
                             >
                               {isRetrying ? (
-                                <RefreshCw size={16} className={styles.spinning} />
+                                <RefreshCw
+                                  size={16}
+                                  className={styles.spinning}
+                                />
                               ) : (
                                 <RotateCw size={16} />
                               )}
@@ -1082,12 +1137,13 @@ const Sales = () => {
               </tbody>
             </table>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className={styles.pagination}>
                 <button
                   className={styles.pageBtn}
-                  onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
+                  onClick={() =>
+                    handlePageChange(Math.max(currentPage - 1, 1))
+                  }
                   disabled={currentPage === 1}
                 >
                   <ChevronLeft size={16} />
@@ -1098,7 +1154,9 @@ const Sales = () => {
                 </span>
                 <button
                   className={styles.pageBtn}
-                  onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+                  onClick={() =>
+                    handlePageChange(Math.min(currentPage + 1, totalPages))
+                  }
                   disabled={currentPage === totalPages}
                 >
                   Next
@@ -1112,7 +1170,10 @@ const Sales = () => {
 
       {/* Detail Modal */}
       {showDetail && (
-        <div className={styles.modalOverlay} onClick={() => setShowDetail(null)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setShowDetail(null)}
+        >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitle}>
@@ -1150,7 +1211,9 @@ const Sales = () => {
                         const status = getStatusBadgeWithLocal(showDetail);
                         const StatusIcon = status.icon;
                         return (
-                          <span className={`${styles.statusBadge} ${status.className}`}>
+                          <span
+                            className={`${styles.statusBadge} ${status.className}`}
+                          >
                             <StatusIcon size={12} />
                             {status.label}
                           </span>
@@ -1166,22 +1229,32 @@ const Sales = () => {
                     </div>
                     <div className={styles.detailMetaItem}>
                       <User size={14} />
-                      <span>{showDetail.user?.firstName || 'Offline'} {showDetail.user?.lastName || 'Sale'}</span>
+                      <span>
+                        {showDetail.user?.firstName || 'Offline'}{' '}
+                        {showDetail.user?.lastName || 'Sale'}
+                      </span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <Building2 size={14} />
-                      <span>{showDetail.branch?.name || getActiveBranchName()}</span>
+                      <span>
+                        {showDetail.branch?.name || getActiveBranchName()}
+                      </span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <Users size={14} />
-                      <span>{showDetail.customerName || 'Walk-in Customer'}</span>
+                      <span>
+                        {showDetail.customerName || 'Walk-in Customer'}
+                      </span>
                     </div>
-                    {showDetail.isLocal && showDetail.localStatus === 'FAILED' && (
-                      <div className={styles.detailMetaItem}>
-                        <AlertCircle size={14} />
-                        <span className={styles.errorText}>Sync Failed: {showDetail.error || 'Unknown error'}</span>
-                      </div>
-                    )}
+                    {showDetail.isLocal &&
+                      showDetail.localStatus === 'FAILED' && (
+                        <div className={styles.detailMetaItem}>
+                          <AlertCircle size={14} />
+                          <span className={styles.errorText}>
+                            Sync Failed: {showDetail.error || 'Unknown error'}
+                          </span>
+                        </div>
+                      )}
                   </div>
 
                   <div className={styles.detailItems}>
@@ -1199,7 +1272,11 @@ const Sales = () => {
                       <tbody>
                         {showDetail.items?.map((item, idx) => (
                           <tr key={item.id || idx}>
-                            <td>{item.product?.name || item.productName || 'Unknown'}</td>
+                            <td>
+                              {item.product?.name ||
+                                item.productName ||
+                                'Unknown'}
+                            </td>
                             <td>{item.quantity}</td>
                             <td>{item.unitName || item.unitAbbrev}</td>
                             <td>{formatCurrency(item.unitPrice)}</td>
@@ -1227,7 +1304,9 @@ const Sales = () => {
                         <span>-{formatCurrency(showDetail.discount)}</span>
                       </div>
                     )}
-                    <div className={`${styles.detailTotalRow} ${styles.detailGrandTotal}`}>
+                    <div
+                      className={`${styles.detailTotalRow} ${styles.detailGrandTotal}`}
+                    >
                       <span>Total</span>
                       <span>{formatCurrency(showDetail.totalAmount)}</span>
                     </div>
@@ -1257,40 +1336,46 @@ const Sales = () => {
                     </div>
                   )}
 
-                  {showDetail.status === 'REFUNDED' && showDetail.refundedByUser && (
-                    <div className={styles.detailRefund}>
-                      <XCircle size={14} />
-                      <span>
-                        Refunded by {showDetail.refundedByUser.firstName} {showDetail.refundedByUser.lastName}
-                        {' '}on {formatDate(showDetail.refundedAt)}
-                      </span>
-                    </div>
-                  )}
+                  {showDetail.status === 'REFUNDED' &&
+                    showDetail.refundedByUser && (
+                      <div className={styles.detailRefund}>
+                        <XCircle size={14} />
+                        <span>
+                          Refunded by {showDetail.refundedByUser.firstName}{' '}
+                          {showDetail.refundedByUser.lastName} on{' '}
+                          {formatDate(showDetail.refundedAt)}
+                        </span>
+                      </div>
+                    )}
 
-                  {showDetail.isLocal && showDetail.localStatus === 'FAILED' && (
-                    <div className={styles.detailActions}>
-                      <button
-                        className={styles.retryBtnLarge}
-                        onClick={() => {
-                          handleRetryLocalSale(showDetail.id);
-                          setShowDetail(null);
-                        }}
-                        disabled={retryingIds.has(showDetail.id)}
-                      >
-                        {retryingIds.has(showDetail.id) ? (
-                          <>
-                            <RefreshCw size={16} className={styles.spinning} />
-                            Retrying...
-                          </>
-                        ) : (
-                          <>
-                            <RotateCw size={16} />
-                            Retry Sync
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
+                  {showDetail.isLocal &&
+                    showDetail.localStatus === 'FAILED' && (
+                      <div className={styles.detailActions}>
+                        <button
+                          className={styles.retryBtnLarge}
+                          onClick={() => {
+                            handleRetryLocalSale(showDetail.id);
+                            setShowDetail(null);
+                          }}
+                          disabled={retryingIds.has(showDetail.id)}
+                        >
+                          {retryingIds.has(showDetail.id) ? (
+                            <>
+                              <RefreshCw
+                                size={16}
+                                className={styles.spinning}
+                              />
+                              Retrying...
+                            </>
+                          ) : (
+                            <>
+                              <RotateCw size={16} />
+                              Retry Sync
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
                 </>
               )}
             </div>
@@ -1319,8 +1404,14 @@ const Sales = () => {
 
       {/* Receipt Modal */}
       {showReceipt && (
-        <div className={styles.receiptOverlay} onClick={() => setShowReceipt(null)}>
-          <div className={styles.receiptModal} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.receiptOverlay}
+          onClick={() => setShowReceipt(null)}
+        >
+          <div
+            className={styles.receiptModal}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.receiptHeader}>
               <h3>Receipt</h3>
               <button
@@ -1331,9 +1422,7 @@ const Sales = () => {
               </button>
             </div>
             <div className={styles.receiptContent}>
-              <pre className={styles.receiptText}>
-                {showReceipt.text}
-              </pre>
+              <pre className={styles.receiptText}>{showReceipt.text}</pre>
             </div>
             <div className={styles.receiptActions}>
               <button

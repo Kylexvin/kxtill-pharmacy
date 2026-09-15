@@ -79,6 +79,7 @@ const ProductModal = ({
   const [unitForm, setUnitForm] = useState(emptyUnitForm());
 
   const isEdit = !!product;
+  // eslint-disable-next-line no-unused-vars
   const unitLabel = formData.baseUnit.name || 'unit';
   const unitLabelPlural =
     formData.baseUnit.name && !formData.baseUnit.name.endsWith('s')

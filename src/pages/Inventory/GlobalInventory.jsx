@@ -1,7 +1,9 @@
 // src/pages/Inventory/GlobalInventory.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { KXTILL } from '../../constants/permissions';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -9,7 +11,6 @@ import {
   Search,
   Plus,
   Edit,
-  Trash2,
   Eye,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +20,6 @@ import {
   AlertTriangle,
   Check,
   Clock,
-  DollarSign,
   List,
   Grid,
   Package,
@@ -30,16 +30,21 @@ import {
 import styles from './GlobalInventory.module.css';
 import ProductModal from './components/ProductModal';
 import ProductDetailModal from './components/ProductDetailModal';
+import usePolling from '../../hooks/usePolling';
 
 const GlobalInventory = () => {
   const {
     activeOrganization,
     isOffline: contextIsOffline,
-    userPermissions,
   } = useAuth();
 
-  const { formatCurrency, getCurrency } = useSettings();
-  const currency = getCurrency();
+  const { can, isOwner } = usePermissions();
+  const { formatCurrency } = useSettings();
+
+  // Permissions
+  const canCreate = can(KXTILL.INVENTORY.CREATE);
+  const canUpdate = can(KXTILL.INVENTORY.UPDATE);
+  const canDelete = can(KXTILL.INVENTORY.DELETE);
 
   // State
   const [products, setProducts] = useState([]);
@@ -52,11 +57,13 @@ const GlobalInventory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [viewMode, setViewMode] = useState('list');
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('globalInventoryViewMode') || 'list'
+  );
 
   // Aggregates
   const [health, setHealth] = useState(null);
-  const [summary, setSummary] = useState(null);
+  const [ setSummary] = useState(null);
 
   // Modal states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -74,7 +81,6 @@ const GlobalInventory = () => {
 
   const orgId = activeOrganization?.id;
   const limit = 20;
-  const isOwner = userPermissions?.includes('*') || false;
 
   // ---------- helpers ----------
   const getStockStatus = (product) => {
@@ -84,9 +90,10 @@ const GlobalInventory = () => {
       return { label: 'No Branches', variant: 'muted', icon: AlertCircle };
     }
 
-    const outCount = bps.filter(bp => Number(bp.stock) <= 0).length;
+    const outCount = bps.filter((bp) => Number(bp.stock) <= 0).length;
     const lowCount = bps.filter(
-      bp => Number(bp.stock) > 0 && Number(bp.stock) <= Number(bp.minStock)
+      (bp) =>
+        Number(bp.stock) > 0 && Number(bp.stock) <= Number(bp.minStock)
     ).length;
     const total = bps.length;
 
@@ -133,7 +140,7 @@ const GlobalInventory = () => {
     } catch (error) {
       console.error('Failed to fetch summary:', error);
     }
-  }, [orgId]);
+  }, [orgId, setSummary]);
 
   const fetchProducts = useCallback(async () => {
     if (!orgId) {
@@ -166,16 +173,18 @@ const GlobalInventory = () => {
           });
           productData = response.data.items || [];
         } catch (error) {
-          if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+          if (error.name === 'CanceledError' || error.name === 'AbortError')
+            return;
           console.warn('Global fetch failed:', error.message);
         }
       }
 
       if (controller.signal.aborted || !isMountedRef.current) return;
 
-      const transformed = productData.map(p => {
-        const baseUnit = p.baseUnit || p.units?.find(u => u.isBaseUnit) || {};
-        const sellingUnits = (p.units || []).filter(u => !u.isBaseUnit);
+      const transformed = productData.map((p) => {
+        const baseUnit =
+          p.baseUnit || p.units?.find((u) => u.isBaseUnit) || {};
+        const sellingUnits = (p.units || []).filter((u) => !u.isBaseUnit);
         const branchProducts = p.branchProducts || [];
 
         const totalStock = branchProducts.reduce(
@@ -187,9 +196,13 @@ const GlobalInventory = () => {
           0
         );
         const lowCount = branchProducts.filter(
-          bp => Number(bp.stock) > 0 && Number(bp.stock) <= Number(bp.minStock)
+          (bp) =>
+            Number(bp.stock) > 0 &&
+            Number(bp.stock) <= Number(bp.minStock)
         ).length;
-        const outCount = branchProducts.filter(bp => Number(bp.stock) <= 0).length;
+        const outCount = branchProducts.filter(
+          (bp) => Number(bp.stock) <= 0
+        ).length;
 
         return {
           id: p.id,
@@ -228,22 +241,25 @@ const GlobalInventory = () => {
 
       let filtered = transformed;
       if (statusFilter === 'in-stock') {
-        filtered = filtered.filter(p => p.outCount === 0 && p.lowCount === 0);
+        filtered = filtered.filter((p) => p.outCount === 0 && p.lowCount === 0);
       } else if (statusFilter === 'low-stock') {
-        filtered = filtered.filter(p => p.lowCount > 0 || p.outCount > 0);
+        filtered = filtered.filter((p) => p.lowCount > 0 || p.outCount > 0);
       } else if (statusFilter === 'out-of-stock') {
-        filtered = filtered.filter(p => p.branchCount > 0 && p.outCount === p.branchCount);
+        filtered = filtered.filter(
+          (p) => p.branchCount > 0 && p.outCount === p.branchCount
+        );
       }
 
       setProducts(filtered);
       hasLoadedOnceRef.current = true;
 
       const uniqueCategories = [
-        ...new Set(productData.map(p => p.category).filter(Boolean)),
+        ...new Set(productData.map((p) => p.category).filter(Boolean)),
       ];
       setCategories(uniqueCategories);
     } catch (error) {
-      if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+      if (error.name === 'CanceledError' || error.name === 'AbortError')
+        return;
       console.error('Error fetching global products:', error);
       if (isMountedRef.current) setProducts([]);
     } finally {
@@ -263,6 +279,11 @@ const GlobalInventory = () => {
   useEffect(() => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
+
+  // Persist view mode
+  useEffect(() => {
+    localStorage.setItem('globalInventoryViewMode', viewMode);
+  }, [viewMode]);
 
   useEffect(() => {
     hasLoadedOnceRef.current = false;
@@ -285,17 +306,18 @@ const GlobalInventory = () => {
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  useEffect(() => {
-    if (!isOnline || contextIsOffline) return;
-    const interval = setInterval(() => {
-      if (navigator.onLine && !contextIsOffline) {
-        fetchProducts();
-        fetchHealth();
-        fetchSummary();
-      }
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [isOnline, contextIsOffline, fetchProducts, fetchHealth, fetchSummary]);
+  // ---------- periodic background refresh (pauses when tab hidden) ----------
+  usePolling(
+    () => {
+      if (contextIsOffline) return;
+      if (!navigator.onLine) return;
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    },
+    60_000,
+    [orgId]
+  );
 
   // ---------- handlers ----------
   const handleRefresh = () => {
@@ -355,12 +377,17 @@ const GlobalInventory = () => {
     try {
       if (editingProduct) {
         await axios.patch(
-          `/organizations/${orgId}/kxtill/products/${editingProduct.productId || editingProduct.id}`,
+          `/organizations/${orgId}/kxtill/products/${
+            editingProduct.productId || editingProduct.id
+          }`,
           productData
         );
         toast.success('Product updated successfully');
       } else {
-        await axios.post(`/organizations/${orgId}/kxtill/products`, productData);
+        await axios.post(
+          `/organizations/${orgId}/kxtill/products`,
+          productData
+        );
         toast.success('Product created successfully');
       }
       closeProductModal();
@@ -380,7 +407,9 @@ const GlobalInventory = () => {
     setSubmitting(true);
     try {
       await axios.delete(
-        `/organizations/${orgId}/kxtill/products/${productToArchive.productId || productToArchive.id}`
+        `/organizations/${orgId}/kxtill/products/${
+          productToArchive.productId || productToArchive.id
+        }`
       );
       toast.success('Product archived');
       closeArchiveModal();
@@ -388,7 +417,9 @@ const GlobalInventory = () => {
       fetchHealth();
       fetchSummary();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to archive product');
+      toast.error(
+        error.response?.data?.message || 'Failed to archive product'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -432,7 +463,9 @@ const GlobalInventory = () => {
             <Globe size={20} />
             <h1>Global Inventory</h1>
           </div>
-          <span className={styles.headerSubtitle}>All Branches · Organization-wide</span>
+          <span className={styles.headerSubtitle}>
+            All Branches · Organization-wide
+          </span>
         </div>
         <div className={styles.headerRight}>
           {!isOnline && (
@@ -441,9 +474,15 @@ const GlobalInventory = () => {
             </span>
           )}
           {isOwner && <span className={styles.ownerBadge}>Owner</span>}
-          <button className={styles.addProductBtn} onClick={() => openProductModal()}>
-            <Plus size={16} /> Add Product
-          </button>
+          {canCreate && (
+            <button
+              className={styles.addProductBtn}
+              onClick={() => openProductModal()}
+              type="button"
+            >
+              <Plus size={16} /> Add Product
+            </button>
+          )}
         </div>
       </div>
 
@@ -511,7 +550,9 @@ const GlobalInventory = () => {
           >
             <option value="all">All Categories</option>
             {categories.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
             ))}
           </select>
 
@@ -526,19 +567,33 @@ const GlobalInventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
-          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={isRefreshing}>
-            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+          <button
+            className={styles.refreshBtn}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            type="button"
+          >
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
           </button>
 
           <div className={styles.viewToggle}>
             <button
-              className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.active : ''}`}
+              type="button"
+              className={`${styles.viewBtn} ${
+                viewMode === 'grid' ? styles.active : ''
+              }`}
               onClick={() => setViewMode('grid')}
             >
               <Grid size={14} />
             </button>
             <button
-              className={`${styles.viewBtn} ${viewMode === 'list' ? styles.active : ''}`}
+              type="button"
+              className={`${styles.viewBtn} ${
+                viewMode === 'list' ? styles.active : ''
+              }`}
               onClick={() => setViewMode('list')}
             >
               <List size={14} />
@@ -546,7 +601,11 @@ const GlobalInventory = () => {
           </div>
 
           {getActiveFilterCount() > 0 && (
-            <button className={styles.clearFiltersBtn} onClick={clearFilters}>
+            <button
+              className={styles.clearFiltersBtn}
+              onClick={clearFilters}
+              type="button"
+            >
               <X size={14} /> Clear
             </button>
           )}
@@ -563,19 +622,31 @@ const GlobalInventory = () => {
         <div className={styles.emptyState}>
           <Globe size={48} />
           <h3>No products found</h3>
-          <p>
-            {getActiveFilterCount() > 0
-              ? 'Try adjusting your filters to see more results'
-              : 'Start by adding your first global product'}
-          </p>
+<p>
+  {getActiveFilterCount() > 0
+    ? 'Try adjusting your filters to see more results'
+    : canCreate
+    ? 'Start by adding your first global product'
+    : 'No products in the catalog yet'}
+</p>
           {getActiveFilterCount() > 0 && (
-            <button className={styles.clearFiltersBtnLarge} onClick={clearFilters}>
+            <button
+              className={styles.clearFiltersBtnLarge}
+              onClick={clearFilters}
+              type="button"
+            >
               Clear Filters
             </button>
           )}
-          <button className={styles.addProductBtnLarge} onClick={() => openProductModal()}>
-            <Plus size={16} /> Add Product
-          </button>
+          {canCreate && (
+            <button
+              className={styles.addProductBtnLarge}
+              onClick={() => openProductModal()}
+              type="button"
+            >
+              <Plus size={16} /> Add Product
+            </button>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         <div className={styles.productsGrid}>
@@ -590,43 +661,75 @@ const GlobalInventory = () => {
                   <div className={styles.productCardIcon}>
                     <Package size={20} />
                   </div>
-                  <div className={`${styles.productCardStatus} ${styles[status.variant]}`}>
+                  <div
+                    className={`${styles.productCardStatus} ${
+                      styles[status.variant]
+                    }`}
+                  >
                     <StatusIcon size={10} /> {status.label}
                   </div>
                 </div>
                 <div className={styles.productCardBody}>
                   <h3 className={styles.productCardName}>{product.name}</h3>
                   {product.sku && product.sku !== '-' && (
-                    <span className={styles.productCardSku}>SKU: {product.sku}</span>
+                    <span className={styles.productCardSku}>
+                      SKU: {product.sku}
+                    </span>
                   )}
                   {product.category && product.category !== '-' && (
-                    <span className={styles.productCardCategory}>{product.category}</span>
+                    <span className={styles.productCardCategory}>
+                      {product.category}
+                    </span>
                   )}
                   <span className={styles.productCardBranch}>
-                    <Building2 size={12} /> {product.branchCount} branch{product.branchCount === 1 ? '' : 'es'}
+                    <Building2 size={12} /> {product.branchCount} branch
+                    {product.branchCount === 1 ? '' : 'es'}
                   </span>
                   <div className={styles.productCardStock}>
-                    <span className={styles.productCardStockLabel}>Total Stock:</span>
-                    <span className={totalStock <= 0 ? styles.productCardStockLow : ''}>
+                    <span className={styles.productCardStockLabel}>
+                      Total Stock:
+                    </span>
+                    <span
+                      className={
+                        totalStock <= 0 ? styles.productCardStockLow : ''
+                      }
+                    >
                       {totalStock} {product.unit}
                     </span>
                   </div>
                   <div className={styles.productCardPrice}>
-                    <span className={styles.productCardPriceLabel}>Base Price:</span>
+                    <span className={styles.productCardPriceLabel}>
+                      Base Price:
+                    </span>
                     <span className={styles.productCardPriceValue}>
                       {formatCurrency(product.price)}
                     </span>
                   </div>
                 </div>
                 <div className={styles.productCardActions}>
-                  <button className={styles.productCardActionBtn} onClick={() => openDetailModal(product)}>
+                  <button
+                    type="button"
+                    className={styles.productCardActionBtn}
+                    onClick={() => openDetailModal(product)}
+                    title="View Details"
+                  >
                     <Eye size={14} />
                   </button>
-                  <button className={styles.productCardActionBtn} onClick={() => openProductModal(product)}>
-                    <Edit size={14} />
-                  </button>
-                  {isOwner && (
+
+                  {canUpdate && (
                     <button
+                      type="button"
+                      className={styles.productCardActionBtn}
+                      onClick={() => openProductModal(product)}
+                      title="Edit Product"
+                    >
+                      <Edit size={14} />
+                    </button>
+                  )}
+
+                  {canDelete && (
+                    <button
+                      type="button"
                       className={`${styles.productCardActionBtn} ${styles.danger}`}
                       onClick={() => openArchiveModal(product)}
                       title="Archive"
@@ -667,7 +770,9 @@ const GlobalInventory = () => {
                         <div className={styles.productCellIcon}>
                           <Package size={16} />
                         </div>
-                        <span className={styles.productCellName}>{product.name}</span>
+                        <span className={styles.productCellName}>
+                          {product.name}
+                        </span>
                       </div>
                     </td>
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
@@ -684,28 +789,39 @@ const GlobalInventory = () => {
                     </td>
                     <td>{formatCurrency(product.price)}</td>
                     <td>
-                      <span className={`${styles.statusBadge} ${styles[status.variant]}`}>
+                      <span
+                        className={`${styles.statusBadge} ${
+                          styles[status.variant]
+                        }`}
+                      >
                         <StatusIcon size={10} /> {status.label}
                       </span>
                     </td>
                     <td>
                       <div className={styles.actionButtons}>
                         <button
+                          type="button"
                           className={styles.actionBtn}
                           onClick={() => openDetailModal(product)}
                           title="View Details"
                         >
                           <Eye size={14} />
                         </button>
-                        <button
-                          className={styles.actionBtn}
-                          onClick={() => openProductModal(product)}
-                          title="Edit Product"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        {isOwner && (
+
+                        {canUpdate && (
                           <button
+                            type="button"
+                            className={styles.actionBtn}
+                            onClick={() => openProductModal(product)}
+                            title="Edit Product"
+                          >
+                            <Edit size={14} />
+                          </button>
+                        )}
+
+                        {canDelete && (
+                          <button
+                            type="button"
                             className={`${styles.actionBtn} ${styles.danger}`}
                             onClick={() => openArchiveModal(product)}
                             title="Archive"
@@ -730,6 +846,7 @@ const GlobalInventory = () => {
             className={styles.pageBtn}
             onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
             disabled={currentPage === 1}
+            type="button"
           >
             <ChevronLeft size={16} /> Previous
           </button>
@@ -738,8 +855,11 @@ const GlobalInventory = () => {
           </span>
           <button
             className={styles.pageBtn}
-            onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+            onClick={() =>
+              handlePageChange(Math.min(currentPage + 1, totalPages))
+            }
             disabled={currentPage === totalPages}
+            type="button"
           >
             Next <ChevronRight size={16} />
           </button>
@@ -753,20 +873,22 @@ const GlobalInventory = () => {
         onSave={handleProductSave}
         product={editingProduct}
         isSubmitting={submitting}
-        currency={currency}
       />
 
       <ProductDetailModal
         isOpen={showDetailModal}
         onClose={closeDetailModal}
         product={selectedProduct}
-        currency={currency}
         formatCurrency={formatCurrency}
         mode="global"
-        onEdit={() => {
-          closeDetailModal();
-          if (selectedProduct) openProductModal(selectedProduct);
-        }}
+        onEdit={
+          canUpdate
+            ? () => {
+                closeDetailModal();
+                if (selectedProduct) openProductModal(selectedProduct);
+              }
+            : undefined
+        }
       />
 
       {/* Archive Confirmation Modal */}
@@ -778,15 +900,25 @@ const GlobalInventory = () => {
             </div>
             <h3>Archive Product</h3>
             <p>
-              Archive <strong>{productToArchive.name}</strong>?
-              It will be hidden from POS and inventory lists, but its sales
-              history stays intact. You can reactivate it later.
+              Archive <strong>{productToArchive.name}</strong>? It will be
+              hidden from POS and inventory lists, but its sales history stays
+              intact. You can reactivate it later.
             </p>
             <div className={styles.confirmModalActions}>
-              <button className={styles.confirmCancelBtn} onClick={closeArchiveModal} disabled={submitting}>
+              <button
+                className={styles.confirmCancelBtn}
+                onClick={closeArchiveModal}
+                disabled={submitting}
+                type="button"
+              >
                 Cancel
               </button>
-              <button className={styles.confirmDeleteBtn} onClick={confirmArchive} disabled={submitting}>
+              <button
+                className={styles.confirmDeleteBtn}
+                onClick={confirmArchive}
+                disabled={submitting}
+                type="button"
+              >
                 {submitting ? 'Archiving...' : 'Archive'}
               </button>
             </div>

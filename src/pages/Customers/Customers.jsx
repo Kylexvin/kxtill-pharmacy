@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { KXTILL } from '../../constants/permissions';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -32,9 +33,9 @@ const Customers = () => {
   const { can } = usePermissions();
   const { formatCurrency } = useSettings();
 
-  const canView = can('customers.view');
-  const canCreate = can('customers.create');
-  const canUpdate = can('customers.update');
+  const canView = can(KXTILL.CUSTOMERS.VIEW);
+  const canCreate = can(KXTILL.CUSTOMERS.CREATE);
+  const canUpdate = can(KXTILL.CUSTOMERS.UPDATE);
 
   const orgId = activeOrganization?.id;
 
@@ -70,7 +71,7 @@ const Customers = () => {
   const fetchCustomers = useCallback(async () => {
     if (!orgId) {
       setLoading(false);
-      return;
+      return { ok: false };
     }
 
     if (!hasLoadedOnceRef.current) setLoading(true);
@@ -93,11 +94,13 @@ const Customers = () => {
       const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
 
       if (!isCurrentlyOnline) {
-        setCustomers([]);
-        setTotal(0);
-        hasLoadedOnceRef.current = true;
-        setLoading(false);
-        return;
+        if (isMountedRef.current) {
+          setCustomers([]);
+          setTotal(0);
+          hasLoadedOnceRef.current = true;
+          setLoading(false);
+        }
+        return { ok: true, offline: true };
       }
 
       const response = await axios.get(
@@ -105,30 +108,43 @@ const Customers = () => {
         { params, signal: controller.signal, timeout: 10000 }
       );
 
-      if (controller.signal.aborted || !isMountedRef.current) return;
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return { ok: false };
+      }
 
       const items = response.data?.items || [];
       setCustomers(items);
       setTotal(response.data?.total ?? items.length);
       hasLoadedOnceRef.current = true;
+      return { ok: true };
     } catch (err) {
-      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+      if (err.name === 'CanceledError' || err.name === 'AbortError') {
+        return { ok: false };
+      }
       console.error('Failed to fetch customers:', err);
       if (isMountedRef.current) {
-        setError(
+        const message =
           err.response?.data?.error ||
           err.response?.data?.message ||
-          'Failed to load customers'
-        );
+          'Failed to load customers';
+        setError(message);
         setCustomers([]);
         setTotal(0);
       }
+      return { ok: false };
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
     }
-  }, [orgId, currentPage, searchTerm, typeFilter, sourceFilter, contextIsOffline]);
+  }, [
+    orgId,
+    currentPage,
+    searchTerm,
+    typeFilter,
+    sourceFilter,
+    contextIsOffline,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -149,13 +165,10 @@ const Customers = () => {
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    try {
-      await fetchCustomers();
-      toast.success('Refreshed');
-    } catch {
-      toast.error('Failed to refresh');
-    } finally {
-      if (isMountedRef.current) setIsRefreshing(false);
+    const result = await fetchCustomers();
+    if (isMountedRef.current) {
+      setIsRefreshing(false);
+      if (result?.ok) toast.success('Refreshed');
     }
   };
 
@@ -309,7 +322,10 @@ const Customers = () => {
             disabled={isRefreshing || showOffline}
             title="Refresh"
           >
-            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
             {isRefreshing ? '...' : 'Refresh'}
           </button>
 
@@ -338,13 +354,18 @@ const Customers = () => {
             <AlertCircle size={28} />
             <h3>Failed to load</h3>
             <p>{error}</p>
-            <button onClick={fetchCustomers}>Retry</button>
+            <button type="button" onClick={fetchCustomers}>
+              Retry
+            </button>
           </div>
         ) : showOffline ? (
           <div className={styles.emptyState}>
             <WifiOff size={40} />
             <h3>You're Offline</h3>
-            <p>Customer list isn't cached locally yet. Connect to the internet to browse.</p>
+            <p>
+              Customer list isn't cached locally yet. Connect to the internet
+              to browse.
+            </p>
           </div>
         ) : customers.length === 0 ? (
           <div className={styles.emptyState}>
@@ -408,7 +429,9 @@ const Customers = () => {
                             {customer.name?.charAt(0).toUpperCase() || '?'}
                           </div>
                           <div className={styles.nameInfo}>
-                            <span className={styles.nameText}>{customer.name}</span>
+                            <span className={styles.nameText}>
+                              {customer.name}
+                            </span>
                             {customer.customerType && (
                               <span className={styles.typeBadge}>
                                 {customer.customerType}
@@ -460,16 +483,17 @@ const Customers = () => {
                           >
                             <Eye size={14} />
                           </button>
-                          {canUpdate && customer.createdByProduct === 'kxtill' && (
-                            <button
-                              type="button"
-                              className={styles.iconBtn}
-                              onClick={() => handleEditCustomer(customer)}
-                              title="Edit customer"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                          )}
+                          {canUpdate &&
+                            customer.createdByProduct === 'kxtill' && (
+                              <button
+                                type="button"
+                                className={styles.iconBtn}
+                                onClick={() => handleEditCustomer(customer)}
+                                title="Edit customer"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -495,7 +519,9 @@ const Customers = () => {
                 <button
                   type="button"
                   className={styles.pageBtn}
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(p + 1, totalPages))
+                  }
                   disabled={currentPage === totalPages}
                 >
                   Next

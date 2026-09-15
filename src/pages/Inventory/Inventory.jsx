@@ -1,7 +1,9 @@
 // src/pages/Inventory/Inventory.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { KXTILL } from '../../constants/permissions';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -36,8 +38,13 @@ const Inventory = () => {
     isOffline: contextIsOffline,
   } = useAuth();
 
-  const { formatCurrency, getCurrency } = useSettings();
-  const currency = getCurrency();
+  const { can } = usePermissions();
+  const { formatCurrency } = useSettings();
+
+  // Permissions — page is gated at the route level by kxtill.inventory.view,
+  // so users reaching here can always SEE. Actions are gated individually.
+  const canUpdate = can(KXTILL.INVENTORY.UPDATE);
+  const canDelete = can(KXTILL.INVENTORY.DELETE);
 
   // State
   const [products, setProducts] = useState([]);
@@ -50,7 +57,9 @@ const Inventory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [viewMode, setViewMode] = useState('list');
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('inventoryViewMode') || 'list'
+  );
 
   // Modal states
   const [showBranchProductModal, setShowBranchProductModal] = useState(false);
@@ -70,26 +79,27 @@ const Inventory = () => {
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
-  const hasInitialLoadRef = useRef(false);
 
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
   const limit = 20;
-  // Permission check for branch-level remove is owner-only in this build.
-  // TODO: migrate to usePermissions() (see TODO.md — Permissions migration).
 
   // ---------- helpers ----------
   const getStockStatus = (product) => {
     const stock = Number(product.stock || 0);
     const minStock = Number(product.minStock || 0);
-    if (stock <= 0) return { label: 'Out of Stock', variant: 'danger', icon: AlertCircle };
-    if (stock <= minStock) return { label: 'Low Stock', variant: 'warning', icon: AlertTriangle };
+    if (stock <= 0)
+      return { label: 'Out of Stock', variant: 'danger', icon: AlertCircle };
+    if (stock <= minStock)
+      return { label: 'Low Stock', variant: 'warning', icon: AlertTriangle };
     return { label: 'In Stock', variant: 'success', icon: Check };
   };
 
   const stats = useMemo(() => {
     const total = products.length;
-    let inStock = 0, low = 0, out = 0;
+    let inStock = 0,
+      low = 0,
+      out = 0;
     for (const p of products) {
       const stock = Number(p.stock || 0);
       const minStock = Number(p.minStock || 0);
@@ -133,14 +143,15 @@ const Inventory = () => {
           });
           productData = response.data.items || [];
         } catch (error) {
-          if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+          if (error.name === 'CanceledError' || error.name === 'AbortError')
+            return;
           console.warn('Branch fetch failed:', error.message);
         }
       }
 
       if (controller.signal.aborted || !isMountedRef.current) return;
 
-      const transformed = productData.map(p => {
+      const transformed = productData.map((p) => {
         const baseUnit = p.baseUnit || {};
         return {
           id: p.id,
@@ -165,26 +176,36 @@ const Inventory = () => {
 
       let filtered = transformed;
       if (statusFilter === 'in-stock') {
-        filtered = filtered.filter(p => p.stock > p.minStock);
+        filtered = filtered.filter((p) => p.stock > p.minStock);
       } else if (statusFilter === 'low-stock') {
-        filtered = filtered.filter(p => p.stock > 0 && p.stock <= p.minStock);
+        filtered = filtered.filter((p) => p.stock > 0 && p.stock <= p.minStock);
       } else if (statusFilter === 'out-of-stock') {
-        filtered = filtered.filter(p => p.stock <= 0);
+        filtered = filtered.filter((p) => p.stock <= 0);
       }
 
       setProducts(filtered);
       hasLoadedOnceRef.current = true;
 
-      const uniqueCategories = [...new Set(productData.map(p => p.category).filter(Boolean))];
+      const uniqueCategories = [
+        ...new Set(productData.map((p) => p.category).filter(Boolean)),
+      ];
       setCategories(uniqueCategories);
     } catch (error) {
-      if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+      if (error.name === 'CanceledError' || error.name === 'AbortError')
+        return;
       console.error('Error fetching branch products:', error);
       if (isMountedRef.current) setProducts([]);
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, contextIsOffline]);
+  }, [
+    orgId,
+    branchId,
+    searchTerm,
+    categoryFilter,
+    statusFilter,
+    contextIsOffline,
+  ]);
 
   // ---------- lifecycle ----------
   useEffect(() => {
@@ -199,14 +220,18 @@ const Inventory = () => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
 
+  // Persist view mode
+  useEffect(() => {
+    localStorage.setItem('inventoryViewMode', viewMode);
+  }, [viewMode]);
+
   // Reset paging + skeleton when branch/filters change (not search)
   useEffect(() => {
     hasLoadedOnceRef.current = false;
     setCurrentPage(1);
   }, [branchId, categoryFilter, statusFilter]);
 
-  // Fetch immediately when filters or branch change.
-  // This replaces the "fetch inside the interval effect" behavior.
+  // Fetch immediately when filters or branch change
   useEffect(() => {
     if (!orgId || !branchId) return;
     fetchProducts();
@@ -223,9 +248,6 @@ const Inventory = () => {
   }, [searchInput]);
 
   // ---------- periodic background refresh ----------
-  // Pauses when tab is hidden. Also skips while offline (fetchProducts
-  // handles the online check internally, but we short-circuit here so
-  // the callback doesn't spin needlessly).
   usePolling(
     () => {
       if (contextIsOffline) return;
@@ -320,7 +342,9 @@ const Inventory = () => {
       await axios.patch(
         `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productId}`,
         {
-          displayName: branchProductData.displayName?.trim() || selectedProduct.productName,
+          displayName:
+            branchProductData.displayName?.trim() ||
+            selectedProduct.productName,
           description: branchProductData.description?.trim() || undefined,
           isAvailable: branchProductData.isAvailable,
         }
@@ -329,7 +353,9 @@ const Inventory = () => {
       closeBranchProductModal();
       fetchProducts();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update branch product');
+      toast.error(
+        error.response?.data?.message || 'Failed to update branch product'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -490,7 +516,9 @@ const Inventory = () => {
           >
             <option value="all">All Categories</option>
             {categories.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
             ))}
           </select>
 
@@ -505,19 +533,33 @@ const Inventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
-          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={isRefreshing}>
-            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+          <button
+            className={styles.refreshBtn}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            type="button"
+          >
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
           </button>
 
           <div className={styles.viewToggle}>
             <button
-              className={`${styles.viewBtn} ${viewMode === 'grid' ? styles.active : ''}`}
+              type="button"
+              className={`${styles.viewBtn} ${
+                viewMode === 'grid' ? styles.active : ''
+              }`}
               onClick={() => setViewMode('grid')}
             >
               <Grid size={14} />
             </button>
             <button
-              className={`${styles.viewBtn} ${viewMode === 'list' ? styles.active : ''}`}
+              type="button"
+              className={`${styles.viewBtn} ${
+                viewMode === 'list' ? styles.active : ''
+              }`}
               onClick={() => setViewMode('list')}
             >
               <List size={14} />
@@ -525,7 +567,11 @@ const Inventory = () => {
           </div>
 
           {getActiveFilterCount() > 0 && (
-            <button className={styles.clearFiltersBtn} onClick={clearFilters}>
+            <button
+              className={styles.clearFiltersBtn}
+              onClick={clearFilters}
+              type="button"
+            >
               <X size={14} /> Clear
             </button>
           )}
@@ -548,7 +594,11 @@ const Inventory = () => {
               : 'No products available for this branch yet'}
           </p>
           {getActiveFilterCount() > 0 && (
-            <button className={styles.clearFiltersBtnLarge} onClick={clearFilters}>
+            <button
+              className={styles.clearFiltersBtnLarge}
+              onClick={clearFilters}
+              type="button"
+            >
               Clear Filters
             </button>
           )}
@@ -567,7 +617,11 @@ const Inventory = () => {
                   <div className={styles.productCardIcon}>
                     <Package size={20} />
                   </div>
-                  <div className={`${styles.productCardStatus} ${styles[status.variant]}`}>
+                  <div
+                    className={`${styles.productCardStatus} ${
+                      styles[status.variant]
+                    }`}
+                  >
                     <StatusIcon size={10} /> {status.label}
                   </div>
                 </div>
@@ -577,18 +631,28 @@ const Inventory = () => {
                     <span className={styles.unavailableTag}>Unavailable</span>
                   )}
                   {product.sku && product.sku !== '-' && (
-                    <span className={styles.productCardSku}>SKU: {product.sku}</span>
+                    <span className={styles.productCardSku}>
+                      SKU: {product.sku}
+                    </span>
                   )}
                   {product.category && product.category !== '-' && (
-                    <span className={styles.productCardCategory}>{product.category}</span>
+                    <span className={styles.productCardCategory}>
+                      {product.category}
+                    </span>
                   )}
                   <div className={styles.productCardStock}>
                     <span className={styles.productCardStockLabel}>Stock:</span>
-                    <span className={stock <= minStock ? styles.productCardStockLow : ''}>
+                    <span
+                      className={
+                        stock <= minStock ? styles.productCardStockLow : ''
+                      }
+                    >
                       {stock} {product.unit}
                     </span>
                     {minStock > 0 && (
-                      <span className={styles.productCardMinStock}>Min: {minStock}</span>
+                      <span className={styles.productCardMinStock}>
+                        Min: {minStock}
+                      </span>
                     )}
                   </div>
                   <div className={styles.productCardPrice}>
@@ -600,33 +664,45 @@ const Inventory = () => {
                 </div>
                 <div className={styles.productCardActions}>
                   <button
+                    type="button"
                     className={styles.productCardActionBtn}
                     onClick={() => handleViewProduct(product)}
                     title="View Details"
                   >
                     <Eye size={14} />
                   </button>
-                  <button
-                    className={styles.productCardActionBtn}
-                    onClick={() => handleUpdateStock(product)}
-                    title="Update Stock"
-                  >
-                    <SlidersHorizontal size={14} />
-                  </button>
-                  <button
-                    className={styles.productCardActionBtn}
-                    onClick={() => handleEditBranchProduct(product)}
-                    title="Edit Branch Product"
-                  >
-                    <Edit size={14} />
-                  </button>
-                  <button
-                    className={`${styles.productCardActionBtn} ${styles.danger}`}
-                    onClick={() => handleRemoveProduct(product)}
-                    title="Remove from Branch"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+
+                  {canUpdate && (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.productCardActionBtn}
+                        onClick={() => handleUpdateStock(product)}
+                        title="Update Stock"
+                      >
+                        <SlidersHorizontal size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.productCardActionBtn}
+                        onClick={() => handleEditBranchProduct(product)}
+                        title="Edit Branch Product"
+                      >
+                        <Edit size={14} />
+                      </button>
+                    </>
+                  )}
+
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className={`${styles.productCardActionBtn} ${styles.danger}`}
+                      onClick={() => handleRemoveProduct(product)}
+                      title="Remove from Branch"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -661,9 +737,13 @@ const Inventory = () => {
                           <Package size={16} />
                         </div>
                         <div className={styles.productCellInfo}>
-                          <span className={styles.productCellName}>{product.name}</span>
+                          <span className={styles.productCellName}>
+                            {product.name}
+                          </span>
                           {!product.isAvailable && (
-                            <span className={styles.unavailableTag}>Unavailable</span>
+                            <span className={styles.unavailableTag}>
+                              Unavailable
+                            </span>
                           )}
                         </div>
                       </div>
@@ -671,49 +751,69 @@ const Inventory = () => {
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
                     <td>{product.category !== '-' ? product.category : '-'}</td>
                     <td>
-                      <span className={stock <= minStock ? styles.stockLow : ''}>
+                      <span
+                        className={stock <= minStock ? styles.stockLow : ''}
+                      >
                         {stock} {product.unit}
                         {minStock > 0 && (
-                          <span className={styles.minStockLabel}>(min: {minStock})</span>
+                          <span className={styles.minStockLabel}>
+                            (min: {minStock})
+                          </span>
                         )}
                       </span>
                     </td>
                     <td>{formatCurrency(product.price)}</td>
                     <td>
-                      <span className={`${styles.statusBadge} ${styles[status.variant]}`}>
+                      <span
+                        className={`${styles.statusBadge} ${
+                          styles[status.variant]
+                        }`}
+                      >
                         <StatusIcon size={10} /> {status.label}
                       </span>
                     </td>
                     <td>
                       <div className={styles.actionButtons}>
                         <button
+                          type="button"
                           className={styles.actionBtn}
                           onClick={() => handleViewProduct(product)}
                           title="View Details"
                         >
                           <Eye size={14} />
                         </button>
-                        <button
-                          className={styles.actionBtn}
-                          onClick={() => handleUpdateStock(product)}
-                          title="Update Stock"
-                        >
-                          <SlidersHorizontal size={14} />
-                        </button>
-                        <button
-                          className={styles.actionBtn}
-                          onClick={() => handleEditBranchProduct(product)}
-                          title="Edit Branch Product"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        <button
-                          className={`${styles.actionBtn} ${styles.danger}`}
-                          onClick={() => handleRemoveProduct(product)}
-                          title="Remove from Branch"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+
+                        {canUpdate && (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.actionBtn}
+                              onClick={() => handleUpdateStock(product)}
+                              title="Update Stock"
+                            >
+                              <SlidersHorizontal size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.actionBtn}
+                              onClick={() => handleEditBranchProduct(product)}
+                              title="Edit Branch Product"
+                            >
+                              <Edit size={14} />
+                            </button>
+                          </>
+                        )}
+
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className={`${styles.actionBtn} ${styles.danger}`}
+                            onClick={() => handleRemoveProduct(product)}
+                            title="Remove from Branch"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -731,6 +831,7 @@ const Inventory = () => {
             className={styles.pageBtn}
             onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
             disabled={currentPage === 1}
+            type="button"
           >
             <ChevronLeft size={16} /> Previous
           </button>
@@ -739,8 +840,11 @@ const Inventory = () => {
           </span>
           <button
             className={styles.pageBtn}
-            onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+            onClick={() =>
+              handlePageChange(Math.min(currentPage + 1, totalPages))
+            }
             disabled={currentPage === totalPages}
+            type="button"
           >
             Next <ChevronRight size={16} />
           </button>
@@ -763,18 +867,25 @@ const Inventory = () => {
         isOpen={showDetailModal}
         onClose={closeDetailModal}
         product={selectedProduct}
-        currency={currency}
         formatCurrency={formatCurrency}
         mode="branch"
         activeBranch={activeBranch}
-        onUpdateStock={() => {
-          closeDetailModal();
-          if (selectedProduct) handleUpdateStock(selectedProduct);
-        }}
-        onEditBranchProduct={() => {
-          closeDetailModal();
-          if (selectedProduct) handleEditBranchProduct(selectedProduct);
-        }}
+        onUpdateStock={
+          canUpdate
+            ? () => {
+                closeDetailModal();
+                if (selectedProduct) handleUpdateStock(selectedProduct);
+              }
+            : undefined
+        }
+        onEditBranchProduct={
+          canUpdate
+            ? () => {
+                closeDetailModal();
+                if (selectedProduct) handleEditBranchProduct(selectedProduct);
+              }
+            : undefined
+        }
       />
 
       <BranchStockModal
@@ -803,6 +914,7 @@ const Inventory = () => {
                 className={styles.confirmCancelBtn}
                 onClick={closeRemoveModal}
                 disabled={submitting}
+                type="button"
               >
                 Cancel
               </button>
@@ -810,6 +922,7 @@ const Inventory = () => {
                 className={styles.confirmDeleteBtn}
                 onClick={confirmRemove}
                 disabled={submitting}
+                type="button"
               >
                 {submitting ? 'Removing...' : 'Remove'}
               </button>

@@ -72,10 +72,7 @@ const ProductDetailModal = ({
     (sum, bp) => sum + Number(bp.stock || 0),
     0
   );
-  const totalMinStock = branchProducts.reduce(
-    (sum, bp) => sum + Number(bp.minStock || 0),
-    0
-  );
+
 
   // ---- Status ----
   const getGlobalStatus = () => {

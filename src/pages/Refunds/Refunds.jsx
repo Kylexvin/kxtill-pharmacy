@@ -3,34 +3,14 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import ReceiptModal from '../POS/ReceiptModal';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
-  Search,
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  DollarSign,
-  FileText,
-  RefreshCw,
-  Clock,
-  XCircle,
-  AlertCircle,
-  Receipt,
-  Copy,
-  Check,
-  User,
-  Building2,
-  CreditCard,
-  X,
-  Banknote,
-  Smartphone,
-  WifiOff,
-  TrendingDown,
-  Layers,
-  History,
-  RotateCcw,
-  Users
+  Search, Eye, ChevronLeft, ChevronRight, DollarSign, FileText,
+  RefreshCw, Clock, XCircle, AlertCircle, Receipt, Copy, Check,
+  User, Building2, CreditCard, X, Banknote, Smartphone, WifiOff,
+  TrendingDown, Layers, History, RotateCcw, Users,
 } from 'lucide-react';
 import styles from './Refunds.module.css';
 
@@ -39,16 +19,17 @@ const Refunds = () => {
     activeOrganization,
     activeBranch,
     branches,
-    setActiveBranch,
     isOffline: contextIsOffline,
   } = useAuth();
 
-  const { isOwner, can, loading: permissionsLoading } = usePermissions();
-
   const {
-    formatCurrency,
-    formatDateTime,
-  } = useSettings();
+    isOwner,
+    can,
+    hasAllBranches,
+    loading: permissionsLoading,
+  } = usePermissions();
+
+  const { formatCurrency, formatDateTime } = useSettings();
 
   // State
   const [refunds, setRefunds] = useState([]);
@@ -61,11 +42,14 @@ const Refunds = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [dateRange, setDateRange] = useState('all');
-  const [branchFilter, setBranchFilter] = useState(() => activeBranch?.id || 'all');
+  const [branchFilter, setBranchFilter] = useState(
+    () => activeBranch?.id || 'all'
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
+  const [showReceipt, setShowReceipt] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -85,15 +69,17 @@ const Refunds = () => {
 
   const orgId = activeOrganization?.id;
   const limit = 20;
-  const canViewAllBranches = isOwner;
+
+  // Branch visibility — mirrors Sales.jsx
+  const canViewAllBranches = hasAllBranches || isOwner;
   const availableBranches = useMemo(() => branches || [], [branches]);
   const showBranchFilter = canViewAllBranches && availableBranches.length > 1;
 
-  // Permission-derived flags
-  const canRefund = isOwner || can('kxtill.sales.refund') || can('REFUND');
+  // Permissions
+  const canRefund = isOwner || can('kxtill.sales.refund');
   const permissionsChecked = !permissionsLoading;
 
-  // Helper functions
+  // ---------- helpers ----------
   const getServerBranchId = useCallback(() => {
     if (branchFilter !== 'all') return branchFilter;
     if (!canViewAllBranches) return activeBranch?.id || null;
@@ -101,11 +87,9 @@ const Refunds = () => {
   }, [branchFilter, canViewAllBranches, activeBranch]);
 
   const getActiveBranchName = useCallback(() => {
-    if (canViewAllBranches && branchFilter === 'all') {
-      return 'All Branches';
-    }
+    if (canViewAllBranches && branchFilter === 'all') return 'All Branches';
     if (branchFilter !== 'all') {
-      const branch = availableBranches.find(b => b.id === branchFilter);
+      const branch = availableBranches.find((b) => b.id === branchFilter);
       return branch?.name || 'Unknown Branch';
     }
     return activeBranch?.name || 'No Branch Selected';
@@ -122,7 +106,11 @@ const Refunds = () => {
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         break;
       case 'yesterday':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        startDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() - 1
+        );
         break;
       case 'week':
         startDate = new Date(now);
@@ -147,10 +135,10 @@ const Refunds = () => {
 
   const getPaymentMethod = (method) => {
     const methodMap = {
-      'CASH': { icon: Banknote, label: 'Cash' },
-      'MPESA': { icon: Smartphone, label: 'M-PESA' },
-      'CARD': { icon: CreditCard, label: 'Card' },
-      'BANK': { icon: Building2, label: 'Bank Transfer' },
+      CASH: { icon: Banknote, label: 'Cash' },
+      MPESA: { icon: Smartphone, label: 'M-PESA' },
+      CARD: { icon: CreditCard, label: 'Card' },
+      BANK: { icon: Building2, label: 'Bank Transfer' },
     };
     return methodMap[method] || { icon: CreditCard, label: method || 'N/A' };
   };
@@ -174,9 +162,11 @@ const Refunds = () => {
   };
 
   const isAbortError = (error) =>
-    error?.name === 'CanceledError' || error?.name === 'AbortError' || axios.isCancel?.(error);
+    error?.name === 'CanceledError' ||
+    error?.name === 'AbortError' ||
+    axios.isCancel?.(error);
 
-  // Search sales
+  // ---------- search sales ----------
   const searchSales = useCallback(async () => {
     if (!orgId || !searchTerm.trim()) {
       setSearchResults([]);
@@ -194,20 +184,19 @@ const Refunds = () => {
       };
 
       const serverBranchId = getServerBranchId();
-      if (serverBranchId) {
-        params.branchId = serverBranchId;
-      }
+      if (serverBranchId) params.branchId = serverBranchId;
 
-      const response = await axios.get(`/organizations/${orgId}/kxtill/sales`, {
-        params,
-        timeout: 10000,
-      });
+      const response = await axios.get(
+        `/organizations/${orgId}/kxtill/sales`,
+        { params, timeout: 10000 }
+      );
 
       const sales = response.data.items || [];
-      const eligibleSales = sales.filter(s =>
-        (s.status === 'COMPLETED' || s.status === 'PAID') &&
-        s.status !== 'REFUNDED' &&
-        s.status !== 'VOIDED'
+      const eligibleSales = sales.filter(
+        (s) =>
+          (s.status === 'COMPLETED' || s.status === 'PAID') &&
+          s.status !== 'REFUNDED' &&
+          s.status !== 'VOIDED'
       );
 
       setSearchResults(eligibleSales);
@@ -221,7 +210,6 @@ const Refunds = () => {
     }
   }, [orgId, searchTerm, buildDateParams, getServerBranchId]);
 
-  // Debounce search
   useEffect(() => {
     const handler = setTimeout(() => {
       searchSales();
@@ -229,16 +217,14 @@ const Refunds = () => {
     return () => clearTimeout(handler);
   }, [searchSales]);
 
-  // Fetch refunds
+  // ---------- fetch refunds ----------
   const fetchRefunds = useCallback(async () => {
     if (!orgId) {
       setLoading(false);
       return;
     }
 
-    if (!hasLoadedOnceRef.current) {
-      setLoading(true);
-    }
+    if (!hasLoadedOnceRef.current) setLoading(true);
 
     fetchControllerRef.current?.abort();
     const controller = new AbortController();
@@ -253,22 +239,23 @@ const Refunds = () => {
       };
 
       const serverBranchId = getServerBranchId();
-      if (serverBranchId) {
-        params.branchId = serverBranchId;
-      }
+      if (serverBranchId) params.branchId = serverBranchId;
 
       const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
       let refundedSales = [];
 
       if (isCurrentlyOnline) {
         try {
-          const response = await axios.get(`/organizations/${orgId}/kxtill/sales`, {
-            params,
-            timeout: 10000,
-            signal: controller.signal,
-          });
+          const response = await axios.get(
+            `/organizations/${orgId}/kxtill/sales`,
+            {
+              params,
+              timeout: 10000,
+              signal: controller.signal,
+            }
+          );
           refundedSales = response.data.items || [];
-          refundedSales = refundedSales.filter(s => s.status === 'REFUNDED');
+          refundedSales = refundedSales.filter((s) => s.status === 'REFUNDED');
         } catch (error) {
           if (isAbortError(error)) return;
           console.warn('Server fetch failed:', error.message);
@@ -277,13 +264,14 @@ const Refunds = () => {
 
       if (controller.signal.aborted || !isMountedRef.current) return;
 
-      refundedSales.sort((a, b) =>
-        new Date(b.refundedAt || b.updatedAt) - new Date(a.refundedAt || a.updatedAt)
+      refundedSales.sort(
+        (a, b) =>
+          new Date(b.refundedAt || b.updatedAt) -
+          new Date(a.refundedAt || a.updatedAt)
       );
 
       setRefunds(refundedSales);
       hasLoadedOnceRef.current = true;
-
     } catch (error) {
       if (isAbortError(error)) return;
       console.error('Error fetching refunds:', error);
@@ -295,7 +283,7 @@ const Refunds = () => {
     }
   }, [orgId, contextIsOffline, buildDateParams, getServerBranchId]);
 
-  // Fetch summary
+  // ---------- fetch summary ----------
   const fetchSummary = useCallback(async () => {
     if (!orgId) return;
     try {
@@ -307,31 +295,31 @@ const Refunds = () => {
         `/organizations/${orgId}/kxtill/dashboard/returns-summary`,
         { params }
       );
-      if (isMountedRef.current) {
-        setSummary(response.data);
-      }
+      if (isMountedRef.current) setSummary(response.data);
     } catch (error) {
       console.error('Failed to fetch refund summary:', error);
     }
   }, [orgId, getServerBranchId]);
 
-  // Apply filters
+  // ---------- filters ----------
   const filteredRefunds = useMemo(() => {
     let result = refunds;
 
     if (statusFilter && statusFilter !== 'all') {
       const target = statusFilter.toUpperCase();
-      result = result.filter(s => (s.status || '').toUpperCase() === target);
+      result = result.filter((s) => (s.status || '').toUpperCase() === target);
     }
 
     if (paymentFilter && paymentFilter !== 'all') {
       const target = paymentFilter.toUpperCase();
-      result = result.filter(s => (paymentMethodOf(s) || '').toUpperCase() === target);
+      result = result.filter(
+        (s) => (paymentMethodOf(s) || '').toUpperCase() === target
+      );
     }
 
     if (searchTerm && searchTerm.trim()) {
       const term = searchTerm.trim().toLowerCase();
-      result = result.filter(s => {
+      result = result.filter((s) => {
         const ref = referenceOf(s).toLowerCase();
         const customer = (s.customerName || '').toLowerCase();
         return ref.includes(term) || customer.includes(term);
@@ -350,17 +338,25 @@ const Refunds = () => {
   }, [filteredRefunds, currentPage, limit]);
 
   const stats = useMemo(() => {
-    const totalRefundAmount = filteredRefunds.reduce((sum, s) => sum + parseFloat(s.totalAmount || 0), 0);
-    const uniqueCustomers = new Set(filteredRefunds.map(s => s.customerName || 'Walk-in Customer')).size;
+    const totalRefundAmount = filteredRefunds.reduce(
+      (sum, s) => sum + parseFloat(s.totalAmount || 0),
+      0
+    );
+    const uniqueCustomers = new Set(
+      filteredRefunds.map((s) => s.customerName || 'Walk-in Customer')
+    ).size;
     return {
       totalRefunds: filteredRefunds.length,
       totalRefundAmount,
-      averageRefund: filteredRefunds.length > 0 ? totalRefundAmount / filteredRefunds.length : 0,
+      averageRefund:
+        filteredRefunds.length > 0
+          ? totalRefundAmount / filteredRefunds.length
+          : 0,
       uniqueCustomers,
     };
   }, [filteredRefunds]);
 
-  // Effects
+  // ---------- lifecycle ----------
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -376,10 +372,12 @@ const Refunds = () => {
   useEffect(() => {
     setBranchFilter(activeBranch?.id || 'all');
     setCurrentPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBranch?.id]);
 
   useEffect(() => {
     hasLoadedOnceRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getServerBranchId, dateRange]);
 
   useEffect(() => {
@@ -393,7 +391,7 @@ const Refunds = () => {
     setCurrentPage(1);
   }, [statusFilter, paymentFilter, searchTerm, branchFilter, dateRange]);
 
-  // Auto-refresh
+  // ---------- auto refresh ----------
   useEffect(() => {
     if (!isOnline || contextIsOffline) return;
 
@@ -407,7 +405,7 @@ const Refunds = () => {
     return () => clearInterval(interval);
   }, [isOnline, contextIsOffline, fetchRefunds, fetchSummary]);
 
-  // Handlers
+  // ---------- handlers ----------
   const handleRefresh = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -423,6 +421,9 @@ const Refunds = () => {
     setCurrentPage(newPage);
   };
 
+  // NOTE: `branch` filter is LOCAL to this page. It does NOT change the
+  // user's active branch globally. That's done from TopBar (gated by
+  // `allowBranchSwitch` setting).
   const handleFilterChange = (type, value) => {
     switch (type) {
       case 'status':
@@ -434,16 +435,9 @@ const Refunds = () => {
       case 'date':
         setDateRange(value);
         break;
-      case 'branch': {
+      case 'branch':
         setBranchFilter(value);
-        if (canViewAllBranches && value !== 'all') {
-          const selectedBranch = availableBranches.find(b => b.id === value);
-          if (selectedBranch) {
-            setActiveBranch(selectedBranch);
-          }
-        }
         break;
-      }
       default:
         break;
     }
@@ -475,7 +469,7 @@ const Refunds = () => {
     setShowSearchResults(false);
   };
 
-  // Refund handlers
+  // ---------- refund flow ----------
   const handleInitiateRefund = (sale) => {
     if (!canRefund) {
       toast.error('You do not have permission to process refunds');
@@ -483,7 +477,7 @@ const Refunds = () => {
     }
 
     setSelectedSale(sale);
-    setSelectedItems(sale.items?.map(item => item.id) || []);
+    setSelectedItems(sale.items?.map((item) => item.id) || []);
     setRefundReason('');
     setRefundMethod('ORIGINAL');
     setRefundError('');
@@ -491,9 +485,9 @@ const Refunds = () => {
   };
 
   const handleToggleItem = (itemId) => {
-    setSelectedItems(prev => {
+    setSelectedItems((prev) => {
       if (prev.includes(itemId)) {
-        return prev.filter(id => id !== itemId);
+        return prev.filter((id) => id !== itemId);
       }
       return [...prev, itemId];
     });
@@ -504,7 +498,7 @@ const Refunds = () => {
     if (selectedItems.length === selectedSale.items?.length) {
       setSelectedItems([]);
     } else {
-      setSelectedItems(selectedSale.items.map(item => item.id));
+      setSelectedItems(selectedSale.items.map((item) => item.id));
     }
   };
 
@@ -536,7 +530,7 @@ const Refunds = () => {
       const refundData = {
         items: selectedItems,
         reason: refundReason || 'Customer request',
-        refundMethod: refundMethod,
+        refundMethod,
       };
 
       await axios.post(
@@ -555,23 +549,24 @@ const Refunds = () => {
 
       await Promise.all([fetchRefunds(), fetchSummary()]);
 
-      if (searchTerm.trim()) {
-        searchSales();
-      }
-
+      if (searchTerm.trim()) searchSales();
     } catch (error) {
       console.error('Refund error:', error);
 
       if (error.response?.status === 403) {
         setRefundError('You do not have permission to process refunds');
       } else if (error.response?.status === 400) {
-        setRefundError(error.response?.data?.message || 'Invalid refund request');
+        setRefundError(
+          error.response?.data?.message || 'Invalid refund request'
+        );
       } else if (error.response?.status === 404) {
         setRefundError('Sale not found or already refunded');
       } else if (error.response?.status === 500) {
         setRefundError('Server error processing refund. Please try again.');
       } else {
-        setRefundError(error.response?.data?.message || 'Failed to process refund');
+        setRefundError(
+          error.response?.data?.message || 'Failed to process refund'
+        );
       }
     } finally {
       setRefundProcessing(false);
@@ -598,39 +593,12 @@ const Refunds = () => {
     if (!orgId) return;
     try {
       toast.loading('Loading receipt...', { id: 'receipt' });
+
       const response = await axios.get(
         `/organizations/${orgId}/kxtill/sales/${saleId}/receipt`
       );
-      const receiptText = response.data.text || 'No receipt available';
-      const win = window.open('', '_blank', 'width=400,height=600');
-      if (!win) {
-        toast.error('Please allow popups for this site');
-        toast.dismiss('receipt');
-        return;
-      }
-      win.document.write(`
-        <html>
-          <head>
-            <title>Receipt</title>
-            <style>
-              body { font-family: 'Courier New', monospace; padding: 20px; max-width: 350px; margin: 0 auto; background: #fff; color: #000; }
-              pre { white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 13px; margin: 0; }
-              .actions { text-align: center; margin-top: 20px; }
-              .actions button { padding: 8px 20px; font-size: 14px; cursor: pointer; margin: 0 4px; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; }
-              .actions button:hover { background: #e5e5e5; }
-              @media print { .actions { display: none; } }
-            </style>
-          </head>
-          <body>
-            <pre>${receiptText}</pre>
-            <div class="actions">
-              <button onclick="window.print()">Print</button>
-              <button onclick="window.close()">Close</button>
-            </div>
-          </body>
-        </html>
-      `);
-      win.document.close();
+
+      setShowReceipt(response.data);
       toast.dismiss('receipt');
     } catch (error) {
       console.error('Error fetching receipt:', error);
@@ -688,9 +656,7 @@ const Refunds = () => {
               Offline
             </span>
           )}
-          {isOwner && (
-            <span className={styles.ownerBadge}>Owner</span>
-          )}
+          {isOwner && <span className={styles.ownerBadge}>Owner</span>}
           {!canRefund && permissionsChecked && (
             <span className={styles.permissionBadge}>View Only</span>
           )}
@@ -701,7 +667,10 @@ const Refunds = () => {
       {!canRefund && permissionsChecked && (
         <div className={styles.permissionNotice}>
           <AlertCircle size={16} />
-          <span>You have view-only access. Contact your administrator for refund permissions.</span>
+          <span>
+            You have view-only access. Contact your administrator for refund
+            permissions.
+          </span>
         </div>
       )}
 
@@ -718,7 +687,11 @@ const Refunds = () => {
           <Search size={18} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder={canRefund ? "Enter reference, customer name, or invoice #..." : "Search sales (view only)"}
+            placeholder={
+              canRefund
+                ? 'Enter reference, customer name, or invoice #...'
+                : 'Search sales (view only)'
+            }
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyPress={handleSearchKeyPress}
@@ -726,7 +699,11 @@ const Refunds = () => {
             disabled={!canRefund}
           />
           {searchInput && (
-            <button className={styles.clearSearchBtn} onClick={handleClearSearch}>
+            <button
+              className={styles.clearSearchBtn}
+              onClick={handleClearSearch}
+              type="button"
+            >
               <X size={16} />
             </button>
           )}
@@ -737,10 +714,14 @@ const Refunds = () => {
         {showSearchResults && searchResults.length > 0 && (
           <div className={styles.searchResults}>
             <div className={styles.searchResultsHeader}>
-              <span>Found {searchResults.length} eligible sale{searchResults.length > 1 ? 's' : ''}</span>
+              <span>
+                Found {searchResults.length} eligible sale
+                {searchResults.length > 1 ? 's' : ''}
+              </span>
               <button
                 className={styles.clearResultsBtn}
                 onClick={handleClearSearch}
+                type="button"
               >
                 Clear results
               </button>
@@ -748,7 +729,9 @@ const Refunds = () => {
             {searchResults.map((sale) => (
               <div key={sale.id} className={styles.searchResultItem}>
                 <div className={styles.searchResultInfo}>
-                  <span className={styles.searchResultRef}>{referenceOf(sale)}</span>
+                  <span className={styles.searchResultRef}>
+                    {referenceOf(sale)}
+                  </span>
                   <span className={styles.searchResultCustomer}>
                     {sale.customerName || 'Walk-in Customer'}
                   </span>
@@ -766,6 +749,7 @@ const Refunds = () => {
                   <button
                     className={styles.refundActionBtn}
                     onClick={() => handleInitiateRefund(sale)}
+                    type="button"
                   >
                     <RotateCcw size={14} />
                     Refund
@@ -778,12 +762,15 @@ const Refunds = () => {
           </div>
         )}
 
-        {showSearchResults && searchResults.length === 0 && !searching && searchTerm.trim() && (
-          <div className={styles.noResults}>
-            <AlertCircle size={24} />
-            <span>No eligible sales found. Try adjusting your search.</span>
-          </div>
-        )}
+        {showSearchResults &&
+          searchResults.length === 0 &&
+          !searching &&
+          searchTerm.trim() && (
+            <div className={styles.noResults}>
+              <AlertCircle size={24} />
+              <span>No eligible sales found. Try adjusting your search.</span>
+            </div>
+          )}
       </div>
 
       {/* Summary Cards */}
@@ -794,7 +781,9 @@ const Refunds = () => {
           </div>
           <div className={styles.summaryInfo}>
             <span className={styles.summaryLabel}>Total Refunds</span>
-            <span className={styles.summaryValue}>{summary?.totalReturns || 0}</span>
+            <span className={styles.summaryValue}>
+              {summary?.totalReturns || 0}
+            </span>
             {summary && (
               <span className={styles.summarySubtext}>
                 {summary.returnRate?.toFixed(1)}% return rate
@@ -853,8 +842,12 @@ const Refunds = () => {
               <div key={index} className={styles.topProductItem}>
                 <span className={styles.topProductRank}>{index + 1}</span>
                 <span className={styles.topProductName}>{product.name}</span>
-                <span className={styles.topProductCount}>{product.count} returns</span>
-                <span className={styles.topProductTotal}>{formatCurrency(product.total)}</span>
+                <span className={styles.topProductCount}>
+                  {product.count} returns
+                </span>
+                <span className={styles.topProductTotal}>
+                  {formatCurrency(product.total)}
+                </span>
               </div>
             ))}
           </div>
@@ -920,8 +913,12 @@ const Refunds = () => {
             onClick={handleRefresh}
             disabled={isRefreshing}
             title="Refresh"
+            type="button"
           >
-            <RefreshCw size={16} className={isRefreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={16}
+              className={isRefreshing ? styles.spinning : ''}
+            />
             {isRefreshing ? '...' : 'Refresh'}
           </button>
 
@@ -929,6 +926,7 @@ const Refunds = () => {
             <button
               className={styles.clearFiltersBtn}
               onClick={clearFilters}
+              type="button"
             >
               Clear All
             </button>
@@ -956,6 +954,7 @@ const Refunds = () => {
               <button
                 className={styles.clearFiltersBtnLarge}
                 onClick={clearFilters}
+                type="button"
               >
                 Clear Filters
               </button>
@@ -996,10 +995,17 @@ const Refunds = () => {
                           </span>
                           <button
                             className={styles.copyBtn}
-                            onClick={() => handleCopyReference(reference, sale.id)}
+                            onClick={() =>
+                              handleCopyReference(reference, sale.id)
+                            }
                             title="Copy reference"
+                            type="button"
                           >
-                            {copiedId === sale.id ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedId === sale.id ? (
+                              <Check size={12} />
+                            ) : (
+                              <Copy size={12} />
+                            )}
                           </button>
                         </div>
                       </td>
@@ -1037,13 +1043,15 @@ const Refunds = () => {
                             className={styles.viewBtn}
                             onClick={() => handleViewDetail(sale.id)}
                             title="View Details"
+                            type="button"
                           >
                             <Eye size={16} />
                           </button>
                           <button
                             className={styles.printBtn}
                             onClick={() => handlePrintReceipt(sale.id)}
-                            title="Print Receipt"
+                            title="View Receipt"
+                            type="button"
                           >
                             <Receipt size={16} />
                           </button>
@@ -1055,13 +1063,13 @@ const Refunds = () => {
               </tbody>
             </table>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className={styles.pagination}>
                 <button
                   className={styles.pageBtn}
                   onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
                   disabled={currentPage === 1}
+                  type="button"
                 >
                   <ChevronLeft size={16} />
                   Previous
@@ -1071,8 +1079,11 @@ const Refunds = () => {
                 </span>
                 <button
                   className={styles.pageBtn}
-                  onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+                  onClick={() =>
+                    handlePageChange(Math.min(currentPage + 1, totalPages))
+                  }
                   disabled={currentPage === totalPages}
+                  type="button"
                 >
                   Next
                   <ChevronRight size={16} />
@@ -1091,11 +1102,14 @@ const Refunds = () => {
               <div className={styles.modalTitle}>
                 <RotateCcw size={18} className={styles.refundIcon} />
                 <span>Process Refund</span>
-                {selectedItems.length < selectedSale.items?.length && selectedItems.length > 0 && (
-                  <span className={styles.partialBadge}>Partial Refund</span>
-                )}
+                {selectedItems.length < selectedSale.items?.length &&
+                  selectedItems.length > 0 && (
+                    <span className={styles.partialBadge}>Partial Refund</span>
+                  )}
                 {selectedSale.status === 'REFUNDED' && (
-                  <span className={styles.refundedBadge}>Already Refunded</span>
+                  <span className={styles.refundedBadge}>
+                    Already Refunded
+                  </span>
                 )}
               </div>
               <button
@@ -1106,6 +1120,7 @@ const Refunds = () => {
                   setRefundError('');
                 }}
                 disabled={refundProcessing}
+                type="button"
               >
                 <X size={20} />
               </button>
@@ -1115,28 +1130,42 @@ const Refunds = () => {
               <div className={styles.saleInfo}>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Reference</span>
-                  <span className={styles.saleInfoValue}>{referenceOf(selectedSale)}</span>
+                  <span className={styles.saleInfoValue}>
+                    {referenceOf(selectedSale)}
+                  </span>
                 </div>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Customer</span>
-                  <span className={styles.saleInfoValue}>{selectedSale.customerName || 'Walk-in Customer'}</span>
+                  <span className={styles.saleInfoValue}>
+                    {selectedSale.customerName || 'Walk-in Customer'}
+                  </span>
                 </div>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Date</span>
-                  <span className={styles.saleInfoValue}>{formatDateTime(selectedSale.createdAt)}</span>
+                  <span className={styles.saleInfoValue}>
+                    {formatDateTime(selectedSale.createdAt)}
+                  </span>
                 </div>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Branch</span>
-                  <span className={styles.saleInfoValue}>{selectedSale.branch?.name || 'N/A'}</span>
+                  <span className={styles.saleInfoValue}>
+                    {selectedSale.branch?.name || 'N/A'}
+                  </span>
                 </div>
                 <div className={styles.saleInfoRow}>
                   <span className={styles.saleInfoLabel}>Original Total</span>
-                  <span className={styles.saleInfoValue}>{formatCurrency(selectedSale.totalAmount)}</span>
+                  <span className={styles.saleInfoValue}>
+                    {formatCurrency(selectedSale.totalAmount)}
+                  </span>
                 </div>
                 {selectedSale.status === 'REFUNDED' && (
-                  <div className={`${styles.saleInfoRow} ${styles.alreadyRefunded}`}>
+                  <div
+                    className={`${styles.saleInfoRow} ${styles.alreadyRefunded}`}
+                  >
                     <span className={styles.saleInfoLabel}>Status</span>
-                    <span className={styles.saleInfoValue}>Already Refunded</span>
+                    <span className={styles.saleInfoValue}>
+                      Already Refunded
+                    </span>
                   </div>
                 )}
               </div>
@@ -1145,9 +1174,17 @@ const Refunds = () => {
                 <>
                   <div className={styles.itemsSection}>
                     <div className={styles.itemsHeader}>
-                      <span className={styles.itemsTitle}>Select items to refund</span>
-                      <button className={styles.selectAllBtn} onClick={handleSelectAll}>
-                        {selectedItems.length === selectedSale.items?.length ? 'Deselect All' : 'Select All'}
+                      <span className={styles.itemsTitle}>
+                        Select items to refund
+                      </span>
+                      <button
+                        className={styles.selectAllBtn}
+                        onClick={handleSelectAll}
+                        type="button"
+                      >
+                        {selectedItems.length === selectedSale.items?.length
+                          ? 'Deselect All'
+                          : 'Select All'}
                       </button>
                     </div>
 
@@ -1159,20 +1196,29 @@ const Refunds = () => {
                         return (
                           <div
                             key={item.id}
-                            className={`${styles.itemRow} ${isSelected ? styles.selected : ''}`}
+                            className={`${styles.itemRow} ${
+                              isSelected ? styles.selected : ''
+                            }`}
                             onClick={() => handleToggleItem(item.id)}
                           >
                             <div className={styles.itemCheck}>
-                              <div className={`${styles.checkbox} ${isSelected ? styles.checked : ''}`}>
+                              <div
+                                className={`${styles.checkbox} ${
+                                  isSelected ? styles.checked : ''
+                                }`}
+                              >
                                 {isSelected && <Check size={12} />}
                               </div>
                             </div>
                             <div className={styles.itemInfo}>
                               <span className={styles.itemName}>
-                                {item.product?.name || item.productName || 'Unknown'}
+                                {item.product?.name ||
+                                  item.productName ||
+                                  'Unknown'}
                               </span>
                               <span className={styles.itemDetails}>
-                                {item.quantity} × {item.unitName || item.unitAbbrev}
+                                {item.quantity} ×{' '}
+                                {item.unitName || item.unitAbbrev}
                               </span>
                             </div>
                             <span className={styles.itemPrice}>
@@ -1188,26 +1234,38 @@ const Refunds = () => {
                     <label className={styles.methodLabel}>Refund Method</label>
                     <div className={styles.methodOptions}>
                       <button
-                        className={`${styles.methodOption} ${refundMethod === 'ORIGINAL' ? styles.active : ''}`}
+                        className={`${styles.methodOption} ${
+                          refundMethod === 'ORIGINAL' ? styles.active : ''
+                        }`}
                         onClick={() => setRefundMethod('ORIGINAL')}
+                        type="button"
                       >
                         Original Payment
                       </button>
                       <button
-                        className={`${styles.methodOption} ${refundMethod === 'CASH' ? styles.active : ''}`}
+                        className={`${styles.methodOption} ${
+                          refundMethod === 'CASH' ? styles.active : ''
+                        }`}
                         onClick={() => setRefundMethod('CASH')}
+                        type="button"
                       >
                         Cash
                       </button>
                       <button
-                        className={`${styles.methodOption} ${refundMethod === 'MPESA' ? styles.active : ''}`}
+                        className={`${styles.methodOption} ${
+                          refundMethod === 'MPESA' ? styles.active : ''
+                        }`}
                         onClick={() => setRefundMethod('MPESA')}
+                        type="button"
                       >
                         M-PESA
                       </button>
                       <button
-                        className={`${styles.methodOption} ${refundMethod === 'CARD' ? styles.active : ''}`}
+                        className={`${styles.methodOption} ${
+                          refundMethod === 'CARD' ? styles.active : ''
+                        }`}
                         onClick={() => setRefundMethod('CARD')}
+                        type="button"
                       >
                         Card
                       </button>
@@ -1215,7 +1273,9 @@ const Refunds = () => {
                   </div>
 
                   <div className={styles.reasonSection}>
-                    <label className={styles.reasonLabel}>Reason for Refund (Optional)</label>
+                    <label className={styles.reasonLabel}>
+                      Reason for Refund (Optional)
+                    </label>
                     <textarea
                       className={styles.reasonInput}
                       placeholder="e.g. Customer changed mind, Damaged product, etc."
@@ -1238,19 +1298,27 @@ const Refunds = () => {
                       <span className={styles.refundTotal}>
                         {formatCurrency(
                           selectedSale.items
-                            ?.filter(item => selectedItems.includes(item.id))
-                            .reduce((sum, item) => sum + parseFloat(item.total || 0), 0) || 0
+                            ?.filter((item) =>
+                              selectedItems.includes(item.id)
+                            )
+                            .reduce(
+                              (sum, item) =>
+                                sum + parseFloat(item.total || 0),
+                              0
+                            ) || 0
                         )}
                       </span>
                     </div>
-                    {selectedItems.length < selectedSale.items?.length && selectedItems.length > 0 && (
-                      <div className={styles.summaryRow}>
-                        <span className={styles.partialNote}>
-                          <AlertCircle size={14} />
-                          Partial refund - only selected items will be refunded
-                        </span>
-                      </div>
-                    )}
+                    {selectedItems.length < selectedSale.items?.length &&
+                      selectedItems.length > 0 && (
+                        <div className={styles.summaryRow}>
+                          <span className={styles.partialNote}>
+                            <AlertCircle size={14} />
+                            Partial refund - only selected items will be
+                            refunded
+                          </span>
+                        </div>
+                      )}
                   </div>
                 </>
               )}
@@ -1259,7 +1327,9 @@ const Refunds = () => {
                 <div className={styles.alreadyRefundedMessage}>
                   <AlertCircle size={24} />
                   <p>This sale has already been refunded.</p>
-                  <span>Refunded on {formatDateTime(selectedSale.refundedAt)}</span>
+                  <span>
+                    Refunded on {formatDateTime(selectedSale.refundedAt)}
+                  </span>
                 </div>
               )}
             </div>
@@ -1273,6 +1343,7 @@ const Refunds = () => {
                   setRefundError('');
                 }}
                 disabled={refundProcessing}
+                type="button"
               >
                 Cancel
               </button>
@@ -1281,6 +1352,7 @@ const Refunds = () => {
                   className={styles.refundBtn}
                   onClick={handleProcessRefund}
                   disabled={refundProcessing || selectedItems.length === 0}
+                  type="button"
                 >
                   {refundProcessing ? (
                     <>
@@ -1302,7 +1374,10 @@ const Refunds = () => {
 
       {/* Detail Modal */}
       {showDetail && (
-        <div className={styles.modalOverlay} onClick={() => setShowDetail(null)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setShowDetail(null)}
+        >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div className={styles.modalTitle}>
@@ -1313,6 +1388,7 @@ const Refunds = () => {
               <button
                 className={styles.modalClose}
                 onClick={() => setShowDetail(null)}
+                type="button"
               >
                 <X size={18} />
               </button>
@@ -1334,7 +1410,9 @@ const Refunds = () => {
                       </span>
                     </div>
                     <div className={styles.detailStatus}>
-                      <span className={`${styles.statusBadge} ${styles.statusRefunded}`}>
+                      <span
+                        className={`${styles.statusBadge} ${styles.statusRefunded}`}
+                      >
                         <XCircle size={12} />
                         Refunded
                       </span>
@@ -1344,11 +1422,20 @@ const Refunds = () => {
                   <div className={styles.detailMeta}>
                     <div className={styles.detailMetaItem}>
                       <Clock size={14} />
-                      <span>Refunded: {formatDateTime(showDetail.refundedAt || showDetail.updatedAt)}</span>
+                      <span>
+                        Refunded:{' '}
+                        {formatDateTime(
+                          showDetail.refundedAt || showDetail.updatedAt
+                        )}
+                      </span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <User size={14} />
-                      <span>Refunded by: {showDetail.refundedByUser?.firstName || 'Unknown'} {showDetail.refundedByUser?.lastName || ''}</span>
+                      <span>
+                        Refunded by:{' '}
+                        {showDetail.refundedByUser?.firstName || 'Unknown'}{' '}
+                        {showDetail.refundedByUser?.lastName || ''}
+                      </span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <Building2 size={14} />
@@ -1356,7 +1443,10 @@ const Refunds = () => {
                     </div>
                     <div className={styles.detailMetaItem}>
                       <Users size={14} />
-                      <span>Customer: {showDetail.customerName || 'Walk-in Customer'}</span>
+                      <span>
+                        Customer:{' '}
+                        {showDetail.customerName || 'Walk-in Customer'}
+                      </span>
                     </div>
                   </div>
 
@@ -1375,7 +1465,11 @@ const Refunds = () => {
                       <tbody>
                         {showDetail.items?.map((item, idx) => (
                           <tr key={item.id || idx}>
-                            <td>{item.product?.name || item.productName || 'Unknown'}</td>
+                            <td>
+                              {item.product?.name ||
+                                item.productName ||
+                                'Unknown'}
+                            </td>
                             <td>{item.quantity}</td>
                             <td>{item.unitName || item.unitAbbrev}</td>
                             <td>{formatCurrency(item.unitPrice)}</td>
@@ -1397,9 +1491,13 @@ const Refunds = () => {
                         <span>{formatCurrency(showDetail.taxAmount)}</span>
                       </div>
                     )}
-                    <div className={`${styles.detailTotalRow} ${styles.detailGrandTotal}`}>
+                    <div
+                      className={`${styles.detailTotalRow} ${styles.detailGrandTotal}`}
+                    >
                       <span>Total Refunded</span>
-                      <span className={styles.refundTotal}>{formatCurrency(showDetail.totalAmount)}</span>
+                      <span className={styles.refundTotal}>
+                        {formatCurrency(showDetail.totalAmount)}
+                      </span>
                     </div>
                   </div>
 
@@ -1438,6 +1536,7 @@ const Refunds = () => {
                   setShowDetail(null);
                   handlePrintReceipt(id);
                 }}
+                type="button"
               >
                 <Receipt size={16} />
                 View Receipt
@@ -1445,12 +1544,22 @@ const Refunds = () => {
               <button
                 className={styles.modalCloseBtn}
                 onClick={() => setShowDetail(null)}
+                type="button"
               >
                 Close
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Receipt Modal — shared with POS/Sales */}
+      {showReceipt && (
+        <ReceiptModal
+          receipt={showReceipt}
+          onClose={() => setShowReceipt(null)}
+          title="Refund Receipt"
+        />
       )}
     </div>
   );

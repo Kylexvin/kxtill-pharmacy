@@ -1,5 +1,5 @@
 // src/pages/Transfers/Transfers.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -19,18 +19,19 @@ import styles from './Transfers.module.css';
 import NewTransferModal from './components/NewTransferModal';
 import TransferDetailModal from './components/TransferDetailModal';
 import TransferStatusBadge from './components/TransferStatusBadge';
+import usePolling from '../../hooks/usePolling';
+
+const POLL_INTERVAL_MS = 30_000;
 
 const Transfers = () => {
   const { activeOrganization, activeBranch } = useAuth();
   const { canAny } = usePermissions();
-  const { } = useSettings();
+  const { formatDate } = useSettings();
 
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
 
-  // Platform admins (branches.manage) can also manage transfers at org level.
-  // Owner is covered automatically — can() returns true for anything when
-  // permissions include '*'.
+  // Permissions — owner implied via wildcard.
   const canCreate = canAny([
     'kxtill.inventory.transfers.create',
     'branches.manage',
@@ -41,7 +42,6 @@ const Transfers = () => {
     'branches.manage',
   ]);
 
-  // Approve and reject share one permission (single decision gate).
   const canReject = canApprove;
 
   const canComplete = canAny([
@@ -63,12 +63,22 @@ const Transfers = () => {
   const [selectedTransfer, setSelectedTransfer] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
 
+  const isMountedRef = useRef(true);
+  const fetchControllerRef = useRef(null);
+  const hasLoadedOnceRef = useRef(false);
+
   // ---------- fetch ----------
   const fetchTransfers = useCallback(async () => {
     if (!orgId) {
       setLoading(false);
-      return;
+      return { ok: false };
     }
+
+    if (!hasLoadedOnceRef.current) setLoading(true);
+
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
 
     try {
       const params = {};
@@ -77,39 +87,76 @@ const Transfers = () => {
 
       const response = await axios.get(
         `/organizations/${orgId}/kxtill/transfers`,
-        { params }
+        { params, signal: controller.signal, timeout: 10000 }
       );
 
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return { ok: false };
+      }
+
       setTransfers(response.data.items || []);
+      hasLoadedOnceRef.current = true;
+      return { ok: true };
     } catch (error) {
+      if (error.name === 'CanceledError' || error.name === 'AbortError') {
+        return { ok: false };
+      }
+
       console.error('Failed to fetch transfers:', error);
-      toast.error(
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        'Failed to load transfers'
-      );
-      setTransfers([]);
+      if (isMountedRef.current) {
+        toast.error(
+          error.response?.data?.error ||
+            error.response?.data?.message ||
+            'Failed to load transfers'
+        );
+        setTransfers([]);
+      }
+      return { ok: false, error };
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && !controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [orgId, branchId, statusFilter]);
 
+  // ---------- lifecycle ----------
   useEffect(() => {
-    setLoading(true);
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      fetchControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
     fetchTransfers();
-  }, [fetchTransfers]);
+  }, [orgId, fetchTransfers]);
 
   useEffect(() => {
     const handler = setTimeout(() => setSearchTerm(searchInput), 300);
     return () => clearTimeout(handler);
   }, [searchInput]);
 
+  // ---------- background polling ----------
+  usePolling(
+    () => {
+      if (!orgId) return;
+      if (!navigator.onLine) return;
+      fetchTransfers();
+    },
+    POLL_INTERVAL_MS,
+    [orgId, branchId, statusFilter]
+  );
+
   const handleRefresh = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    await fetchTransfers();
-    setRefreshing(false);
-    toast.success('Refreshed');
+    const result = await fetchTransfers();
+    if (isMountedRef.current) {
+      setRefreshing(false);
+      if (result?.ok) toast.success('Refreshed');
+    }
   };
 
   // ---------- derived stats ----------
@@ -141,7 +188,9 @@ const Transfers = () => {
         t.sourceBranchProduct?.product?.name ||
         ''
       ).toLowerCase();
-      const by = `${t.initiatedBy?.firstName || ''} ${t.initiatedBy?.lastName || ''}`.toLowerCase();
+      const by = `${t.initiatedBy?.firstName || ''} ${
+        t.initiatedBy?.lastName || ''
+      }`.toLowerCase();
       return (
         ref.includes(q) ||
         from.includes(q) ||
@@ -202,7 +251,7 @@ const Transfers = () => {
       toast.error(msg);
       return { ok: false, error: msg };
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setActionLoading(false);
     }
   };
 
@@ -225,7 +274,7 @@ const Transfers = () => {
       toast.error(msg);
       return { ok: false, error: msg };
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setActionLoading(false);
     }
   };
 
@@ -247,7 +296,7 @@ const Transfers = () => {
       toast.error(msg);
       return { ok: false, error: msg };
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setActionLoading(false);
     }
   };
 
@@ -256,19 +305,6 @@ const Transfers = () => {
     if (!user) return 'Unknown';
     const n = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     return n || 'Unknown';
-  };
-
-  const formatDate = (iso) => {
-    if (!iso) return '—';
-    try {
-      return new Date(iso).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return '—';
-    }
   };
 
   if (!orgId) {
@@ -281,6 +317,8 @@ const Transfers = () => {
       </div>
     );
   }
+
+  const showSkeleton = loading && !hasLoadedOnceRef.current;
 
   return (
     <div className={styles.page}>
@@ -303,13 +341,18 @@ const Transfers = () => {
             onClick={handleRefresh}
             disabled={refreshing}
             title="Refresh"
+            type="button"
           >
-            <RefreshCw size={14} className={refreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={14}
+              className={refreshing ? styles.spinning : ''}
+            />
           </button>
           {canCreate && (
             <button
               className={styles.primaryBtn}
               onClick={() => setShowNewModal(true)}
+              type="button"
             >
               <Plus size={16} /> New Transfer
             </button>
@@ -372,7 +415,7 @@ const Transfers = () => {
       </div>
 
       {/* List */}
-      {loading ? (
+      {showSkeleton ? (
         <div className={styles.loadingState}>
           <Loader2 size={28} className={styles.spinning} />
           <p>Loading transfers…</p>
@@ -385,8 +428,8 @@ const Transfers = () => {
             {searchTerm || statusFilter !== 'all'
               ? 'Try adjusting your filters.'
               : canCreate
-                ? 'Create the first transfer to move stock between branches.'
-                : 'No transfers involving this branch yet.'}
+              ? 'Create the first transfer to move stock between branches.'
+              : 'No transfers involving this branch yet.'}
           </p>
         </div>
       ) : (
@@ -420,7 +463,10 @@ const Transfers = () => {
                     <td>
                       <div className={styles.pathCell}>
                         <span className={styles.branchCode}>{from}</span>
-                        <ArrowRight size={12} className={styles.pathArrow} />
+                        <ArrowRight
+                          size={12}
+                          className={styles.pathArrow}
+                        />
                         <span className={styles.branchCode}>{to}</span>
                       </div>
                     </td>
@@ -438,6 +484,7 @@ const Transfers = () => {
                         className={styles.rowActionBtn}
                         onClick={() => openDetail(t)}
                         title="View details"
+                        type="button"
                       >
                         <Eye size={14} />
                       </button>

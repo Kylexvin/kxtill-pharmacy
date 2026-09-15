@@ -329,6 +329,33 @@ export function AuthProvider({ children }) {
     setIsOffline(false);
   }, []);
 
+  //##### Refresh the current user's profile from the server.
+  //##### Used after profile updates on the Account page.
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await axios.get('/auth/me');
+      const freshUser = response.data;
+      setUser(freshUser);
+      localStorage.setItem('user', JSON.stringify(freshUser));
+      return freshUser;
+    } catch (err) {
+      console.error('Failed to refresh user:', err);
+      throw err;
+    }
+  }, []);
+
+  //##### Log out of all devices (server-side session revocation), then
+  //##### clear local state via handleLogout.
+  const logoutAllDevices = useCallback(async () => {
+    try {
+      await axios.post('/auth/logout-all');
+    } catch (err) {
+      // Ignore — local state should be cleared regardless
+    } finally {
+      await handleLogout();
+    }
+  }, [handleLogout]);
+
   // Validate session with proper network error handling
   useEffect(() => {
     if (authInitialized.current) return;
@@ -431,6 +458,10 @@ export function AuthProvider({ children }) {
     isLoading,
     isSwitching,
     error,
+    //##### new
+    refreshUser,
+    //##### new
+    logoutAllDevices,
     isOffline,
     setIsOffline,
     login,
@@ -447,6 +478,10 @@ export function AuthProvider({ children }) {
   }), [
     user, accessToken, refreshToken, organizations, branches,
     activeOrganization, activeBranch, isLoading, isSwitching, error, isOffline,
+    //##### new
+    refreshUser,
+    //##### new
+    logoutAllDevices,
     login, handleLogout, setActiveOrganization, setActiveBranch,
     loadBranches, clearError, clearOfflineData,
     checkPendingSales, isAuthenticated, setAuthData,

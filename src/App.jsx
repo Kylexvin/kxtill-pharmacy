@@ -312,7 +312,7 @@ function App() {
                   <Route
                     path="customers"
                     element={
-                      <RequirePermission permission={KXTILL.CUSTOMERS.VIEW}>
+                      <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
                         <Customers />
                       </RequirePermission>
                     }
@@ -320,7 +320,7 @@ function App() {
                   <Route
                     path="customers/:id"
                     element={
-                      <RequirePermission permission={KXTILL.CUSTOMERS.VIEW}>
+                      <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
                         <CustomerDetail />
                       </RequirePermission>
                     }
@@ -338,7 +338,7 @@ function App() {
                   <Route
                     path="global-inventory"
                     element={
-                      <RequirePermission permission={KXTILL.INVENTORY.VIEW}>
+                      <RequirePermission permission={KXTILL.INVENTORY.GLOBAL_VIEW}>
                         <GlobalInventory />
                       </RequirePermission>
                     }

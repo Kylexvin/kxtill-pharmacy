@@ -17,24 +17,12 @@ const PermissionsContext = createContext(null);
 // ============================================================
 // PERMISSION MATCHING
 // ============================================================
-//
-// Supported patterns from the backend:
-//   "*"                            — full wildcard (owner)
-//   "kxtill.*"                     — anything under kxtill
-//   "kxtill.inventory.*"           — anything under kxtill.inventory
-//   "kxtill.inventory.transfers.*" — anything under transfers
-//   "kxtill.inventory.view"        — exact match
-//
-// If the backend ever returns a grouped permission, the frontend
-// already handles it without changes.
-// ============================================================
-
 function patternMatches(pattern, key) {
   if (!pattern || !key) return false;
   if (pattern === '*') return true;
 
   if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1); // keep trailing dot
+    const prefix = pattern.slice(0, -1);
     return key.startsWith(prefix);
   }
 
@@ -49,11 +37,6 @@ function grantMatches(permissions, key) {
 // ============================================================
 // LOCAL CACHE (per organization)
 // ============================================================
-//
-// Prevents the "flash of no permissions" on page reload.
-// Keyed by organizationId because permissions are org-scoped.
-// ============================================================
-
 const cacheKey = (orgId) => `permissions:${orgId}`;
 
 function readCache(orgId) {
@@ -74,7 +57,7 @@ function writeCache(orgId, data) {
   try {
     localStorage.setItem(cacheKey(orgId), JSON.stringify(data));
   } catch {
-    // ignore — quota, private mode, etc.
+    // ignore
   }
 }
 
@@ -90,17 +73,18 @@ function clearCache(orgId) {
 // ============================================================
 // PROVIDER
 // ============================================================
-
 export function PermissionsProvider({ children }) {
   const { activeOrganization, accessToken } = useAuth();
   const orgId = activeOrganization?.id || null;
 
-  const initialPermissions = useMemo(() => {
-    const cached = readCache(orgId);
-    return cached?.permissions || [];
-  }, [orgId]);
+  const initialCached = useMemo(() => readCache(orgId), [orgId]);
 
-  const [permissions, setPermissions] = useState(initialPermissions);
+  const [permissions, setPermissions] = useState(
+    initialCached?.permissions || []
+  );
+  const [hasAllBranches, setHasAllBranches] = useState(
+    initialCached?.hasAllBranches || false
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -111,6 +95,7 @@ export function PermissionsProvider({ children }) {
   const fetchPermissions = useCallback(async () => {
     if (!orgId || !accessToken) {
       setPermissions([]);
+      setHasAllBranches(false);
       setError(null);
       return;
     }
@@ -134,14 +119,15 @@ export function PermissionsProvider({ children }) {
       const raw = Array.isArray(response.data?.permissions)
         ? response.data.permissions
         : [];
+      const membershipHasAll = response.data?.membership?.hasAllBranches || false;
 
-      // Expand platform → kxtill implied permissions so `can()` works
-      // against either scope without changing the matcher.
       const next = expandPermissions(raw);
 
       setPermissions(next);
+      setHasAllBranches(membershipHasAll);
       writeCache(orgId, {
         permissions: next,
+        hasAllBranches: membershipHasAll,
         fetchedAt: Date.now(),
       });
     } catch (err) {
@@ -150,8 +136,10 @@ export function PermissionsProvider({ children }) {
       const cached = readCache(orgId);
       if (cached) {
         setPermissions(cached.permissions || []);
+        setHasAllBranches(cached.hasAllBranches || false);
       } else {
         setPermissions([]);
+        setHasAllBranches(false);
       }
 
       setError(
@@ -175,12 +163,10 @@ export function PermissionsProvider({ children }) {
     };
   }, []);
 
-  // -------- refetch triggers --------
-  // Permissions are ORG-scoped. Only refetch on org or auth token change.
-  // Branch switching does NOT trigger a refetch.
   useEffect(() => {
     if (!orgId || !accessToken) {
       setPermissions([]);
+      setHasAllBranches(false);
       setError(null);
       return;
     }
@@ -188,6 +174,7 @@ export function PermissionsProvider({ children }) {
     const cached = readCache(orgId);
     if (cached) {
       setPermissions(cached.permissions || []);
+      setHasAllBranches(cached.hasAllBranches || false);
     }
 
     fetchPermissions();
@@ -200,7 +187,7 @@ export function PermissionsProvider({ children }) {
     await fetchPermissions();
   }, [orgId, fetchPermissions]);
 
-  // -------- derived API --------
+  // -------- derived --------
   const isOwner = useMemo(() => permissions.includes('*'), [permissions]);
 
   const hasPermission = useCallback(
@@ -223,6 +210,7 @@ export function PermissionsProvider({ children }) {
   const value = useMemo(
     () => ({
       permissions,
+      hasAllBranches,
       isOwner,
       loading,
       error,
@@ -236,6 +224,7 @@ export function PermissionsProvider({ children }) {
     }),
     [
       permissions,
+      hasAllBranches,
       isOwner,
       loading,
       error,
@@ -252,10 +241,6 @@ export function PermissionsProvider({ children }) {
     </PermissionsContext.Provider>
   );
 }
-
-// ============================================================
-// HOOK
-// ============================================================
 
 export function usePermissions() {
   const ctx = useContext(PermissionsContext);
