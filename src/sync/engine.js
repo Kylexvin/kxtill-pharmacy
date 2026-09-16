@@ -21,7 +21,6 @@ import {
   clearBranchProducts,
   getPendingSyncItems,
   updateSyncItemStatus,
-  // customer sync support
   getUnsyncedCustomers,
   markCustomerSynced,
   replaceCustomerIdInSales,
@@ -29,20 +28,36 @@ import {
   upsertServerCustomer,
 } from '../db/sqlite';
 
-let isOnline = navigator.onLine;
+// ============================================================
+// CONFIG
+// ============================================================
+
+const RECEIPT_FETCH_TIMEOUT_MS = 5000;
+const SYNC_HTTP_TIMEOUT_MS = 15000;
+const MAX_QUEUE_ATTEMPTS = 5;
+
+// ============================================================
+// ONLINE STATE
+// ============================================================
+
+let isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
 export const getOnlineStatus = () => isOnline;
 
 export const setOnlineStatus = (value) => {
-  isOnline = value;
+  isOnline = !!value;
 };
+
+// ============================================================
+// STORAGE HELPERS
+// ============================================================
 
 const getOrgId = () => {
   const org = localStorage.getItem('activeOrganization');
   if (!org) return null;
   try {
     const parsed = JSON.parse(org);
-    return parsed.id || parsed;
+    return parsed?.id || parsed;
   } catch {
     return org;
   }
@@ -59,6 +74,27 @@ const getStoredActiveBranchId = () => {
   }
 };
 
+// ============================================================
+// ERROR NORMALIZATION
+// ============================================================
+
+const describeError = (err) => {
+  if (!err) return 'Unknown error';
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data?.error ||
+    err?.message ||
+    String(err)
+  );
+};
+
+const isAbortError = (err) =>
+  err?.code === 'ECONNABORTED' || err?.name === 'CanceledError';
+
+// ============================================================
+// LIFECYCLE
+// ============================================================
+
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     isOnline = true;
@@ -68,6 +104,10 @@ if (typeof window !== 'undefined') {
     isOnline = false;
   });
 }
+
+// ============================================================
+// MAIN SYNC
+// ============================================================
 
 export const sync = async (branchId) => {
   if (!isOnline) {
@@ -86,54 +126,59 @@ export const sync = async (branchId) => {
     errors: [],
   };
 
-  // ORDER:
-  //   1. Push unsynced local customers (offline-created) so they get real ids
-  //   2. Pull server customers that changed since last sync (incremental)
-  //   3. Push sales (they can now reference real customerIds)
-  //   4. Products, branch products, receipts
-  // Every step is guarded so one failure never takes down the chain.
+  // Order:
+  //   1. Push unsynced local customers (offline-created) so sales can
+  //      reference real server customer IDs
+  //   2. Pull server customers that changed since the last sync
+  //   3. Push pending sales
+  //   4. Pull products + branch products
+  //   5. Fetch receipts for synced sales
+  // Each step is guarded so one failure never takes down the chain.
 
   try {
     await pushPendingCustomers(results);
   } catch (err) {
-    results.errors.push(`Customer push fatal: ${err.message}`);
+    results.errors.push(`Customer push fatal: ${describeError(err)}`);
   }
 
   try {
     await pullCustomerUpdates(results);
   } catch (err) {
-    results.errors.push(`Customer pull fatal: ${err.message}`);
+    results.errors.push(`Customer pull fatal: ${describeError(err)}`);
   }
 
   try {
     await pushPendingSales(results);
   } catch (err) {
-    results.errors.push(`Sales push fatal: ${err.message}`);
+    results.errors.push(`Sales push fatal: ${describeError(err)}`);
   }
 
   try {
     await pullProductUpdates(results, branchId);
   } catch (err) {
-    results.errors.push(`Product pull fatal: ${err.message}`);
+    results.errors.push(`Product pull fatal: ${describeError(err)}`);
   }
 
   try {
     await pullBranchProductUpdates(results, branchId);
   } catch (err) {
-    results.errors.push(`Branch product pull fatal: ${err.message}`);
+    results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
   }
 
+  // Delay receipt fetch by a short window so the server can finish
+  // committing the sale before we ask for its receipt.
   try {
+    await new Promise((r) => setTimeout(r, 1500));
     await fetchPendingReceipts(results);
   } catch (err) {
-    results.errors.push(`Receipt fetch fatal: ${err.message}`);
+    results.errors.push(`Receipt fetch fatal: ${describeError(err)}`);
   }
 
   return { success: true, results };
 };
 
 // ============================================================
-// CUSTOMERS — push first, then incremental pull
+// CUSTOMERS
 // ============================================================
 
 const pushPendingCustomers = async (results) => {
@@ -142,7 +187,7 @@ const pushPendingCustomers = async (results) => {
   try {
     pendingCustomers = await getUnsyncedCustomers();
   } catch (err) {
-    results.errors.push(`Customer queue lookup failed: ${err.message}`);
+    results.errors.push(`Customer queue lookup failed: ${describeError(err)}`);
     return;
   }
 
@@ -167,14 +212,17 @@ const pushPendingCustomers = async (results) => {
 
       const response = await axios.post(
         `/organizations/${organizationId}/customers`,
-        payload
+        payload,
+        { timeout: SYNC_HTTP_TIMEOUT_MS }
       );
 
       const created = response.data?.customer || response.data;
       const serverId = created?.id;
 
       if (!serverId) {
-        results.errors.push(`Customer sync: no id returned for ${customer.name}`);
+        results.errors.push(
+          `Customer sync: no id returned for ${customer.name}`
+        );
         results.customersFailed++;
         continue;
       }
@@ -183,7 +231,7 @@ const pushPendingCustomers = async (results) => {
         await markCustomerSynced(customer.id, serverId);
       } catch (err) {
         results.errors.push(
-          `markCustomerSynced failed for ${customer.name}: ${err.message}`
+          `markCustomerSynced failed for ${customer.name}: ${describeError(err)}`
         );
       }
 
@@ -191,32 +239,27 @@ const pushPendingCustomers = async (results) => {
         await replaceCustomerIdInSales(customer.id, serverId);
       } catch (err) {
         results.errors.push(
-          `replaceCustomerIdInSales failed for ${customer.name}: ${err.message}`
+          `replaceCustomerIdInSales failed for ${customer.name}: ${describeError(err)}`
         );
       }
 
       results.customersPushed++;
     } catch (error) {
       const status = error.response?.status;
-      const message = error.response?.data?.message || error.message;
+      const message = describeError(error);
 
       if (status === 409) {
         results.errors.push(`Customer conflict (${customer.name}): ${message}`);
-        results.customersFailed++;
       } else if (status === 400 || status === 422) {
         results.errors.push(`Customer rejected (${customer.name}): ${message}`);
-        results.customersFailed++;
       } else {
-        results.customersFailed++;
+        results.errors.push(`Customer push failed (${customer.name}): ${message}`);
       }
+      results.customersFailed++;
     }
   }
 };
 
-// Incremental pull — uses the serverTime from the previous response as
-// the `since` cursor, exactly like products/branch-products. First call
-// has no `since` and pulls everything; subsequent calls only get what
-// changed.
 const pullCustomerUpdates = async (results) => {
   try {
     const organizationId = getOrgId();
@@ -226,25 +269,15 @@ const pullCustomerUpdates = async (results) => {
     }
 
     const lastSync = await getLastCustomerSync();
-
-    const params = {};
-    if (lastSync) params.since = lastSync;
+    const params = lastSync ? { since: lastSync } : {};
 
     const response = await axios.get(
       `/organizations/${organizationId}/kxtill/customers/sync`,
-      { params }
+      { params, timeout: SYNC_HTTP_TIMEOUT_MS }
     );
 
     const data = response.data || {};
     const customersList = data.customers || data.items || [];
-
-    if (customersList.length === 0) {
-      // Still advance the cursor if the server returned a new serverTime
-      if (data.serverTime) {
-        await setLastCustomerSync(data.serverTime);
-      }
-      return;
-    }
 
     for (const customer of customersList) {
       try {
@@ -259,28 +292,31 @@ const pullCustomerUpdates = async (results) => {
         results.customersPulled++;
       } catch (err) {
         results.errors.push(
-          `Customer cache write failed (${customer.name}): ${err.message}`
+          `Customer cache write failed (${customer.name}): ${describeError(err)}`
         );
       }
     }
 
-    // Advance cursor so the next pull only fetches newer rows
     if (data.serverTime) {
       await setLastCustomerSync(data.serverTime);
     }
   } catch (error) {
-    results.errors.push(`Customer pull failed: ${error.message}`);
+    results.errors.push(`Customer pull failed: ${describeError(error)}`);
   }
 };
 
 // ============================================================
-// SALES — push pending sales, waiting on unresolved customers
+// SALES
 // ============================================================
 
 const pushPendingSales = async (results) => {
   const pendingSales = await getPendingSales();
 
-  if (pendingSales.length === 0) {
+  if (pendingSales.length === 0) return;
+
+  const organizationId = getOrgId();
+  if (!organizationId) {
+    results.errors.push('No organization ID found');
     return;
   }
 
@@ -288,12 +324,6 @@ const pushPendingSales = async (results) => {
     try {
       const items = JSON.parse(sale.items);
       const payments = JSON.parse(sale.payments);
-      const organizationId = getOrgId();
-
-      if (!organizationId) {
-        results.errors.push('No organization ID found');
-        continue;
-      }
 
       let freshSale = sale;
       try {
@@ -307,6 +337,7 @@ const pushPendingSales = async (results) => {
       const hasUnresolvedTempCustomer =
         freshSale?.customerTempId && !freshSale?.customerId;
 
+      // Wait for customer sync before pushing the sale
       if (hasUnresolvedTempCustomer) {
         continue;
       }
@@ -329,12 +360,14 @@ const pushPendingSales = async (results) => {
 
       const response = await axios.post(
         `/organizations/${organizationId}/kxtill/sales/offline`,
-        payload
+        payload,
+        { timeout: SYNC_HTTP_TIMEOUT_MS }
       );
 
-      await updateSaleStatus(sale.id, 'SYNCED');
-
       const serverSaleId = response.data?.sale?.id;
+
+      // Write status + serverId together so they never diverge
+      await updateSaleStatus(sale.id, 'SYNCED');
       if (serverSaleId) {
         await setSaleServerId(sale.id, serverSaleId);
       }
@@ -342,15 +375,16 @@ const pushPendingSales = async (results) => {
       results.salesPushed++;
     } catch (error) {
       const status = error.response?.status;
-      const message = error.response?.data?.message || error.message;
+      const message = describeError(error);
 
       if (status === 409) {
         await updateSaleStatus(sale.id, 'SYNCED', 'Duplicate sale on server');
         results.salesPushed++;
-      } else if (status === 400) {
+      } else if (status === 400 || status === 422) {
         await updateSaleStatus(sale.id, 'FAILED', message);
         results.salesFailed++;
       } else {
+        results.errors.push(`Sale push failed (${sale.id}): ${message}`);
         results.salesFailed++;
       }
     }
@@ -373,21 +407,39 @@ export const fetchPendingReceipts = async (results = null) => {
   let fetchedCount = 0;
 
   for (const sale of sales) {
+    // Guard: skip rows without a serverSaleId — nothing to fetch
+    if (!sale.serverSaleId) continue;
+
     try {
       const res = await axios.get(
         `/organizations/${organizationId}/kxtill/sales/${sale.serverSaleId}/receipt`,
-        { timeout: 5000 }
+        { timeout: RECEIPT_FETCH_TIMEOUT_MS }
       );
 
-      const receiptText = res.data?.text || res.data?.receipt || JSON.stringify(res.data);
+      const receiptText =
+        res.data?.text ||
+        res.data?.receipt ||
+        (res.data ? JSON.stringify(res.data) : null);
+
       if (receiptText) {
         await saveReceiptText(sale.id, receiptText);
         fetchedCount++;
       }
     } catch (err) {
-      console.warn(`Receipt fetch failed for sale ${sale.id}:`, err.message);
+      const status = err.response?.status;
+      // 404 = server hasn't generated the receipt yet. Retry next cycle,
+      // don't spam the error log.
+      if (status === 404) continue;
+
+      if (isAbortError(err)) continue;
+
+      const message = describeError(err);
+      console.warn(
+        `Receipt fetch failed for sale ${sale.id} (serverId ${sale.serverSaleId}):`,
+        message
+      );
       if (results) {
-        results.errors.push(`Receipt fetch failed for ${sale.id}: ${err.message}`);
+        results.errors.push(`Receipt fetch failed for ${sale.id}: ${message}`);
       }
     }
   }
@@ -411,23 +463,24 @@ const pullProductUpdates = async (results, branchId) => {
       return;
     }
 
-    const url = `/organizations/${organizationId}/kxtill/sync/products`;
     const params = {
       ...(lastSync ? { since: lastSync } : {}),
-      branchId: branchId
+      ...(branchId ? { branchId } : {}),
     };
 
-    const response = await axios.get(url, { params });
+    const response = await axios.get(
+      `/organizations/${organizationId}/kxtill/sync/products`,
+      { params, timeout: SYNC_HTTP_TIMEOUT_MS }
+    );
+
     const data = response.data;
     const productsList = data.products || data.items || [];
 
-    if (productsList.length === 0) {
-      return;
-    }
-
     for (const product of productsList) {
+      const productId = product.productId || product.id;
+
       await upsertProduct({
-        id: product.productId || product.id,
+        id: productId,
         name: product.name,
         sku: product.sku || null,
         description: product.description || null,
@@ -437,11 +490,11 @@ const pullProductUpdates = async (results, branchId) => {
         updatedAt: product.updatedAt,
       });
 
-      if (product.units) {
+      if (Array.isArray(product.units)) {
         for (const unit of product.units) {
           await upsertProductUnit({
             id: unit.id,
-            productId: product.productId || product.id,
+            productId,
             name: unit.name,
             abbreviation: unit.abbreviation,
             unitType: unit.unitType || 'unit',
@@ -453,15 +506,17 @@ const pullProductUpdates = async (results, branchId) => {
         }
       }
 
-      await upsertBranchProduct({
-        id: product.id,
-        productId: product.productId,
-        branchId: product.branchId,
-        stock: parseFloat(product.stock) || 0,
-        minStock: parseFloat(product.minStock) || 0,
-        isAvailable: product.isAvailable ? 1 : 0,
-        updatedAt: product.updatedAt,
-      });
+      if (product.id && product.branchId) {
+        await upsertBranchProduct({
+          id: product.id,
+          productId: product.productId,
+          branchId: product.branchId,
+          stock: parseFloat(product.stock) || 0,
+          minStock: parseFloat(product.minStock) || 0,
+          isAvailable: product.isAvailable ? 1 : 0,
+          updatedAt: product.updatedAt,
+        });
+      }
 
       results.productsUpdated++;
     }
@@ -469,9 +524,8 @@ const pullProductUpdates = async (results, branchId) => {
     if (data.version) {
       await setLastProductSync(data.version);
     }
-
   } catch (error) {
-    results.errors.push(`Product sync: ${error.message}`);
+    results.errors.push(`Product sync: ${describeError(error)}`);
   }
 };
 
@@ -490,19 +544,18 @@ const pullBranchProductUpdates = async (results, branchId) => {
       return;
     }
 
-    const url = `/organizations/${organizationId}/kxtill/sync/branch-products`;
     const params = {
       branchId,
       ...(lastSync ? { since: lastSync } : {}),
     };
 
-    const response = await axios.get(url, { params });
+    const response = await axios.get(
+      `/organizations/${organizationId}/kxtill/sync/branch-products`,
+      { params, timeout: SYNC_HTTP_TIMEOUT_MS }
+    );
+
     const data = response.data;
     const branchProductsList = data.branchProducts || data.items || [];
-
-    if (branchProductsList.length === 0) {
-      return;
-    }
 
     for (const bp of branchProductsList) {
       await upsertBranchProduct({
@@ -527,7 +580,7 @@ const pullBranchProductUpdates = async (results, branchId) => {
           updatedAt: bp.updatedAt,
         });
 
-        if (bp.product.units) {
+        if (Array.isArray(bp.product.units)) {
           for (const unit of bp.product.units) {
             await upsertProductUnit({
               id: unit.id,
@@ -550,32 +603,25 @@ const pullBranchProductUpdates = async (results, branchId) => {
     if (data.version) {
       await setLastBranchSync(data.version);
     }
-
   } catch (error) {
-    results.errors.push(`Branch product sync: ${error.message}`);
+    results.errors.push(`Branch product sync: ${describeError(error)}`);
   }
 };
 
 // ============================================================
-// QUEUE PROCESSOR — same order: customers before sales
+// QUEUE PROCESSOR
 // ============================================================
 
 export const processSyncQueue = async () => {
-  if (!isOnline) {
-    return;
-  }
+  if (!isOnline) return;
 
   const items = await getPendingSyncItems(20);
-
-  if (items.length === 0) {
-    return;
-  }
+  if (items.length === 0) return;
 
   const organizationId = getOrgId();
-  if (!organizationId) {
-    return;
-  }
+  if (!organizationId) return;
 
+  // Customers must be pushed before sales that reference them
   const sorted = [...items].sort((a, b) => {
     if (a.entityType === 'customer' && b.entityType !== 'customer') return -1;
     if (b.entityType === 'customer' && a.entityType !== 'customer') return 1;
@@ -590,7 +636,8 @@ export const processSyncQueue = async () => {
         case 'customer': {
           const res = await axios.post(
             `/organizations/${organizationId}/customers`,
-            payload
+            payload,
+            { timeout: SYNC_HTTP_TIMEOUT_MS }
           );
           const created = res.data?.customer || res.data;
           const serverId = created?.id;
@@ -604,7 +651,8 @@ export const processSyncQueue = async () => {
         case 'sale': {
           const response = await axios.post(
             `/organizations/${organizationId}/kxtill/sales/offline`,
-            payload
+            payload,
+            { timeout: SYNC_HTTP_TIMEOUT_MS }
           );
           const serverSaleId = response.data?.sale?.id;
           if (serverSaleId && payload.clientSaleId) {
@@ -613,22 +661,29 @@ export const processSyncQueue = async () => {
           break;
         }
         default:
-          await updateSyncItemStatus(item.id, 'FAILED', `Unknown entity type: ${item.entityType}`);
+          await updateSyncItemStatus(
+            item.id,
+            'FAILED',
+            `Unknown entity type: ${item.entityType}`
+          );
           continue;
       }
 
       await updateSyncItemStatus(item.id, 'SYNCED');
-
     } catch (error) {
       const status = error.response?.status;
-      const message = error.response?.data?.message || error.message;
+      const message = describeError(error);
 
       if (status === 409) {
         await updateSyncItemStatus(item.id, 'SYNCED', 'Already exists on server');
       } else if (status === 400 || status === 422) {
         await updateSyncItemStatus(item.id, 'FAILED', message);
-      } else if (item.attempts >= 5) {
-        await updateSyncItemStatus(item.id, 'FAILED', `Max retries exceeded: ${message}`);
+      } else if (item.attempts >= MAX_QUEUE_ATTEMPTS) {
+        await updateSyncItemStatus(
+          item.id,
+          'FAILED',
+          `Max retries exceeded: ${message}`
+        );
       } else {
         await updateSyncItemStatus(item.id, 'PENDING', message);
       }
@@ -646,56 +701,53 @@ export const initialSync = async (branchId) => {
   }
 
   const organizationId = getOrgId();
+  if (!organizationId) throw new Error('No organization ID found');
+  if (!branchId) throw new Error('No branch ID provided');
 
-  if (!organizationId) {
-    throw new Error('No organization ID found');
-  }
+  await clearProducts();
+  await clearProductUnits();
+  await clearBranchProducts();
 
-  if (!branchId) {
-    throw new Error('No branch ID provided');
-  }
+  // ---- Products ----
+  const productsResponse = await axios.get(
+    `/organizations/${organizationId}/kxtill/sync/products`,
+    { params: { branchId }, timeout: SYNC_HTTP_TIMEOUT_MS }
+  );
 
-  try {
-    await clearProducts();
-    await clearProductUnits();
-    await clearBranchProducts();
+  const productsData = productsResponse.data || {};
+  const productsList = productsData.products || productsData.items || [];
 
-    const productsResponse = await axios.get(
-      `/organizations/${organizationId}/kxtill/sync/products`,
-      { params: { branchId } }
-    );
-    const productsData = productsResponse.data;
-    const productsList = productsData.products || productsData.items || [];
-    console.log('Products to sync:', productsList.length);
+  for (const product of productsList) {
+    const productId = product.productId || product.id;
 
-    for (const product of productsList) {
-      await upsertProduct({
-        id: product.productId || product.id,
-        name: product.name,
-        sku: product.sku || null,
-        description: product.description || null,
-        category: product.category || null,
-        taxRate: parseFloat(product.taxRate) || 0,
-        baseUnitId: product.baseUnit?.id || null,
-        updatedAt: product.updatedAt,
-      });
+    await upsertProduct({
+      id: productId,
+      name: product.name,
+      sku: product.sku || null,
+      description: product.description || null,
+      category: product.category || null,
+      taxRate: parseFloat(product.taxRate) || 0,
+      baseUnitId: product.baseUnit?.id || null,
+      updatedAt: product.updatedAt,
+    });
 
-      if (product.units) {
-        for (const unit of product.units) {
-          await upsertProductUnit({
-            id: unit.id,
-            productId: product.productId || product.id,
-            name: unit.name,
-            abbreviation: unit.abbreviation,
-            unitType: unit.unitType || 'unit',
-            conversionQty: parseFloat(unit.conversionQty) || 1,
-            price: parseFloat(unit.price) || 0,
-            isBaseUnit: unit.isBaseUnit ? 1 : 0,
-            barcode: unit.barcode || null,
-          });
-        }
+    if (Array.isArray(product.units)) {
+      for (const unit of product.units) {
+        await upsertProductUnit({
+          id: unit.id,
+          productId,
+          name: unit.name,
+          abbreviation: unit.abbreviation,
+          unitType: unit.unitType || 'unit',
+          conversionQty: parseFloat(unit.conversionQty) || 1,
+          price: parseFloat(unit.price) || 0,
+          isBaseUnit: unit.isBaseUnit ? 1 : 0,
+          barcode: unit.barcode || null,
+        });
       }
+    }
 
+    if (product.id && product.branchId) {
       await upsertBranchProduct({
         id: product.id,
         productId: product.productId,
@@ -706,101 +758,104 @@ export const initialSync = async (branchId) => {
         updatedAt: product.updatedAt,
       });
     }
+  }
 
-    if (productsData.version) {
-      await setLastProductSync(productsData.version);
-    }
+  if (productsData.version) {
+    await setLastProductSync(productsData.version);
+  }
 
-    const branchResponse = await axios.get(
-      `/organizations/${organizationId}/kxtill/sync/branch-products`,
-      { params: { branchId } }
-    );
-    const branchData = branchResponse.data;
-    const branchProductsList = branchData.branchProducts || branchData.items || [];
-    console.log('Branch products to sync:', branchProductsList.length);
+  // ---- Branch products ----
+  const branchResponse = await axios.get(
+    `/organizations/${organizationId}/kxtill/sync/branch-products`,
+    { params: { branchId }, timeout: SYNC_HTTP_TIMEOUT_MS }
+  );
 
-    for (const bp of branchProductsList) {
-      await upsertBranchProduct({
-        id: bp.id,
-        productId: bp.productId,
-        branchId: bp.branchId,
-        stock: parseFloat(bp.stock) || 0,
-        minStock: parseFloat(bp.minStock) || 0,
-        isAvailable: bp.isAvailable ? 1 : 0,
+  const branchData = branchResponse.data || {};
+  const branchProductsList = branchData.branchProducts || branchData.items || [];
+
+  for (const bp of branchProductsList) {
+    await upsertBranchProduct({
+      id: bp.id,
+      productId: bp.productId,
+      branchId: bp.branchId,
+      stock: parseFloat(bp.stock) || 0,
+      minStock: parseFloat(bp.minStock) || 0,
+      isAvailable: bp.isAvailable ? 1 : 0,
+      updatedAt: bp.updatedAt,
+    });
+
+    if (bp.product) {
+      await upsertProduct({
+        id: bp.product.id,
+        name: bp.product.name,
+        sku: bp.product.sku || null,
+        description: bp.product.description || null,
+        category: bp.product.category || null,
+        taxRate: parseFloat(bp.product.taxRate) || 0,
+        baseUnitId: bp.product.baseUnit?.id || null,
         updatedAt: bp.updatedAt,
       });
 
-      if (bp.product) {
-        await upsertProduct({
-          id: bp.product.id,
-          name: bp.product.name,
-          sku: bp.product.sku || null,
-          description: bp.product.description || null,
-          category: bp.product.category || null,
-          taxRate: parseFloat(bp.product.taxRate) || 0,
-          baseUnitId: bp.product.baseUnit?.id || null,
-          updatedAt: bp.updatedAt,
-        });
-
-        if (bp.product.units) {
-          for (const unit of bp.product.units) {
-            await upsertProductUnit({
-              id: unit.id,
-              productId: bp.product.id,
-              name: unit.name,
-              abbreviation: unit.abbreviation,
-              unitType: unit.unitType || 'unit',
-              conversionQty: parseFloat(unit.conversionQty) || 1,
-              price: parseFloat(unit.price) || 0,
-              isBaseUnit: unit.isBaseUnit ? 1 : 0,
-              barcode: unit.barcode || null,
-            });
-          }
-        }
-      }
-    }
-
-    if (branchData.version) {
-      await setLastBranchSync(branchData.version);
-    }
-
-    // Seed customer cache (full pull, no `since`)
-    try {
-      const customersResponse = await axios.get(
-        `/organizations/${organizationId}/kxtill/customers/sync`
-      );
-      const customersData = customersResponse.data || {};
-      const customersList = customersData.customers || customersData.items || [];
-      console.log('Customers to cache:', customersList.length);
-
-      for (const customer of customersList) {
-        try {
-          await upsertServerCustomer({
-            id: customer.id,
-            name: customer.name,
-            phone: customer.phone,
-            email: customer.email,
-            createdAt: customer.createdAt,
-            updatedAt: customer.updatedAt,
+      if (Array.isArray(bp.product.units)) {
+        for (const unit of bp.product.units) {
+          await upsertProductUnit({
+            id: unit.id,
+            productId: bp.product.id,
+            name: unit.name,
+            abbreviation: unit.abbreviation,
+            unitType: unit.unitType || 'unit',
+            conversionQty: parseFloat(unit.conversionQty) || 1,
+            price: parseFloat(unit.price) || 0,
+            isBaseUnit: unit.isBaseUnit ? 1 : 0,
+            barcode: unit.barcode || null,
           });
-        } catch (err) {
-          console.warn(`Customer cache write failed (${customer.name}):`, err.message);
         }
       }
+    }
+  }
 
-      if (customersData.serverTime) {
-        await setLastCustomerSync(customersData.serverTime);
+  if (branchData.version) {
+    await setLastBranchSync(branchData.version);
+  }
+
+  // ---- Customers (non-fatal) ----
+  try {
+    const customersResponse = await axios.get(
+      `/organizations/${organizationId}/kxtill/customers/sync`,
+      { timeout: SYNC_HTTP_TIMEOUT_MS }
+    );
+    const customersData = customersResponse.data || {};
+    const customersList = customersData.customers || customersData.items || [];
+
+    for (const customer of customersList) {
+      try {
+        await upsertServerCustomer({
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          createdAt: customer.createdAt,
+          updatedAt: customer.updatedAt,
+        });
+      } catch (err) {
+        console.warn(
+          `Customer cache write failed (${customer.name}):`,
+          describeError(err)
+        );
       }
-    } catch (err) {
-      // Non-fatal — the next sync() cycle will pull
-      console.warn('Customer seed during initialSync failed:', err.message);
     }
 
-    return { success: true };
-
-  } catch (error) {
-    throw error;
+    if (customersData.serverTime) {
+      await setLastCustomerSync(customersData.serverTime);
+    }
+  } catch (err) {
+    console.warn(
+      'Customer seed during initialSync failed:',
+      describeError(err)
+    );
   }
+
+  return { success: true };
 };
 
 // ============================================================
@@ -810,9 +865,7 @@ export const initialSync = async (branchId) => {
 let syncInterval = null;
 
 export const startAutoSync = (intervalSeconds = 60) => {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-  }
+  if (syncInterval) clearInterval(syncInterval);
 
   sync(getStoredActiveBranchId());
 

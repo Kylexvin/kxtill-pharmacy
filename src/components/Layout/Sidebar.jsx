@@ -101,17 +101,17 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
       {isMobile && <div className={styles.mobileSpacer} />}
 
       <nav className={styles.nav}>
+        <NavLink to="/dashboard" className={navLinkClass} onClick={handleNavClick}>
+          <LayoutDashboard size={16} className={styles.navIcon} />
+          <span className={styles.navLabel}>Overview</span>
+        </NavLink>
+
         {showPos && (
           <NavLink to="/pos" className={navLinkClass} onClick={handleNavClick}>
             <ShoppingCart size={16} className={styles.navIcon} />
             <span className={styles.navLabel}>POS</span>
           </NavLink>
         )}
-
-        <NavLink to="/dashboard" className={navLinkClass} onClick={handleNavClick}>
-          <LayoutDashboard size={16} className={styles.navIcon} />
-          <span className={styles.navLabel}>Overview</span>
-        </NavLink>
 
         {showSales && (
           <NavLink to="/sales" className={navLinkClass} onClick={handleNavClick}>

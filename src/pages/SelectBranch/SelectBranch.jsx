@@ -252,6 +252,40 @@ export default function SelectBranchPage() {
   }, [activeOrganization, setBranches, activeBranch]);
 
   // ============================================================
+  // AUTO-SELECT — when only one branch, jump straight to /pos
+  // ============================================================
+  useEffect(() => {
+    if (loading || redirecting) return;
+    if (!hasLoaded.current) return;
+    if (!activeOrganization) return;
+    if (branchesState.length !== 1) return;
+
+    const onlyBranch = branchesState[0];
+    if (onlyBranch.isActive === false) return;
+
+    setSelectedId(onlyBranch.id);
+    setRedirecting(true);
+
+    setActiveBranch(onlyBranch)
+      .then(async () => {
+        await initializeKxTill(activeOrganization.id);
+        navigate('/pos');
+      })
+      .catch((err) => {
+        console.error('Auto-select branch failed:', err);
+        showToast.error('Failed to load branch');
+        setRedirecting(false);
+      });
+  }, [
+    branchesState,
+    loading,
+    redirecting,
+    activeOrganization,
+    setActiveBranch,
+    navigate,
+  ]);
+
+  // ============================================================
   // HANDLERS
   // ============================================================
 
@@ -333,7 +367,7 @@ export default function SelectBranchPage() {
       const { branch } = response.data;
       
       setBranchesState((prev) => [...prev, branch]);
-      setBranches([...branchesState, branch]);
+      setBranches((prev) => [...(prev || []), branch]);
       
       showToast.success(`"${branch.name}" created successfully!`);
 
@@ -350,8 +384,9 @@ export default function SelectBranchPage() {
       const message = getErrorMessage(err, 'Failed to create branch');
       showToast.error(message);
       setCreating(false);
+      setRedirecting(false);
     }
-  }, [formData, activeOrganization, setActiveBranch, navigate, setBranches, branchesState]);
+  }, [formData, activeOrganization, setActiveBranch, navigate, setBranches]);
 
   const getStatusBadge = (branch) => {
     if (branch.isDefault) {
@@ -387,7 +422,6 @@ export default function SelectBranchPage() {
         <div className={styles.glowAmber} />
         <div className={styles.glowMoss} />
         <div className={styles.glassCard}>
-          {/* Brand + user skeleton */}
           <div className={styles.cardTopRow}>
             <div className={styles.brand}>
               <div className={styles.skeletonAvatar} style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
@@ -399,7 +433,6 @@ export default function SelectBranchPage() {
             </div>
           </div>
 
-          {/* Header skeleton */}
           <div className={styles.header}>
             <div className={styles.skeletonAvatar} style={{ width: '40px', height: '40px', borderRadius: '12px' }} />
             <div className={styles.headerContent}>
@@ -408,7 +441,6 @@ export default function SelectBranchPage() {
             </div>
           </div>
 
-          {/* Search bar skeleton */}
           <div className={styles.searchRow}>
             <div className={styles.searchBar} style={{ border: 'none', background: 'var(--bg)' }}>
               <div className={styles.skeletonText} style={{ width: '100%', height: '20px' }} />
@@ -416,14 +448,12 @@ export default function SelectBranchPage() {
             <div className={styles.skeletonAvatar} style={{ width: '40px', height: '40px', borderRadius: '13px' }} />
           </div>
 
-          {/* Branch cards skeleton */}
           <div className={styles.list}>
             {[1, 2, 3, 4].map((i) => (
               <SkeletonBranchCard key={i} />
             ))}
           </div>
 
-          {/* Logout button skeleton */}
           <div className={styles.skeletonAvatar} style={{ 
             position: 'absolute', 
             right: '20px', 
@@ -450,7 +480,6 @@ export default function SelectBranchPage() {
     );
   }
 
-  // If not authenticated, show nothing (will redirect via useEffect)
   if (!isAuthenticated) {
     return null;
   }
@@ -467,7 +496,6 @@ export default function SelectBranchPage() {
       <div className={styles.glowAmber} />
       <div className={styles.glowMoss} />
 
-      {/* Confirmation Dialog */}
       <ConfirmationDialog
         isOpen={confirmDialog.isOpen}
         onClose={closeConfirmation}
@@ -480,7 +508,6 @@ export default function SelectBranchPage() {
       />
 
       <div className={styles.glassCard}>
-        {/* ===== brand + user, always visible ===== */}
         <div className={styles.cardTopRow}>
           <div className={styles.brand}>
             <img 
@@ -505,7 +532,6 @@ export default function SelectBranchPage() {
         </div>
 
         {showCreateForm ? (
-          // ===== CREATE BRANCH =====
           <div className={styles.createWrap}>
             <div className={styles.createIconWrap}>
               <Plus size={18} />
@@ -584,7 +610,6 @@ export default function SelectBranchPage() {
             </div>
           </div>
         ) : (
-          // ===== BRANCH LIST =====
           <>
             <div className={styles.header}>
               <button className={styles.backButton} onClick={handleBack}>
@@ -618,7 +643,6 @@ export default function SelectBranchPage() {
               </div>
             )}
 
-            {/* search + quick add */}
             <div className={styles.searchRow}>
               <div className={styles.searchBar}>
                 <Search size={15} className={styles.searchIcon} />
@@ -700,7 +724,6 @@ export default function SelectBranchPage() {
               )}
             </div>
 
-            {/* Branch count */}
             {branchesState.length > 0 && (
               <div className={styles.branchCount}>
                 <span>{branchesState.length} branch{branchesState.length > 1 ? 'es' : ''} available</span>
@@ -709,7 +732,6 @@ export default function SelectBranchPage() {
           </>
         )}
 
-        {/* logout — pinned bottom-right corner */}
         <Tooltip content="Logout">
           <button className={styles.logoutCorner} onClick={handleLogout} title="Log out" type="button">
             <LogOut size={15} />

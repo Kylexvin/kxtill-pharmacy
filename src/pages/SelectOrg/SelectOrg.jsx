@@ -165,6 +165,7 @@ export default function SelectOrganizationPage() {
     user,
     organizations,
     setActiveOrganization,
+    addOrganization,
     isLoading,
     logout,
     isAuthenticated,
@@ -207,15 +208,20 @@ export default function SelectOrganizationPage() {
   }, [isAuthenticated, isLoading, navigate]);
 
   // ============================================================
-  // LOAD DATA — ONLY ONCE
+  // LOAD DATA — ONLY ONCE, but ALWAYS resolve `loading`
   // ============================================================
   useEffect(() => {
     let mounted = true;
 
     const loadData = async () => {
-      // Don't load if already loaded or no user
-      if (hasLoaded.current) return;
       if (!user) return;
+
+      // Already loaded once — skip the fetch but resolve loading so the
+      // auto-redirect effect below can run.
+      if (hasLoaded.current) {
+        setLoading(false);
+        return;
+      }
 
       try {
         setLoading(true);
@@ -267,7 +273,7 @@ export default function SelectOrganizationPage() {
   }, [user, navigate]);
 
   // ============================================================
-  // AUTO-REDIRECT — when only one organization
+  // AUTO-REDIRECT — when only one organization and no other items
   // ============================================================
   useEffect(() => {
     if (redirectingRef.current || loading) return;
@@ -419,12 +425,15 @@ export default function SelectOrganizationPage() {
     setCreating(true);
 
     try {
-      const response = await axios.post('/organizations', { 
-        name: formData.name, 
-        country: formData.country 
+      const response = await axios.post('/organizations', {
+        name: formData.name,
+        country: formData.country,
       });
 
       const { organization } = response.data;
+
+      // Keep local org list in sync so SelectOrg reflects the new org
+      addOrganization(organization);
 
       showToast.success(`"${organization.name}" created successfully!`);
 
@@ -436,8 +445,9 @@ export default function SelectOrganizationPage() {
       const message = getErrorMessage(err, 'Failed to create organization');
       showToast.error(message);
       setCreating(false);
+      setRedirecting(false); // reset so we don't stay on the spinner
     }
-  }, [formData, setActiveOrganization, navigate]);
+  }, [formData, setActiveOrganization, addOrganization, navigate]);
 
   const getOrgRole = useCallback((org) => {
     return org.role || 'MEMBER';
@@ -453,14 +463,12 @@ export default function SelectOrganizationPage() {
   // LOADING / SKELETON STATES
   // ============================================================
 
-  // Show loading while checking authentication or loading data
   if (isLoading || loading) {
     return (
       <div className={styles.page}>
         <div className={styles.glowAmber} />
         <div className={styles.glowMoss} />
         <div className={styles.glassCard}>
-          {/* Brand + user skeleton */}
           <div className={styles.cardTopRow}>
             <div className={styles.brand}>
               <div className={styles.skeletonAvatar} style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
@@ -472,13 +480,11 @@ export default function SelectOrganizationPage() {
             </div>
           </div>
 
-          {/* Hero text skeleton */}
           <div className={styles.heroText}>
             <div className={styles.skeletonText} style={{ width: '200px', height: '24px', marginBottom: '8px' }} />
             <div className={styles.skeletonText} style={{ width: '300px', height: '16px' }} />
           </div>
 
-          {/* Search bar skeleton */}
           <div className={styles.searchRow}>
             <div className={styles.searchBar} style={{ border: 'none', background: 'var(--bg)' }}>
               <div className={styles.skeletonText} style={{ width: '100%', height: '20px' }} />
@@ -486,7 +492,6 @@ export default function SelectOrganizationPage() {
             <div className={styles.skeletonAvatar} style={{ width: '40px', height: '40px', borderRadius: '13px' }} />
           </div>
 
-          {/* Organization cards skeleton */}
           <div className={styles.scrollArea}>
             <div className={styles.mainCol}>
               <section className={styles.section}>
@@ -512,7 +517,6 @@ export default function SelectOrganizationPage() {
             </div>
           </div>
 
-          {/* Logout button skeleton */}
           <div className={styles.skeletonAvatar} style={{ 
             position: 'absolute', 
             right: '20px', 
@@ -539,7 +543,6 @@ export default function SelectOrganizationPage() {
     );
   }
 
-  // If not authenticated, show nothing (will redirect via useEffect)
   if (!isAuthenticated) {
     return null;
   }
@@ -559,7 +562,6 @@ export default function SelectOrganizationPage() {
       <div className={styles.glowAmber} />
       <div className={styles.glowMoss} />
 
-      {/* Confirmation Dialog */}
       <ConfirmationDialog
         isOpen={confirmDialog.isOpen}
         onClose={closeConfirmation}
@@ -572,7 +574,6 @@ export default function SelectOrganizationPage() {
       />
 
       <div className={styles.glassCard}>
-        {/* ===== brand + user, always visible ===== */}
         <div className={styles.cardTopRow}>
           <div className={styles.brand}>
             <img 
@@ -605,7 +606,6 @@ export default function SelectOrganizationPage() {
         </div>
 
         {showCreateForm ? (
-          // ===== CREATE ORGANIZATION =====
           <div className={styles.createWrap}>
             <div className={styles.createIconWrap}>
               <Rocket size={18} />
@@ -682,7 +682,6 @@ export default function SelectOrganizationPage() {
             </div>
           </div>
         ) : (
-          // ===== DASHBOARD =====
           <>
             <div className={styles.heroText}>
               <h1 className={styles.title}>Select a workspace</h1>
@@ -691,7 +690,6 @@ export default function SelectOrganizationPage() {
 
             {error && <div className={styles.error}>{error}</div>}
 
-            {/* search + quick add */}
             <div className={styles.searchRow}>
               <div className={styles.searchBar}>
                 <Search size={15} className={styles.searchIcon} />
@@ -715,7 +713,6 @@ export default function SelectOrganizationPage() {
             </div>
 
             <div className={styles.scrollArea}>
-              {/* Organizations — main column */}
               <div className={styles.mainCol}>
                 <section className={styles.section}>
                   <div className={styles.sectionLabel}>
@@ -775,7 +772,6 @@ export default function SelectOrganizationPage() {
                 </section>
               </div>
 
-              {/* Invites + archived — side column */}
               {(hasInvites || hasArchived) && (
                 <div className={styles.sideCol}>
                   {hasInvites && (
@@ -868,7 +864,6 @@ export default function SelectOrganizationPage() {
           </>
         )}
 
-        {/* logout — pinned bottom-right corner */}
         <Tooltip content="Logout">
           <button className={styles.logoutCorner} onClick={handleLogout} title="Log out" type="button">
             <LogOut size={15} />

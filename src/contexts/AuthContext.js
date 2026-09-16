@@ -233,6 +233,19 @@ export function AuthProvider({ children }) {
     localStorage.setItem('activeBranch', JSON.stringify(branch));
   }, [branches, clearOfflineData]);
 
+  // Append a newly created organization to the local list + persist.
+  // Called from SelectOrg after POST /organizations succeeds so the list
+  // reflects the new org without requiring a full reload.
+  const addOrganization = useCallback((org) => {
+    if (!org?.id) return;
+    setOrganizations((prev) => {
+      if (prev.some((o) => o.id === org.id)) return prev;
+      const next = [...prev, org];
+      localStorage.setItem('organizations', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   // Login
   const login = useCallback(async (email, password) => {
     setIsLoading(true);
@@ -329,8 +342,8 @@ export function AuthProvider({ children }) {
     setIsOffline(false);
   }, []);
 
-  //##### Refresh the current user's profile from the server.
-  //##### Used after profile updates on the Account page.
+  // Refresh the current user's profile from the server.
+  // Used after profile updates on the Account page.
   const refreshUser = useCallback(async () => {
     try {
       const response = await axios.get('/auth/me');
@@ -344,8 +357,8 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  //##### Log out of all devices (server-side session revocation), then
-  //##### clear local state via handleLogout.
+  // Log out of all devices (server-side session revocation), then
+  // clear local state via handleLogout.
   const logoutAllDevices = useCallback(async () => {
     try {
       await axios.post('/auth/logout-all');
@@ -458,9 +471,7 @@ export function AuthProvider({ children }) {
     isLoading,
     isSwitching,
     error,
-    //##### new
     refreshUser,
-    //##### new
     logoutAllDevices,
     isOffline,
     setIsOffline,
@@ -475,16 +486,16 @@ export function AuthProvider({ children }) {
     checkPendingSales,
     isAuthenticated,
     setAuthData,
+    addOrganization,
   }), [
     user, accessToken, refreshToken, organizations, branches,
     activeOrganization, activeBranch, isLoading, isSwitching, error, isOffline,
-    //##### new
     refreshUser,
-    //##### new
     logoutAllDevices,
     login, handleLogout, setActiveOrganization, setActiveBranch,
     loadBranches, clearError, clearOfflineData,
     checkPendingSales, isAuthenticated, setAuthData,
+    addOrganization,
   ]);
 
   return (

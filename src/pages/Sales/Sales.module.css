@@ -1704,3 +1704,68 @@
     justify-content: center;
   }
 }
+/* Smooth page-level state transitions */
+.pageOnline,
+.pageOffline {
+  transition: background-color 0.35s ease, opacity 0.35s ease;
+}
+
+.pageOffline {
+  /* subtle cue, not jarring */
+  background-color: rgba(255, 200, 100, 0.03);
+}
+
+.branchCard {
+  transition: border-color 0.35s ease, background-color 0.35s ease;
+}
+
+.branchCardOffline {
+  border-color: rgba(234, 88, 12, 0.35);
+}
+
+/* Offline badge — always in the DOM, fades in/out smoothly */
+.offlineBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(234, 88, 12, 0.12);
+  color: #ea580c;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  will-change: opacity, transform;
+}
+
+.offlineBadgeVisible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.offlineBadgeHidden {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+
+/* Offline indicator in table header — same pattern */
+.offlineIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #ea580c;
+  transition: opacity 0.3s ease;
+}
+
+.offlineIndicatorVisible {
+  opacity: 1;
+}
+
+.offlineIndicatorHidden {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  overflow: hidden;
+}

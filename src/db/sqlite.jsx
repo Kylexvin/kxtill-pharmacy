@@ -28,10 +28,15 @@ export const initDb = async () => {
 };
 
 export const saveToStore = () => {
-  if (db) {
+  if (!db) return;
+  try {
     const data = db.export();
     const bytes = Array.from(data);
     localStorage.setItem('kxtill_db', JSON.stringify(bytes));
+  } catch (err) {
+    // localStorage quota / serialization failure — log but don't crash the
+    // mutation that just happened in memory.
+    console.error('saveToStore failed:', err);
   }
 };
 
@@ -190,6 +195,7 @@ const query = (sql, params = []) => {
 const run = (sql, params = []) => {
   const dbInstance = getDb();
   dbInstance.run(sql, params);
+  // saveToStore is now internally guarded — safe to call unconditionally.
   saveToStore();
 };
 
@@ -468,6 +474,8 @@ export const getSalesWithServerId = async () => {
 export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
   const { limit = 50, offset = 0, status, search, startDate, endDate } = options;
 
+  // KEY FIX: exclude any row that already has a serverSaleId, regardless
+  // of what the status column says. A row with a serverSaleId has synced.
   let localSales = query(`
     SELECT 
       id,
@@ -490,6 +498,7 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
     FROM local_sales 
     WHERE branchId = ?
       AND status IN ('PENDING', 'FAILED')
+      AND (serverSaleId IS NULL OR serverSaleId = '')
     ORDER BY createdAt DESC
   `, [branchId]);
 
@@ -721,15 +730,9 @@ export const upsertLocalCustomer = async (customer) => {
   ]);
 };
 
-/**
- * Write a server-sourced customer into the local cache.
- * - Uses the server id as the local id, marks isSynced = 1
- * - Never clobbers an unsynced local row (offline-created) with the same phone
- */
 export const upsertServerCustomer = async (customer) => {
   if (!customer?.id) return;
 
-  // Already have a local row pointing at this server id? Update in place.
   const byServerId = query(
     `SELECT id FROM local_customers WHERE serverId = ? LIMIT 1`,
     [customer.id]
@@ -752,7 +755,6 @@ export const upsertServerCustomer = async (customer) => {
     return;
   }
 
-  // Skip if a local unsynced row exists with the same phone
   if (customer.phone) {
     const existing = query(
       `SELECT id, isSynced FROM local_customers WHERE phone = ? LIMIT 1`,

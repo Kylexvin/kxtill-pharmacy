@@ -10,7 +10,7 @@ import {
   Package,
   User,
   Info,
-  Loader2,
+
 } from 'lucide-react';
 import styles from './TransferDetailModal.module.css';
 import TransferStatusBadge from './TransferStatusBadge';

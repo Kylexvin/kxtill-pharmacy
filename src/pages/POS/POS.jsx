@@ -432,22 +432,25 @@ useEffect(() => {
             : item
         );
       }
-      return [
-        ...prev,
-        {
-          id: `${productId}-${unit.id}-${Date.now()}`,
-          productId,
-          productName: product.name,
-          unitId: unit.id,
-          unitName: unit.name || unit.abbreviation,
-          unitPrice: Number(unit.price || 0),
-          quantity: 1,
-          total: Number(unit.price || 0),
-          sku: product.sku,
-          stock,
-          branchProductId: product.branchProductId,
-        },
-      ];
+return [
+  ...prev,
+  {
+    id: `${productId}-${unit.id}-${Date.now()}`,
+    productId,
+    productName: product.name,
+    unitId: unit.id,
+    unitName: unit.name || unit.abbreviation || '',
+    unitAbbrev: unit.abbreviation || unit.name || '',
+    unitType: unit.unitType || 'unit',
+    conversionQty: Number(unit.conversionQty || 1),
+    unitPrice: Number(unit.price || 0),
+    quantity: 1,
+    total: Number(unit.price || 0),
+    sku: product.sku,
+    stock,
+    branchProductId: product.branchProductId,
+  },
+];
     });
     toast.success(`${product.name} added to cart`);
   };
@@ -533,13 +536,37 @@ useEffect(() => {
         .substring(2, 8)}`;
       const now = new Date().toISOString();
 
-      const saleItems = cartItems.map((item) => ({
-        productId: item.productId,
-        branchProductId: item.branchProductId,
-        unitId: item.unitId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      }));
+// Denormalize items: persist display fields + computed totals alongside
+// the references, so offline receipts and detail views work without the
+// server. Anything the server needs is a subset of what we store here.
+const saleItems = cartItems.map((item) => {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const lineTotal = Number(item.total) || unitPrice * quantity;
+
+  return {
+    // References (needed by the server)
+    productId: item.productId,
+    branchProductId: item.branchProductId,
+    unitId: item.unitId,
+
+    // Denormalized display fields (needed by offline receipt + detail modal)
+    productName: item.productName || item.name || 'Unknown',
+    sku: item.sku || null,
+    unitName: item.unitName || '',
+    unitAbbrev: item.unitAbbrev || item.unitName || '',
+    unitType: item.unitType || 'unit',
+    conversionQty: Number(item.conversionQty || 1),
+
+    // Numbers
+    quantity,
+    unitPrice,
+    taxRate: Number(item.taxRate || 0),
+    taxAmount: Number(item.taxAmount || 0),
+    discount: Number(item.discount || 0),
+    total: lineTotal,
+  };
+}); 
 
       const payments = [
         {

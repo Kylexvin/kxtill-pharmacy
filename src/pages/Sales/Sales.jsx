@@ -31,7 +31,24 @@ import styles from './Sales.module.css';
 const POLL_INTERVAL_IDLE_MS = 30000;
 const POLL_INTERVAL_PENDING_MS = 8000;
 const SEARCH_DEBOUNCE_MS = 400;
+const OFFLINE_DEBOUNCE_MS = 1500;
 const SYNC_EVENT_NAME = 'kxtill:sync-complete';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// A sale is "local-only" (offline, not yet on server) when:
+//   - it came from the local SQLite store, AND
+//   - its local status isn't SYNCED, AND
+//   - it has no serverSaleId
+// The serverSaleId check is the reliable signal — a synced sale will always
+// have one, and merged server rows never do.
+const isLocalOnly = (sale) => {
+  if (!sale) return false;
+  if (sale.serverSaleId) return false;
+  return sale.isLocal === true && sale.localStatus !== 'SYNCED';
+};
 
 const paymentMethodOf = (sale) => {
   if (sale.paymentMethod) return sale.paymentMethod;
@@ -41,7 +58,7 @@ const paymentMethodOf = (sale) => {
 
 const referenceOf = (sale) => {
   if (sale.reference) return sale.reference;
-  if (sale.id) return sale.id.slice(-8).toUpperCase();
+  if (sale.id) return String(sale.id).slice(-8).toUpperCase();
   return 'N/A';
 };
 
@@ -49,6 +66,11 @@ const itemsCountOf = (sale) => {
   if (typeof sale.itemsCount === 'number') return sale.itemsCount;
   if (Array.isArray(sale.items)) return sale.items.length;
   return 0;
+};
+
+const toNumber = (v) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
 };
 
 const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) => {
@@ -89,7 +111,7 @@ const Sales = () => {
   const {
     activeOrganization,
     activeBranch,
-    branches,   
+    branches,
     isOffline: contextIsOffline,
   } = useAuth();
 
@@ -116,7 +138,9 @@ const Sales = () => {
   const [showDetail, setShowDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
-  const [isOnline, setIsOnline] = useState(!contextIsOffline);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retryingIds, setRetryingIds] = useState(new Set());
@@ -127,18 +151,35 @@ const Sales = () => {
   const isMountedRef = useRef(true);
   const fetchSalesControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
+  const offlineTimerRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       fetchSalesControllerRef.current?.abort();
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
     };
   }, []);
 
+  // Debounced online/offline — brief blips don't flash the UI.
+  const rawOffline = !navigator.onLine || contextIsOffline;
+
   useEffect(() => {
-    setIsOnline(!contextIsOffline);
-  }, [contextIsOffline]);
+    if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+
+    if (rawOffline) {
+      offlineTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current) setIsOnline(false);
+      }, OFFLINE_DEBOUNCE_MS);
+    } else {
+      setIsOnline(true);
+    }
+
+    return () => {
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+    };
+  }, [rawOffline]);
 
   useEffect(() => {
     setBranchFilter(activeBranch?.id || 'all');
@@ -189,34 +230,57 @@ const Sales = () => {
     }
   }, [getActiveBranchId]);
 
+  // ---------------------------------------------------------------------------
+  // mergeSales — server rows are authoritative. A row with a serverSaleId is
+  // ALWAYS synced, regardless of what its local status column says.
+  // ---------------------------------------------------------------------------
   const mergeSales = useCallback((serverSales, localSales) => {
     const localMap = {};
     localSales.forEach((local) => {
-      const key = local.serverSaleId || local.id;
-      localMap[key] = local;
+      const keys = [local.serverSaleId, local.id, local.reference].filter(Boolean);
+      keys.forEach((k) => { localMap[k] = local; });
     });
 
+    const serverIds = new Set();
+    const serverClientIds = new Set();
+    const serverRefs = new Set();
+
     const merged = serverSales.map((server) => {
-      const local = localMap[server.id] || localMap[server.clientSaleId];
+      if (server.id) serverIds.add(server.id);
+      if (server.clientSaleId) serverClientIds.add(server.clientSaleId);
+      if (server.reference) serverRefs.add(server.reference);
+
+      const local =
+        localMap[server.id] ||
+        (server.clientSaleId && localMap[server.clientSaleId]) ||
+        (server.reference && localMap[server.reference]);
+
       if (local) {
         return {
           ...server,
-          isLocal: true,
-          localStatus: local.localStatus || local.status,
-          error: local.error,
+          isLocal: false,
+          localStatus: 'SYNCED',
+          error: undefined,
           receiptText: local.receiptText,
         };
       }
       return { ...server, isLocal: false };
     });
 
-    const serverIds = new Set(serverSales.map((s) => s.id));
-    const localOnly = localSales.filter(
-      (local) =>
-        !serverIds.has(local.serverSaleId) &&
-        !serverIds.has(local.id) &&
-        (local.localStatus === 'PENDING' || local.localStatus === 'FAILED')
-    );
+    const localOnly = localSales
+      .filter((local) => {
+        // Trust serverSaleId: if it's set, this sale synced.
+        if (local.serverSaleId) return false;
+
+        const onServer =
+          serverIds.has(local.id) ||
+          serverClientIds.has(local.id) ||
+          (local.reference && serverRefs.has(local.reference));
+        if (onServer) return false;
+
+        return local.localStatus === 'PENDING' || local.localStatus === 'FAILED';
+      })
+      .map((local) => ({ ...local, isLocal: true }));
 
     const all = [...merged, ...localOnly];
     all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -234,11 +298,7 @@ const Sales = () => {
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         break;
       case 'yesterday':
-        startDate = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate() - 1
-        );
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
         break;
       case 'week':
         startDate = new Date(now);
@@ -278,11 +338,7 @@ const Sales = () => {
     const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
 
     try {
-      const params = {
-        limit: 100,
-        offset: 0,
-        ...buildDateParams(),
-      };
+      const params = { limit: 100, offset: 0, ...buildDateParams() };
 
       const serverBranchId = getServerBranchId();
       if (serverBranchId) params.branchId = serverBranchId;
@@ -291,14 +347,12 @@ const Sales = () => {
         try {
           const response = await axios.get(
             `/organizations/${orgId}/kxtill/sales`,
-            {
-              params,
-              timeout: 10000,
-              signal: controller.signal,
-            }
+            { params, timeout: 10000, signal: controller.signal }
           );
           serverSales = response.data.items || [];
-          if (!controller.signal.aborted) setLastSyncTime(new Date());
+          if (!controller.signal.aborted && isMountedRef.current) {
+            setLastSyncTime(new Date());
+          }
         } catch (error) {
           if (isAbortError(error)) return;
           console.warn('Server sales fetch failed:', error.message);
@@ -364,7 +418,7 @@ const Sales = () => {
 
   const stats = useMemo(() => {
     const totalRevenue = filteredSales.reduce(
-      (sum, s) => sum + parseFloat(s.totalAmount || 0),
+      (sum, s) => sum + toNumber(s.totalAmount),
       0
     );
     return {
@@ -458,7 +512,7 @@ const Sales = () => {
     setSearchTerm(searchInput);
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleSearch();
   };
 
@@ -466,9 +520,6 @@ const Sales = () => {
     setCurrentPage(newPage);
   };
 
-  // NOTE: `branch` filter is LOCAL to this page — it does NOT change the
-  // user's active branch globally. Switching the working branch is done
-  // from the TopBar and is gated by `allowBranchSwitch` setting.
   const handleFilterChange = useCallback((type, value) => {
     switch (type) {
       case 'status':
@@ -522,114 +573,101 @@ const Sales = () => {
     if (!orgId) return;
     setDetailLoading(true);
     try {
-      let localSale = await getLocalSaleFormatted(saleId);
-
-      if (!localSale) {
-        localSale = await getLocalSaleByServerId(saleId);
+      // 1. Resolve locally first, to learn whether this sale ever synced.
+      let localRow = await getLocalSaleFormatted(saleId);
+      if (!localRow) {
+        localRow = await getLocalSaleByServerId(saleId);
       }
 
-      if (localSale) {
-        setShowDetail(localSale);
+      // 2. Genuinely offline-only → show the local row, done.
+      const localOnly =
+        localRow && !localRow.serverSaleId && localRow.localStatus !== 'SYNCED';
+
+      if (localOnly) {
+        setShowDetail(localRow);
         setDetailLoading(false);
         return;
       }
 
+      // 3. Synced sale → fetch the server row (authoritative).
+      const targetId = localRow?.serverSaleId || saleId;
       const response = await axios.get(
-        `/organizations/${orgId}/kxtill/sales/${saleId}`
+        `/organizations/${orgId}/kxtill/sales/${targetId}`
       );
       setShowDetail(response.data.sale);
     } catch (error) {
       console.error('Error fetching sale detail:', error);
+
+      // 4. Server failed → fall back to local so the user sees *something*.
+      try {
+        const fallback =
+          (await getLocalSaleFormatted(saleId)) ||
+          (await getLocalSaleByServerId(saleId));
+        if (fallback) {
+          setShowDetail(fallback);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
       toast.error('Failed to load sale details');
     } finally {
       setDetailLoading(false);
     }
   };
 
-const handlePrintReceipt = async (saleId) => {
-  if (!orgId) return;
-  try {
-    toast.loading('Loading receipt...', { id: 'receipt' });
+  // ---------------------------------------------------------------------------
+  // Receipts — server only. Local-only sales block with a toast because the
+  // server is the only place that can produce an ETIMS-compliant receipt.
+  // ---------------------------------------------------------------------------
+  const handlePrintReceipt = async (sale) => {
+    if (!orgId) return;
 
-    const response = await axios.get(
-      `/organizations/${orgId}/kxtill/sales/${saleId}/receipt`
-    );
-
-    const data = response.data;
-    const text = renderReceipt(data, data?.receipt?.template);
-
-    if (!openPrintWindow(text, `Receipt ${data?.receipt?.number || ''}`)) {
-      toast.error('Please allow popups for this site', { id: 'receipt' });
+    // Only offline-only sales are blocked.
+    if (isLocalOnly(sale)) {
+      toast.error(
+        'Receipt will be available after this sale syncs to the server.',
+        { id: 'receipt', duration: 4000 }
+      );
       return;
     }
 
-    toast.dismiss('receipt');
-  } catch (error) {
-    console.error('Error fetching receipt:', error);
-    toast.error('Failed to load receipt', { id: 'receipt' });
-  }
-};
-
-  const handlePrint = () => {
-    const receiptText = showReceipt?.text;
-    if (!receiptText) return;
-
-    const win = window.open('', '_blank', 'width=400,height=600');
-    if (!win) {
-      toast.error('Please allow popups for this site');
+    // Synced sales: server ID is either the local serverSaleId
+    // (offline-created and synced), or sale.id (server-originated).
+    const targetId = sale.serverSaleId || sale.id;
+    if (!targetId) {
+      toast.error('Receipt is not available for this sale.', { id: 'receipt' });
       return;
     }
 
-    win.document.write(`
-      <html>
-        <head>
-          <title>Receipt</title>
-          <style>
-            body {
-              font-family: 'Courier New', monospace;
-              padding: 20px;
-              max-width: 350px;
-              margin: 0 auto;
-              background: #fff;
-              color: #000;
-            }
-            pre {
-              white-space: pre-wrap;
-              font-family: 'Courier New', monospace;
-              font-size: 13px;
-              margin: 0;
-            }
-            .actions {
-              text-align: center;
-              margin-top: 20px;
-            }
-            .actions button {
-              padding: 8px 20px;
-              font-size: 14px;
-              cursor: pointer;
-              margin: 0 4px;
-              border: 1px solid #ccc;
-              border-radius: 4px;
-              background: #f5f5f5;
-            }
-            .actions button:hover {
-              background: #e5e5e5;
-            }
-            @media print {
-              .actions { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          <pre>${receiptText}</pre>
-          <div class="actions">
-            <button onclick="window.print()">Print</button>
-            <button onclick="window.close()">Close</button>
-          </div>
-        </body>
-      </html>
-    `);
-    win.document.close();
+    try {
+      toast.loading('Loading receipt...', { id: 'receipt' });
+
+      const response = await axios.get(
+        `/organizations/${orgId}/kxtill/sales/${targetId}/receipt`
+      );
+
+      const data = response.data;
+      const text = renderReceipt(data, data?.receipt?.template);
+
+      if (!openPrintWindow(text, `Receipt ${data?.receipt?.number || ''}`)) {
+        toast.error('Please allow popups for this site', { id: 'receipt' });
+        return;
+      }
+
+      toast.dismiss('receipt');
+    } catch (error) {
+      console.error('Error fetching receipt:', error);
+      const status = error.response?.status;
+      if (status === 404) {
+        toast.error('Receipt not ready yet — try again in a moment.', {
+          id: 'receipt',
+        });
+      } else {
+        toast.error('Failed to load receipt', { id: 'receipt' });
+      }
+    }
   };
 
   const handleCopyReference = (reference, id) => {
@@ -650,17 +688,12 @@ const handlePrintReceipt = async (saleId) => {
   };
 
   const getStatusBadgeWithLocal = (sale) => {
-    if (sale.isLocal) {
+    if (isLocalOnly(sale)) {
       const statusMap = {
         PENDING: {
           label: 'Pending Sync',
           className: styles.statusPending,
           icon: Clock,
-        },
-        SYNCED: {
-          label: 'Synced',
-          className: styles.statusSynced,
-          icon: CheckCircle,
         },
         FAILED: {
           label: 'Sync Failed',
@@ -668,8 +701,7 @@ const handlePrintReceipt = async (saleId) => {
           icon: XCircle,
         },
       };
-      const match = statusMap[sale.localStatus] || statusMap.PENDING;
-      return match;
+      return statusMap[sale.localStatus] || statusMap.PENDING;
     }
 
     const statusMap = {
@@ -704,8 +736,7 @@ const handlePrintReceipt = async (saleId) => {
         icon: XCircle,
       },
     };
-    const match = statusMap[sale.status] || statusMap.PENDING;
-    return match;
+    return statusMap[sale.status] || statusMap.PENDING;
   };
 
   const getPaymentMethod = (method) => {
@@ -734,9 +765,17 @@ const handlePrintReceipt = async (saleId) => {
   const showSkeleton = loading && !hasLoadedOnceRef.current;
 
   return (
-    <div className={styles.salesPage}>
+    <div
+      className={`${styles.salesPage} ${
+        showOffline ? styles.pageOffline : styles.pageOnline
+      }`}
+    >
       {/* Branch Card */}
-      <div className={styles.branchCard}>
+      <div
+        className={`${styles.branchCard} ${
+          showOffline ? styles.branchCardOffline : ''
+        }`}
+      >
         <div className={styles.branchCardContent}>
           <Building2 size={20} className={styles.branchCardIcon} />
           <div className={styles.branchCardInfo}>
@@ -745,12 +784,15 @@ const handlePrintReceipt = async (saleId) => {
               {getActiveBranchName()}
             </span>
           </div>
-          {showOffline && (
-            <span className={styles.offlineBadge}>
-              <WifiOff size={12} />
-              Offline
-            </span>
-          )}
+          <span
+            className={`${styles.offlineBadge} ${
+              showOffline ? styles.offlineBadgeVisible : styles.offlineBadgeHidden
+            }`}
+            aria-hidden={!showOffline}
+          >
+            <WifiOff size={12} />
+            Offline
+          </span>
           {isOwner && <span className={styles.ownerBadge}>Owner</span>}
           {!isOwner && canViewAllBranches && (
             <span className={styles.managerBadge}>Manager</span>
@@ -843,7 +885,7 @@ const handlePrintReceipt = async (saleId) => {
             placeholder="Search by reference or customer name..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             className={styles.searchInput}
           />
         </div>
@@ -990,12 +1032,17 @@ const handlePrintReceipt = async (saleId) => {
                   </span>
                 )}
               </span>
-              {showOffline && (
-                <span className={styles.offlineIndicator}>
-                  <WifiOff size={14} />
-                  Offline Mode
-                </span>
-              )}
+              <span
+                className={`${styles.offlineIndicator} ${
+                  showOffline
+                    ? styles.offlineIndicatorVisible
+                    : styles.offlineIndicatorHidden
+                }`}
+                aria-hidden={!showOffline}
+              >
+                <WifiOff size={14} />
+                Offline Mode
+              </span>
               {localPendingCount > 0 && isOnline && !contextIsOffline && (
                 <span className={styles.offlineIndicator}>
                   <CloudOff size={14} />
@@ -1023,14 +1070,14 @@ const handlePrintReceipt = async (saleId) => {
                   const payment = getPaymentMethod(paymentMethodOf(sale));
                   const PaymentIcon = payment.icon;
                   const reference = referenceOf(sale);
-                  const isLocal = sale.isLocal || false;
+                  const localOnly = isLocalOnly(sale);
                   const isRetrying = retryingIds.has(sale.id);
 
                   return (
                     <tr
                       key={sale.id}
                       className={`${styles.tableRow} ${
-                        isLocal ? styles.localRow : ''
+                        localOnly ? styles.localRow : ''
                       }`}
                     >
                       <td className={styles.referenceCell}>
@@ -1038,7 +1085,7 @@ const handlePrintReceipt = async (saleId) => {
                           <span className={styles.referenceNumber}>
                             {reference}
                           </span>
-                          {isLocal && (
+                          {localOnly && (
                             <span
                               className={styles.localBadge}
                               title="Offline Sale"
@@ -1069,7 +1116,7 @@ const handlePrintReceipt = async (saleId) => {
                           <span className={styles.customerName}>
                             {sale.customerName || 'Walk-in Customer'}
                           </span>
-                          {isLocal && (
+                          {localOnly && (
                             <span className={styles.localSubtext}>Offline</span>
                           )}
                         </div>
@@ -1107,12 +1154,17 @@ const handlePrintReceipt = async (saleId) => {
                           </button>
                           <button
                             className={styles.printBtn}
-                            onClick={() => handlePrintReceipt(sale.id)}
-                            title="Print Receipt"
+                            onClick={() => handlePrintReceipt(sale)}
+                            disabled={localOnly}
+                            title={
+                              localOnly
+                                ? 'Receipt available after sync'
+                                : 'Print Receipt'
+                            }
                           >
                             <Receipt size={16} />
                           </button>
-                          {isLocal && sale.localStatus === 'FAILED' && (
+                          {localOnly && sale.localStatus === 'FAILED' && (
                             <button
                               className={styles.retryBtn}
                               onClick={() => handleRetryLocalSale(sale.id)}
@@ -1179,7 +1231,7 @@ const handlePrintReceipt = async (saleId) => {
               <div className={styles.modalTitle}>
                 <FileText size={18} />
                 <span>Sale Details</span>
-                {showDetail.isLocal && (
+                {isLocalOnly(showDetail) && (
                   <span className={styles.localBadge}>Offline</span>
                 )}
               </div>
@@ -1230,14 +1282,20 @@ const handlePrintReceipt = async (saleId) => {
                     <div className={styles.detailMetaItem}>
                       <User size={14} />
                       <span>
-                        {showDetail.user?.firstName || 'Offline'}{' '}
-                        {showDetail.user?.lastName || 'Sale'}
+                        {showDetail.user?.firstName ||
+                          showDetail.cashierName?.split(' ')[0] ||
+                          '—'}{' '}
+                        {showDetail.user?.lastName ||
+                          showDetail.cashierName?.split(' ')[1] ||
+                          ''}
                       </span>
                     </div>
                     <div className={styles.detailMetaItem}>
                       <Building2 size={14} />
                       <span>
-                        {showDetail.branch?.name || getActiveBranchName()}
+                        {showDetail.branch?.name ||
+                          showDetail.branchName ||
+                          getActiveBranchName()}
                       </span>
                     </div>
                     <div className={styles.detailMetaItem}>
@@ -1246,7 +1304,7 @@ const handlePrintReceipt = async (saleId) => {
                         {showDetail.customerName || 'Walk-in Customer'}
                       </span>
                     </div>
-                    {showDetail.isLocal &&
+                    {isLocalOnly(showDetail) &&
                       showDetail.localStatus === 'FAILED' && (
                         <div className={styles.detailMetaItem}>
                           <AlertCircle size={14} />
@@ -1273,14 +1331,21 @@ const handlePrintReceipt = async (saleId) => {
                         {showDetail.items?.map((item, idx) => (
                           <tr key={item.id || idx}>
                             <td>
-                              {item.product?.name ||
-                                item.productName ||
+                              {item.productName ||
+                                item.product?.name ||
+                                item.name ||
                                 'Unknown'}
                             </td>
                             <td>{item.quantity}</td>
                             <td>{item.unitName || item.unitAbbrev}</td>
                             <td>{formatCurrency(item.unitPrice)}</td>
-                            <td>{formatCurrency(item.total)}</td>
+                            <td>
+                              {formatCurrency(
+                                item.total ||
+                                  Number(item.unitPrice || 0) *
+                                    Number(item.quantity || 0)
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1292,13 +1357,13 @@ const handlePrintReceipt = async (saleId) => {
                       <span>Subtotal</span>
                       <span>{formatCurrency(showDetail.subtotal)}</span>
                     </div>
-                    {parseFloat(showDetail.taxAmount) > 0 && (
+                    {toNumber(showDetail.taxAmount) > 0 && (
                       <div className={styles.detailTotalRow}>
                         <span>Tax</span>
                         <span>{formatCurrency(showDetail.taxAmount)}</span>
                       </div>
                     )}
-                    {parseFloat(showDetail.discount) > 0 && (
+                    {toNumber(showDetail.discount) > 0 && (
                       <div className={styles.detailTotalRow}>
                         <span>Discount</span>
                         <span>-{formatCurrency(showDetail.discount)}</span>
@@ -1348,7 +1413,7 @@ const handlePrintReceipt = async (saleId) => {
                       </div>
                     )}
 
-                  {showDetail.isLocal &&
+                  {isLocalOnly(showDetail) &&
                     showDetail.localStatus === 'FAILED' && (
                       <div className={styles.detailActions}>
                         <button
@@ -1381,16 +1446,28 @@ const handlePrintReceipt = async (saleId) => {
             </div>
 
             <div className={styles.modalFooter}>
-              <button
-                className={styles.modalPrintBtn}
-                onClick={() => {
-                  setShowDetail(null);
-                  handlePrintReceipt(showDetail.id);
-                }}
-              >
-                <Receipt size={16} />
-                View Receipt
-              </button>
+              {isLocalOnly(showDetail) ? (
+                <button
+                  className={styles.modalPrintBtn}
+                  disabled
+                  title="Receipt will be available after this sale syncs"
+                >
+                  <Receipt size={16} />
+                  Receipt pending sync
+                </button>
+              ) : (
+                <button
+                  className={styles.modalPrintBtn}
+                  onClick={() => {
+                    const target = showDetail;
+                    setShowDetail(null);
+                    handlePrintReceipt(target);
+                  }}
+                >
+                  <Receipt size={16} />
+                  View Receipt
+                </button>
+              )}
               <button
                 className={styles.modalCloseBtn}
                 onClick={() => setShowDetail(null)}
@@ -1402,7 +1479,7 @@ const handlePrintReceipt = async (saleId) => {
         </div>
       )}
 
-      {/* Receipt Modal */}
+      {/* Receipt Modal (kept for potential future use — not opened currently) */}
       {showReceipt && (
         <div
           className={styles.receiptOverlay}
@@ -1427,7 +1504,7 @@ const handlePrintReceipt = async (saleId) => {
             <div className={styles.receiptActions}>
               <button
                 className={styles.receiptPrintBtn}
-                onClick={handlePrint}
+                onClick={() => window.print()}
               >
                 <Printer size={16} />
                 Print

@@ -45,6 +45,23 @@ const PAYMENT_METHODS = [
   { value: 'MPESA', label: 'M-Pesa' },
   { value: 'CARD',  label: 'Card' },
 ];
+const RECEIPT_TEMPLATES = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'modern',  label: 'Modern'  },
+  { value: 'minimal', label: 'Minimal' },
+];
+
+// Keys the user can edit — used for dirty detection.
+// Must mirror the backend KxTillStoreSetting model fields.
+const EDITABLE_KEYS = [
+  'shopName', 'shopPhone', 'shopEmail', 'shopAddress', 'taxNumber',
+  'receiptHeader', 'receiptFooter', 'receiptTemplate',
+  'showTax', 'showCustomer', 'showCashier',
+  'currency', 'timezone', 'decimalPlaces', 'defaultPaymentMethod',
+  'lowStockAlerts', 'dailySalesReport', 'weeklySummary', 'refundNotifications',
+  'sessionTimeout', 'requirePinForRefund', 'auditLogRetention',
+  'allowBranchSwitch',
+];
 
 // ============================================================
 // REUSABLE FIELDS
@@ -109,10 +126,11 @@ const Toggle = ({ checked, onChange, label, hint, disabled }) => (
     </div>
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       className={`${styles.toggle} ${checked ? styles.toggleOn : ''}`}
       onClick={() => !disabled && onChange(!checked)}
       disabled={disabled}
-      aria-pressed={checked}
     >
       <span className={styles.toggleKnob} />
     </button>
@@ -128,7 +146,7 @@ const Settings = () => {
   const {
     settings,
     loading,
-    error,  
+    error,
     fetchSettings,
     updateSettings,
     resetSettings,
@@ -136,20 +154,21 @@ const Settings = () => {
 
   const canView   = isOwner || can('kxtill.settings.view');
   const canManage = isOwner; // backend restricts updates to owner
+  const readonly  = !canManage;
 
   const [activeTab, setActiveTab] = useState('store');
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState(settings);
+  const [draft, setDraft] = useState(settings ?? {});
 
   // Keep draft in sync when context settings change (initial load, reset, switch org)
   useEffect(() => {
-    setDraft(settings);
+    setDraft(settings ?? {});
   }, [settings]);
 
-  // Track dirty state locally (compare draft vs context)
+  // Track dirty state locally — only over editable keys
   const isDraftDirty = useMemo(() => {
     if (!draft || !settings) return false;
-    return Object.keys(draft).some((k) => draft[k] !== settings[k]);
+    return EDITABLE_KEYS.some((k) => draft[k] !== settings[k]);
   }, [draft, settings]);
 
   // ---------- handlers ----------
@@ -161,7 +180,14 @@ const Settings = () => {
     if (saving || !canManage || !isDraftDirty) return;
     setSaving(true);
     try {
-      await updateSettings(draft);
+      // Coerce numeric fields — NumberInput can emit '' on clear
+      const payload = {
+        ...draft,
+        sessionTimeout:    Number(draft.sessionTimeout)    || 30,
+        auditLogRetention: Number(draft.auditLogRetention) || 90,
+        decimalPlaces:     Number(draft.decimalPlaces)     || 2,
+      };
+      await updateSettings(payload);
       toast.success('Settings saved');
     } catch (err) {
       console.error('Failed to save settings:', err);
@@ -177,13 +203,14 @@ const Settings = () => {
   };
 
   const handleDiscard = () => {
-    setDraft(settings);
+    setDraft(settings ?? {});
   };
 
   const handleRefresh = async () => {
     try {
       const fresh = await fetchSettings(true);
-      setDraft(fresh);
+      // If context returns the data, use it; otherwise the useEffect syncs draft
+      if (fresh) setDraft(fresh);
       toast.success('Refreshed');
     } catch {
       toast.error('Failed to refresh');
@@ -195,7 +222,7 @@ const Settings = () => {
       return;
     }
     const defaults = await resetSettings();
-    setDraft(defaults);
+    if (defaults) setDraft(defaults);
     toast.success('Defaults loaded — click Save to apply');
   };
 
@@ -253,7 +280,16 @@ const Settings = () => {
     );
   }
 
-  const readonly = !canManage;
+  // Safety net: still no settings after guards (e.g. empty response)
+  if (!settings) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.loaderWrapper}>
+          <div className={styles.loader} />
+        </div>
+      </div>
+    );
+  }
 
   // ============================================================
   // RENDER
@@ -417,6 +453,17 @@ const Settings = () => {
                   value={draft.receiptFooter}
                   onChange={(v) => setField('receiptFooter', v)}
                   placeholder="e.g. Thank you for shopping!"
+                  disabled={readonly}
+                />
+              </Field>
+              <Field
+                label="Template"
+                hint="Visual style of the printed receipt"
+              >
+                <Select
+                  value={draft.receiptTemplate ?? 'classic'}
+                  onChange={(v) => setField('receiptTemplate', v)}
+                  options={RECEIPT_TEMPLATES}
                   disabled={readonly}
                 />
               </Field>
