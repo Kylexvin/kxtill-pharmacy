@@ -214,6 +214,11 @@ const DbLoadingScreen = () => (
 // APP
 // ============================================================
 function App() {
+  console.log('ENV CHECK:', {
+  api: process.env.REACT_APP_API_URL,
+  auth: process.env.REACT_APP_AUTH_BASE_URL,
+  host: window.location.hostname,
+});
   const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {
