@@ -2,27 +2,65 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="assets/logo3.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="description" content="KxTill - Point of Sale System" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- Icons and PWA -->
+    <link rel="icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <meta name="theme-color" content="#FF6A2B" />
 
-    <!-- Prevent Theme Flash - applies theme before React loads -->
+    <!-- PWA install hints -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="KxTill" />
+
+    <!-- Primary SEO -->
+    <title>KxTill POS — Point of Sale by KXBYTE</title>
+    <meta
+      name="description"
+      content="KxTill is a fast, offline-first point of sale system for shops and supermarkets. Sell, sync, and manage inventory — online or offline."
+    />
+    <meta name="application-name" content="KxTill" />
+
+    <!-- Open Graph (link previews on WhatsApp, Slack, Teams, etc.) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="KXBYTE" />
+    <meta property="og:title" content="KxTill POS — Point of Sale by KXBYTE" />
+    <meta
+      property="og:description"
+      content="Fast, offline-first point of sale for shops and supermarkets. Sell, sync, and manage inventory — online or offline."
+    />
+    <meta property="og:image" content="%PUBLIC_URL%/logo512.png" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="KxTill POS — Point of Sale by KXBYTE" />
+    <meta
+      name="twitter:description"
+      content="Fast, offline-first point of sale for shops and supermarkets."
+    />
+    <meta name="twitter:image" content="%PUBLIC_URL%/logo512.png" />
+
+    <!-- Prevent Theme Flash — applies theme before React loads -->
     <script>
-      (function() {
+      (function () {
         try {
           const saved = localStorage.getItem('theme');
-          const darkMode = saved === 'dark' || (saved === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+          const darkMode =
+            saved === 'dark' ||
+            (saved === null &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute(
+            'data-theme',
+            darkMode ? 'dark' : 'light'
+          );
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'light');
         }
       })();
     </script>
-
-    <title>KxTill POS</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

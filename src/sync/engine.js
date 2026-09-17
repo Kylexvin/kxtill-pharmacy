@@ -26,6 +26,9 @@ import {
   replaceCustomerIdInSales,
   getLocalSale,
   upsertServerCustomer,
+  deleteBranchProductsNotIn,
+  getSyncMetadata,
+  setSyncMetadata,
 } from '../db/sqlite';
 
 // ============================================================
@@ -35,6 +38,10 @@ import {
 const RECEIPT_FETCH_TIMEOUT_MS = 5000;
 const SYNC_HTTP_TIMEOUT_MS = 15000;
 const MAX_QUEUE_ATTEMPTS = 5;
+
+// How often we force a full (non-incremental) sync so we can detect
+// products that were archived or unlinked server-side.
+const FULL_PULL_INTERVAL_MS = 5 * 60 * 1000;
 
 // ============================================================
 // ONLINE STATE
@@ -126,15 +133,6 @@ export const sync = async (branchId) => {
     errors: [],
   };
 
-  // Order:
-  //   1. Push unsynced local customers (offline-created) so sales can
-  //      reference real server customer IDs
-  //   2. Pull server customers that changed since the last sync
-  //   3. Push pending sales
-  //   4. Pull products + branch products
-  //   5. Fetch receipts for synced sales
-  // Each step is guarded so one failure never takes down the chain.
-
   try {
     await pushPendingCustomers(results);
   } catch (err) {
@@ -151,6 +149,22 @@ export const sync = async (branchId) => {
     await pushPendingSales(results);
   } catch (err) {
     results.errors.push(`Sales push fatal: ${describeError(err)}`);
+    try {
+      const { getPendingSales } = await import('../db/sqlite');
+      const stuck = await getPendingSales();
+      for (const s of stuck) {
+        await updateSaleStatus(
+          s.id,
+          'FAILED',
+          `Sync crashed before processing: ${describeError(err)}`
+        );
+        results.salesFailed++;
+      }
+    } catch (cleanupErr) {
+      results.errors.push(
+        `Failed to mark stuck sales as FAILED: ${describeError(cleanupErr)}`
+      );
+    }
   }
 
   try {
@@ -165,8 +179,6 @@ export const sync = async (branchId) => {
     results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
   }
 
-  // Delay receipt fetch by a short window so the server can finish
-  // committing the sale before we ask for its receipt.
   try {
     await new Promise((r) => setTimeout(r, 1500));
     await fetchPendingReceipts(results);
@@ -337,7 +349,6 @@ const pushPendingSales = async (results) => {
       const hasUnresolvedTempCustomer =
         freshSale?.customerTempId && !freshSale?.customerId;
 
-      // Wait for customer sync before pushing the sale
       if (hasUnresolvedTempCustomer) {
         continue;
       }
@@ -366,7 +377,6 @@ const pushPendingSales = async (results) => {
 
       const serverSaleId = response.data?.sale?.id;
 
-      // Write status + serverId together so they never diverge
       await updateSaleStatus(sale.id, 'SYNCED');
       if (serverSaleId) {
         await setSaleServerId(sale.id, serverSaleId);
@@ -407,7 +417,6 @@ export const fetchPendingReceipts = async (results = null) => {
   let fetchedCount = 0;
 
   for (const sale of sales) {
-    // Guard: skip rows without a serverSaleId — nothing to fetch
     if (!sale.serverSaleId) continue;
 
     try {
@@ -427,10 +436,7 @@ export const fetchPendingReceipts = async (results = null) => {
       }
     } catch (err) {
       const status = err.response?.status;
-      // 404 = server hasn't generated the receipt yet. Retry next cycle,
-      // don't spam the error log.
       if (status === 404) continue;
-
       if (isAbortError(err)) continue;
 
       const message = describeError(err);
@@ -544,9 +550,16 @@ const pullBranchProductUpdates = async (results, branchId) => {
       return;
     }
 
+    // Force a full pull periodically so we can detect server-side
+    // removals/archivals. Incremental pulls between them keep things fast.
+    const lastFullPull = await getSyncMetadata('last_branch_full_pull');
+    const shouldFullPull =
+      !lastFullPull ||
+      Date.now() - new Date(lastFullPull).getTime() > FULL_PULL_INTERVAL_MS;
+
     const params = {
       branchId,
-      ...(lastSync ? { since: lastSync } : {}),
+      ...(lastSync && !shouldFullPull ? { since: lastSync } : {}),
     };
 
     const response = await axios.get(
@@ -600,6 +613,19 @@ const pullBranchProductUpdates = async (results, branchId) => {
       results.branchProductsUpdated++;
     }
 
+    // On a full pull, prune any local branch_products row that the
+    // server no longer returns (archived product, unlinked branch, or
+    // isAvailable: false). This is what stops deleted products from
+    // lingering in the POS.
+    if (shouldFullPull) {
+      const activeIds = branchProductsList.map((bp) => bp.id).filter(Boolean);
+      const removed = await deleteBranchProductsNotIn(branchId, activeIds);
+      if (removed > 0) {
+        console.log(`Pruned ${removed} branch product(s) removed server-side`);
+      }
+      await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
+    }
+
     if (data.version) {
       await setLastBranchSync(data.version);
     }
@@ -621,7 +647,6 @@ export const processSyncQueue = async () => {
   const organizationId = getOrgId();
   if (!organizationId) return;
 
-  // Customers must be pushed before sales that reference them
   const sorted = [...items].sort((a, b) => {
     if (a.entityType === 'customer' && b.entityType !== 'customer') return -1;
     if (b.entityType === 'customer' && a.entityType !== 'customer') return 1;
@@ -818,6 +843,8 @@ export const initialSync = async (branchId) => {
     await setLastBranchSync(branchData.version);
   }
 
+  await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
+
   // ---- Customers (non-fatal) ----
   try {
     const customersResponse = await axios.get(
@@ -897,4 +924,4 @@ const syncEngine = {
   fetchPendingReceipts,
 };
 
-export default syncEngine;
+export default syncEngine; 

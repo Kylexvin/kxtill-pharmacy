@@ -10,7 +10,7 @@ import {
   Package,
   Search,
   Edit,
-  Trash2,
+
   Eye,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +24,8 @@ import {
   Grid,
   Building2,
   SlidersHorizontal,
+  RotateCcw,
+  Filter,
 } from 'lucide-react';
 import styles from './Inventory.module.css';
 import BranchProductModal from './components/BranchProductModal';
@@ -41,10 +43,9 @@ const Inventory = () => {
   const { can } = usePermissions();
   const { formatCurrency } = useSettings();
 
-  // Permissions — page is gated at the route level by kxtill.inventory.view,
-  // so users reaching here can always SEE. Actions are gated individually.
+  // Permissions
   const canUpdate = can(KXTILL.INVENTORY.UPDATE);
-  const canDelete = can(KXTILL.INVENTORY.DELETE);
+
 
   // State
   const [products, setProducts] = useState([]);
@@ -54,6 +55,8 @@ const Inventory = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [categories, setCategories] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showUnavailable, setShowUnavailable] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -65,10 +68,8 @@ const Inventory = () => {
   const [showBranchProductModal, setShowBranchProductModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
-  const [showRemoveModal, setShowRemoveModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [productToRemove, setProductToRemove] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [branchProductData, setBranchProductData] = useState({
     displayName: '',
@@ -79,6 +80,7 @@ const Inventory = () => {
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
+  const filterMenuRef = useRef(null);
 
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
@@ -128,6 +130,7 @@ const Inventory = () => {
       if (searchTerm) params.search = searchTerm;
       if (categoryFilter !== 'all') params.category = categoryFilter;
       if (statusFilter === 'low-stock') params.lowStock = true;
+      if (showUnavailable) params.includeUnavailable = 'true';
 
       const endpoint = `/organizations/${orgId}/kxtill/branches/${branchId}/products`;
 
@@ -204,6 +207,7 @@ const Inventory = () => {
     searchTerm,
     categoryFilter,
     statusFilter,
+    showUnavailable,
     contextIsOffline,
   ]);
 
@@ -220,22 +224,31 @@ const Inventory = () => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
 
-  // Persist view mode
   useEffect(() => {
     localStorage.setItem('inventoryViewMode', viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    localStorage.setItem('inventoryShowUnavailable', String(showUnavailable));
+  }, [showUnavailable]);
+
+  // Restore persisted filter on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('inventoryShowUnavailable');
+    if (stored === 'true') setShowUnavailable(true);
+  }, []);
 
   // Reset paging + skeleton when branch/filters change (not search)
   useEffect(() => {
     hasLoadedOnceRef.current = false;
     setCurrentPage(1);
-  }, [branchId, categoryFilter, statusFilter]);
+  }, [branchId, categoryFilter, statusFilter, showUnavailable]);
 
-  // Fetch immediately when filters or branch change
+  // Fetch when filters/branch change
   useEffect(() => {
     if (!orgId || !branchId) return;
     fetchProducts();
-  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, fetchProducts]);
+  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, showUnavailable, fetchProducts]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -247,7 +260,18 @@ const Inventory = () => {
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // ---------- periodic background refresh ----------
+  // Close filter popover on outside click
+  useEffect(() => {
+    if (!showFilterMenu) return;
+    const handler = (e) => {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target)) {
+        setShowFilterMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showFilterMenu]);
+
   usePolling(
     () => {
       if (contextIsOffline) return;
@@ -277,6 +301,7 @@ const Inventory = () => {
     setSearchTerm('');
     setCategoryFilter('all');
     setStatusFilter('all');
+    setShowUnavailable(false);
     setCurrentPage(1);
   };
 
@@ -316,21 +341,30 @@ const Inventory = () => {
     setSelectedProduct(null);
   };
 
-  const openRemoveModal = (product) => {
-    setProductToRemove(product);
-    setShowRemoveModal(true);
-  };
-
-  const closeRemoveModal = () => {
-    setShowRemoveModal(false);
-    setProductToRemove(null);
-  };
-
-  // Action handlers
   const handleViewProduct = (product) => openDetailModal(product);
   const handleEditBranchProduct = (product) => openBranchProductModal(product);
   const handleUpdateStock = (product) => openStockModal(product);
-  const handleRemoveProduct = (product) => openRemoveModal(product);
+
+  // Restore a hidden product to this branch (one-click shortcut that
+  // bypasses the full edit modal). Only shown on unavailable rows.
+  const handleRestoreAvailability = async (product) => {
+    if (!orgId || !branchId || submitting) return;
+    setSubmitting(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/branches/${branchId}/products/${product.productId}`,
+        { isAvailable: true }
+      );
+      toast.success(`${product.name} restored to this branch`);
+      fetchProducts();
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || 'Failed to restore product'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // Branch product update — PATCH, no price
   const handleBranchProductUpdate = async () => {
@@ -387,29 +421,12 @@ const Inventory = () => {
     }
   };
 
-  // Remove product from branch — soft (isAvailable: false)
-  const confirmRemove = async () => {
-    if (!productToRemove || !orgId || !branchId) return;
-    setSubmitting(true);
-    try {
-      await axios.delete(
-        `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productToRemove.productId}`
-      );
-      toast.success('Product removed from this branch');
-      closeRemoveModal();
-      fetchProducts();
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to remove product');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const getActiveFilterCount = () => {
     let count = 0;
     if (categoryFilter !== 'all') count++;
     if (statusFilter !== 'all') count++;
     if (searchTerm?.trim()) count++;
+    if (showUnavailable) count++;
     return count;
   };
 
@@ -533,6 +550,34 @@ const Inventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
+          {/* Secondary filters popover */}
+          <div className={styles.filterMenu} ref={filterMenuRef}>
+            <button
+              type="button"
+              className={`${styles.iconBtn} ${
+                showUnavailable ? styles.iconBtnActive : ''
+              }`}
+              onClick={() => setShowFilterMenu((v) => !v)}
+              title="More filters"
+            >
+              <Filter size={16} />
+              {showUnavailable && <span className={styles.filterDot} />}
+            </button>
+
+            {showFilterMenu && (
+              <div className={styles.filterPopover}>
+                <label className={styles.filterOption}>
+                  <input
+                    type="checkbox"
+                    checked={showUnavailable}
+                    onChange={(e) => setShowUnavailable(e.target.checked)}
+                  />
+                  <span>Show unavailable</span>
+                </label>
+              </div>
+            )}
+          </div>
+
           <button
             className={styles.refreshBtn}
             onClick={handleRefresh}
@@ -591,7 +636,7 @@ const Inventory = () => {
           <p>
             {getActiveFilterCount() > 0
               ? 'Try adjusting your filters to see more results'
-              : 'No products available for this branch yet'}
+              : 'No products available for this branch yet or not globally added.'}
           </p>
           {getActiveFilterCount() > 0 && (
             <button
@@ -610,9 +655,15 @@ const Inventory = () => {
             const StatusIcon = status.icon;
             const stock = Number(product.stock || 0);
             const minStock = Number(product.minStock || 0);
+            const unavailable = !product.isAvailable;
 
             return (
-              <div key={product.id} className={styles.productCard}>
+              <div
+                key={product.id}
+                className={`${styles.productCard} ${
+                  unavailable ? styles.unavailableCard : ''
+                }`}
+              >
                 <div className={styles.productCardHeader}>
                   <div className={styles.productCardIcon}>
                     <Package size={20} />
@@ -627,7 +678,7 @@ const Inventory = () => {
                 </div>
                 <div className={styles.productCardBody}>
                   <h3 className={styles.productCardName}>{product.name}</h3>
-                  {!product.isAvailable && (
+                  {unavailable && (
                     <span className={styles.unavailableTag}>Unavailable</span>
                   )}
                   {product.sku && product.sku !== '-' && (
@@ -690,18 +741,18 @@ const Inventory = () => {
                       >
                         <Edit size={14} />
                       </button>
+                      {unavailable && (
+                        <button
+                          type="button"
+                          className={`${styles.productCardActionBtn} ${styles.restore}`}
+                          onClick={() => handleRestoreAvailability(product)}
+                          disabled={submitting}
+                          title="Restore to branch"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
                     </>
-                  )}
-
-                  {canDelete && (
-                    <button
-                      type="button"
-                      className={`${styles.productCardActionBtn} ${styles.danger}`}
-                      onClick={() => handleRemoveProduct(product)}
-                      title="Remove from Branch"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   )}
                 </div>
               </div>
@@ -728,9 +779,15 @@ const Inventory = () => {
                 const StatusIcon = status.icon;
                 const stock = Number(product.stock || 0);
                 const minStock = Number(product.minStock || 0);
+                const unavailable = !product.isAvailable;
 
                 return (
-                  <tr key={product.id} className={styles.tableRow}>
+                  <tr
+                    key={product.id}
+                    className={`${styles.tableRow} ${
+                      unavailable ? styles.unavailableRow : ''
+                    }`}
+                  >
                     <td>
                       <div className={styles.productCell}>
                         <div className={styles.productCellIcon}>
@@ -740,7 +797,7 @@ const Inventory = () => {
                           <span className={styles.productCellName}>
                             {product.name}
                           </span>
-                          {!product.isAvailable && (
+                          {unavailable && (
                             <span className={styles.unavailableTag}>
                               Unavailable
                             </span>
@@ -801,18 +858,18 @@ const Inventory = () => {
                             >
                               <Edit size={14} />
                             </button>
+                            {unavailable && (
+                              <button
+                                type="button"
+                                className={`${styles.actionBtn} ${styles.restore}`}
+                                onClick={() => handleRestoreAvailability(product)}
+                                disabled={submitting}
+                                title="Restore to branch"
+                              >
+                                <RotateCcw size={14} />
+                              </button>
+                            )}
                           </>
-                        )}
-
-                        {canDelete && (
-                          <button
-                            type="button"
-                            className={`${styles.actionBtn} ${styles.danger}`}
-                            onClick={() => handleRemoveProduct(product)}
-                            title="Remove from Branch"
-                          >
-                            <Trash2 size={14} />
-                          </button>
                         )}
                       </div>
                     </td>
@@ -895,41 +952,6 @@ const Inventory = () => {
         product={selectedProduct}
         isSubmitting={submitting}
       />
-
-      {/* Remove from Branch Confirmation */}
-      {showRemoveModal && productToRemove && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.confirmModal}>
-            <div className={styles.confirmModalIcon}>
-              <AlertCircle size={32} />
-            </div>
-            <h3>Remove from Branch</h3>
-            <p>
-              Remove <strong>{productToRemove.name}</strong> from{' '}
-              <strong>{activeBranch?.name}</strong>? The product stays in the
-              global catalog and can be re-added later.
-            </p>
-            <div className={styles.confirmModalActions}>
-              <button
-                className={styles.confirmCancelBtn}
-                onClick={closeRemoveModal}
-                disabled={submitting}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.confirmDeleteBtn}
-                onClick={confirmRemove}
-                disabled={submitting}
-                type="button"
-              >
-                {submitting ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

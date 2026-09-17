@@ -19,8 +19,39 @@ import {
 } from 'recharts';
 import styles from './Dashboard.module.css';
 import usePolling from '../../hooks/usePolling';
+import { getBranchProducts } from '../../db/sqlite';
 
 const DASHBOARD_POLL_MS = 5 * 60 * 1000;
+const CACHE_KEY_PREFIX = 'dashboardCache:';
+const CACHE_TTL_MS = 60 * 1000; // 60s
+
+// ---------------------------------------------------------------------------
+// Cache helpers — avoid showing a skeleton on every mount
+// ---------------------------------------------------------------------------
+function readCache(orgId, branchKey) {
+  if (!orgId) return null;
+  try {
+    const raw = sessionStorage.getItem(`${CACHE_KEY_PREFIX}${orgId}:${branchKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(orgId, branchKey, data) {
+  if (!orgId) return;
+  try {
+    sessionStorage.setItem(
+      `${CACHE_KEY_PREFIX}${orgId}:${branchKey}`,
+      JSON.stringify({ ts: Date.now(), data })
+    );
+  } catch {
+    // ignore quota errors
+  }
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -39,6 +70,7 @@ const Dashboard = () => {
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [period, setPeriod] = useState('today');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasProducts, setHasProducts] = useState(null); // null = unknown
 
   const [profitData, setProfitData] = useState({
     period: 'today', startDate: null, revenue: 0, cost: 0, profit: 0, margin: 0, salesCount: 0,
@@ -55,8 +87,11 @@ const Dashboard = () => {
   });
 
   const requestIdRef = useRef(0);
+  const inflightRef = useRef(null);
+  const hydratedRef = useRef(false);
 
   const orgId = activeOrganization?.id;
+  const branchId = activeBranch?.id;
   const canViewAllBranches = isOwner;
 
   useEffect(() => {
@@ -85,18 +120,54 @@ const Dashboard = () => {
     }
   }, [branches, setActiveBranch]);
 
-  const fetchDashboardData = useCallback(async () => {
+  // ---------------------------------------------------------------------------
+  // Product existence check — SQLite, cheap, cached by branch
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!branchId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const bps = await getBranchProducts(branchId);
+        if (!cancelled) setHasProducts(Array.isArray(bps) && bps.length > 0);
+      } catch (err) {
+        console.warn('Failed to check branch products:', err);
+        if (!cancelled) setHasProducts(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [branchId]);
+
+  // ---------------------------------------------------------------------------
+  // Fetch dashboard data — dedupes concurrent calls, uses cache, no flicker
+  // ---------------------------------------------------------------------------
+  const fetchDashboardData = useCallback(async (opts = {}) => {
+    const { silent = false } = opts;
     if (!orgId) return;
 
+    const serverBranchId = getServerBranchId();
+    const branchKey = serverBranchId || `all:${orgId}`;
+    const cacheKey = `${branchKey}:${period}`;
+
+    // Coalesce duplicate in-flight calls
+    if (inflightRef.current === cacheKey) return;
+    inflightRef.current = cacheKey;
+
     const thisRequestId = ++requestIdRef.current;
-    setLoading(true);
+
+    // Show skeleton only on first-ever load (no cache hit)
+    if (!silent && !hydratedRef.current) {
+      const cached = readCache(orgId, cacheKey);
+      if (!cached) setLoading(true);
+    }
     setError(null);
 
     try {
       const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
 
       const params = {};
-      const serverBranchId = getServerBranchId();
       if (serverBranchId) params.branchId = serverBranchId;
 
       const periodMap = { today: 'today', week: 'week', month: 'month' };
@@ -128,9 +199,16 @@ const Dashboard = () => {
 
       const [profitRes, salesTrendRes, todaySalesTrendRes, topProductsRes, lowStockRes, recentSalesRes] = results;
 
+      let nextProfit = profitData;
+      let nextSalesTrend = salesTrend;
+      let nextTodayTrend = todaySalesTrend;
+      let nextTopProducts = topProducts;
+      let nextLowStock = lowStockCount;
+      let nextRecentSales = recentSalesCount;
+
       if (profitRes.status === 'fulfilled' && profitRes.value?.data) {
         const data = profitRes.value.data;
-        setProfitData({
+        nextProfit = {
           period: data.period || apiPeriod,
           startDate: data.startDate || null,
           revenue: data.revenue || 0,
@@ -138,23 +216,23 @@ const Dashboard = () => {
           profit: data.profit || 0,
           margin: data.margin || 0,
           salesCount: data.salesCount || 0,
-        });
+        };
       }
 
       if (salesTrendRes.status === 'fulfilled' && salesTrendRes.value?.data) {
         const data = salesTrendRes.value.data;
-        setSalesTrend({
+        nextSalesTrend = {
           labels: data.labels || data.map?.(d => d.label) || [],
           values: data.values || data.map?.(d => d.value) || [],
-        });
+        };
       }
 
       if (todaySalesTrendRes.status === 'fulfilled' && todaySalesTrendRes.value?.data) {
         const data = todaySalesTrendRes.value.data;
-        setTodaySalesTrend({
+        nextTodayTrend = {
           labels: data.labels || [],
           values: data.values || [],
-        });
+        };
       }
 
       if (topProductsRes.status === 'fulfilled' && topProductsRes.value?.data) {
@@ -164,30 +242,77 @@ const Dashboard = () => {
           : Array.isArray(raw?.products)
           ? raw.products
           : [];
-        setTopProducts(list);
+        nextTopProducts = list;
       }
 
       if (lowStockRes.status === 'fulfilled' && lowStockRes.value?.data) {
         const list = Array.isArray(lowStockRes.value.data) ? lowStockRes.value.data : [];
-        setLowStockCount(list.length);
+        nextLowStock = list.length;
       }
 
       if (recentSalesRes.status === 'fulfilled' && recentSalesRes.value?.data) {
         const list = Array.isArray(recentSalesRes.value.data) ? recentSalesRes.value.data : [];
-        setRecentSalesCount(list.length);
+        nextRecentSales = list.length;
       }
+
+      setProfitData(nextProfit);
+      setSalesTrend(nextSalesTrend);
+      setTodaySalesTrend(nextTodayTrend);
+      setTopProducts(nextTopProducts);
+      setLowStockCount(nextLowStock);
+      setRecentSalesCount(nextRecentSales);
+
+      // Cache the assembled result
+      writeCache(orgId, cacheKey, {
+        profitData: nextProfit,
+        salesTrend: nextSalesTrend,
+        todaySalesTrend: nextTodayTrend,
+        topProducts: nextTopProducts,
+        lowStockCount: nextLowStock,
+        recentSalesCount: nextRecentSales,
+      });
+
+      hydratedRef.current = true;
     } catch (error) {
       if (thisRequestId !== requestIdRef.current) return;
       console.error('Error fetching dashboard data:', error);
       setError('Failed to load dashboard data');
       toast.error('Failed to load dashboard');
     } finally {
+      if (inflightRef.current === cacheKey) inflightRef.current = null;
       if (thisRequestId === requestIdRef.current) {
         setLoading(false);
         setIsRefreshing(false);
       }
     }
-  }, [orgId, period, contextIsOffline, getServerBranchId]);
+  }, [
+    orgId, period, contextIsOffline, getServerBranchId,
+    profitData, salesTrend, todaySalesTrend, topProducts, lowStockCount, recentSalesCount,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // Hydrate from cache when org/branch/period changes — prevents skeleton flash
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!orgId) return;
+    const serverBranchId = getServerBranchId();
+    const branchKey = serverBranchId || `all:${orgId}`;
+    const cacheKey = `${branchKey}:${period}`;
+    const cached = readCache(orgId, cacheKey);
+
+    if (cached) {
+      setProfitData(cached.profitData);
+      setSalesTrend(cached.salesTrend);
+      setTodaySalesTrend(cached.todaySalesTrend);
+      setTopProducts(cached.topProducts);
+      setLowStockCount(cached.lowStockCount);
+      setRecentSalesCount(cached.recentSalesCount);
+      setLoading(false);
+      hydratedRef.current = true;
+    } else {
+      hydratedRef.current = false;
+    }
+  }, [orgId, period, branchViewFilter, getServerBranchId]);
 
   useEffect(() => {
     setIsOnline(!contextIsOffline);
@@ -196,19 +321,19 @@ const Dashboard = () => {
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    await fetchDashboardData();
+    await fetchDashboardData({ silent: true });
   }, [fetchDashboardData, isRefreshing]);
 
   useEffect(() => {
     if (!orgId) return;
-    fetchDashboardData();
+    fetchDashboardData({ silent: hydratedRef.current });
   }, [fetchDashboardData, orgId]);
 
   usePolling(
     () => {
       if (contextIsOffline) return;
       if (!navigator.onLine) return;
-      fetchDashboardData();
+      fetchDashboardData({ silent: true });
     },
     DASHBOARD_POLL_MS,
     [orgId, period, branchViewFilter]
@@ -225,6 +350,13 @@ const Dashboard = () => {
     }
     return null;
   };
+
+  // ---------------------------------------------------------------------------
+  // Empty state classification
+  // ---------------------------------------------------------------------------
+  const hasCatalog = hasProducts === true;
+  const noCatalog = hasProducts === false;
+  const noSalesYet = hasCatalog && recentSalesCount === 0;
 
   if (!orgId) {
     return (
@@ -281,6 +413,32 @@ const Dashboard = () => {
     if (profitData.margin < 0) return styles.statChangeNegative;
     return styles.statChangeNeutral;
   };
+
+  // ---------------------------------------------------------------------------
+  // Full-page takeover: no products at all
+  // ---------------------------------------------------------------------------
+  if (noCatalog && !loading) {
+    return (
+      <div className={styles.dashboard}>
+        <div className={styles.emptyState} style={{ padding: '60px 24px' }}>
+          <Package size={48} />
+          <h3>Welcome to KxTill</h3>
+          <p style={{ maxWidth: 380, margin: '8px auto 0', lineHeight: 1.5 }}>
+            You don't have any products yet. Add your first product to start
+            making sales.
+          </p>
+          <button
+            className={styles.quickActionBtn}
+            style={{ marginTop: 20 }}
+            onClick={() => navigate('/global-inventory')}
+          >
+            <Plus size={18} />
+            Add your first product
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.dashboard}>
@@ -371,7 +529,7 @@ const Dashboard = () => {
           <AlertCircle size={24} />
           <h3>Failed to load data</h3>
           <p>{error}</p>
-          <button onClick={fetchDashboardData}>Retry</button>
+          <button onClick={() => fetchDashboardData()}>Retry</button>
         </div>
       )}
 
@@ -484,12 +642,20 @@ const Dashboard = () => {
           ) : (
             <div className={styles.chartEmpty}>
               <BarChart3 size={32} />
-              <p>No sales data available</p>
+              <p>{noSalesYet ? 'No sales yet' : 'No sales in this period'}</p>
               <span>
-                {isTodayView
-                  ? 'Sales will appear here as they happen'
-                  : 'Complete more sales to see your trend'}
+                {noSalesYet
+                  ? 'Head to the POS to make your first sale'
+                  : 'Try a wider period, or make a new sale'}
               </span>
+              <button
+                className={styles.quickActionBtn}
+                style={{ marginTop: 12 }}
+                onClick={() => navigate('/pos')}
+              >
+                <Plus size={16} />
+                Go to POS
+              </button>
             </div>
           )}
         </div>
@@ -543,7 +709,7 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Top Products preview — read-only, everyone can see */}
+      {/* Top Products preview */}
       {topProducts.length > 0 && (
         <div className={styles.card}>
           <div className={styles.cardHeader}>

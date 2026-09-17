@@ -34,8 +34,6 @@ export const saveToStore = () => {
     const bytes = Array.from(data);
     localStorage.setItem('kxtill_db', JSON.stringify(bytes));
   } catch (err) {
-    // localStorage quota / serialization failure — log but don't crash the
-    // mutation that just happened in memory.
     console.error('saveToStore failed:', err);
   }
 };
@@ -195,7 +193,6 @@ const query = (sql, params = []) => {
 const run = (sql, params = []) => {
   const dbInstance = getDb();
   dbInstance.run(sql, params);
-  // saveToStore is now internally guarded — safe to call unconditionally.
   saveToStore();
 };
 
@@ -350,6 +347,25 @@ export const clearBranchProducts = async () => {
   runNoSave('DELETE FROM branch_products');
 };
 
+/**
+ * Delete local branch_products rows for a branch whose id is not in `ids`.
+ * ONLY call after a full pull (no `since` cursor) — otherwise you'd wipe
+ * every row the incremental response didn't mention.
+ */
+export const deleteBranchProductsNotIn = async (branchId, ids) => {
+  if (!branchId || !Array.isArray(ids)) return 0;
+  const keep = new Set(ids.filter(Boolean));
+  const rows = query('SELECT id FROM branch_products WHERE branchId = ?', [branchId]);
+  let removed = 0;
+  for (const row of rows) {
+    if (!keep.has(row.id)) {
+      runNoSave('DELETE FROM branch_products WHERE id = ?', [row.id]);
+      removed++;
+    }
+  }
+  return removed;
+};
+
 // ============================================================
 // CART OPERATIONS
 // ============================================================
@@ -474,8 +490,6 @@ export const getSalesWithServerId = async () => {
 export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
   const { limit = 50, offset = 0, status, search, startDate, endDate } = options;
 
-  // KEY FIX: exclude any row that already has a serverSaleId, regardless
-  // of what the status column says. A row with a serverSaleId has synced.
   let localSales = query(`
     SELECT 
       id,

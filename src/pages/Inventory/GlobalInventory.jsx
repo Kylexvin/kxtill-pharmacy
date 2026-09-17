@@ -26,15 +26,20 @@ import {
   Building2,
   Activity,
   Archive,
+  RotateCcw,
+  Filter,
 } from 'lucide-react';
 import styles from './GlobalInventory.module.css';
 import ProductModal from './components/ProductModal';
 import ProductDetailModal from './components/ProductDetailModal';
+import BranchStockModal from './components/BranchStockModal';
 import usePolling from '../../hooks/usePolling';
 
 const GlobalInventory = () => {
   const {
     activeOrganization,
+    activeBranch,
+    branches,
     isOffline: contextIsOffline,
   } = useAuth();
 
@@ -45,6 +50,7 @@ const GlobalInventory = () => {
   const canCreate = can(KXTILL.INVENTORY.CREATE);
   const canUpdate = can(KXTILL.INVENTORY.UPDATE);
   const canDelete = can(KXTILL.INVENTORY.DELETE);
+  const canUpdateStock = can(KXTILL.INVENTORY.UPDATE);
 
   // State
   const [products, setProducts] = useState([]);
@@ -54,6 +60,8 @@ const GlobalInventory = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [categories, setCategories] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showArchived, setShowArchived] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isOnline, setIsOnline] = useState(!contextIsOffline);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -63,24 +71,30 @@ const GlobalInventory = () => {
 
   // Aggregates
   const [health, setHealth] = useState(null);
-  const [ setSummary] = useState(null);
 
   // Modal states
   const [showProductModal, setShowProductModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showStockModal, setShowStockModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [productToArchive, setProductToArchive] = useState(null);
+  const [newlyCreatedProduct, setNewlyCreatedProduct] = useState(null);
+  const [stockModalBranchId, setStockModalBranchId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
+  const filterMenuRef = useRef(null);
 
   const orgId = activeOrganization?.id;
   const limit = 20;
+
+  // Branch list for the stock modal dropdown — restrict to what the user can access
+  const availableBranches = useMemo(() => branches || [], [branches]);
 
   // ---------- helpers ----------
   const getStockStatus = (product) => {
@@ -133,14 +147,13 @@ const GlobalInventory = () => {
   const fetchSummary = useCallback(async () => {
     if (!orgId) return;
     try {
-      const response = await axios.get(
+      await axios.get(
         `/organizations/${orgId}/kxtill/inventory/summary`
       );
-      if (isMountedRef.current) setSummary(response.data);
     } catch (error) {
       console.error('Failed to fetch summary:', error);
     }
-  }, [orgId, setSummary]);
+  }, [orgId]);
 
   const fetchProducts = useCallback(async () => {
     if (!orgId) {
@@ -158,6 +171,7 @@ const GlobalInventory = () => {
       const params = { limit: 100, offset: 0 };
       if (searchTerm) params.search = searchTerm;
       if (categoryFilter !== 'all') params.category = categoryFilter;
+      if (showArchived) params.includeArchived = 'true';
 
       const endpoint = `/organizations/${orgId}/kxtill/products`;
 
@@ -265,7 +279,7 @@ const GlobalInventory = () => {
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [orgId, searchTerm, categoryFilter, statusFilter, contextIsOffline]);
+  }, [orgId, searchTerm, categoryFilter, statusFilter, showArchived, contextIsOffline]);
 
   // ---------- effects ----------
   useEffect(() => {
@@ -280,14 +294,35 @@ const GlobalInventory = () => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
 
-  // Persist view mode
   useEffect(() => {
     localStorage.setItem('globalInventoryViewMode', viewMode);
   }, [viewMode]);
 
   useEffect(() => {
+    localStorage.setItem('globalInventoryShowArchived', String(showArchived));
+  }, [showArchived]);
+
+  // Restore persisted filter on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('globalInventoryShowArchived');
+    if (stored === 'true') setShowArchived(true);
+  }, []);
+
+  // Close filter popover on outside click
+  useEffect(() => {
+    if (!showFilterMenu) return;
+    const handler = (e) => {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target)) {
+        setShowFilterMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showFilterMenu]);
+
+  useEffect(() => {
     hasLoadedOnceRef.current = false;
-  }, [categoryFilter, statusFilter]);
+  }, [categoryFilter, statusFilter, showArchived]);
 
   useEffect(() => {
     if (orgId) {
@@ -299,14 +334,13 @@ const GlobalInventory = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, statusFilter]);
+  }, [searchTerm, categoryFilter, statusFilter, showArchived]);
 
   useEffect(() => {
     const handler = setTimeout(() => setSearchTerm(searchInput), 400);
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // ---------- periodic background refresh (pauses when tab hidden) ----------
   usePolling(
     () => {
       if (contextIsOffline) return;
@@ -338,6 +372,7 @@ const GlobalInventory = () => {
     setSearchTerm('');
     setCategoryFilter('all');
     setStatusFilter('all');
+    setShowArchived(false);
     setCurrentPage(1);
   };
 
@@ -371,6 +406,7 @@ const GlobalInventory = () => {
     setProductToArchive(null);
   };
 
+  // ---------- create / update ----------
   const handleProductSave = async (productData) => {
     if (!orgId) return;
     setSubmitting(true);
@@ -383,17 +419,49 @@ const GlobalInventory = () => {
           productData
         );
         toast.success('Product updated successfully');
+        closeProductModal();
+        fetchProducts();
+        fetchHealth();
+        fetchSummary();
       } else {
-        await axios.post(
+        const response = await axios.post(
           `/organizations/${orgId}/kxtill/products`,
           productData
         );
-        toast.success('Product created successfully');
+        const created = response.data?.product || response.data;
+
+        closeProductModal();
+        fetchProducts();
+        fetchHealth();
+        fetchSummary();
+
+        // Hand off to the stock modal so the user can set stock in-flow.
+        // Only if: user has permission, has access to at least one branch.
+        if (created && canUpdateStock && availableBranches.length > 0) {
+          const initialBranchId =
+            activeBranch?.id || availableBranches[0]?.id || null;
+
+          setNewlyCreatedProduct({
+            productId: created.id,
+            id: created.id,
+            name: created.name,
+            displayName: created.name,
+            unit:
+              created.baseUnit?.abbreviation ||
+              created.baseUnit?.name ||
+              'units',
+            stock: 0,
+            minStock: 0,
+          });
+          setStockModalBranchId(initialBranchId);
+          setShowStockModal(true);
+          toast.success('Product created — set stock');
+        } else if (created) {
+          toast.success(
+            'Product created. Set stock per branch in Inventory.'
+          );
+        }
       }
-      closeProductModal();
-      fetchProducts();
-      fetchHealth();
-      fetchSummary();
     } catch (error) {
       console.error('Save failed:', error);
       toast.error(error.response?.data?.message || 'Failed to save product');
@@ -402,6 +470,50 @@ const GlobalInventory = () => {
     }
   };
 
+  // ---------- stock save (from newly-created flow) ----------
+  const handleNewProductStockSave = async ({ stock, minStock }) => {
+    if (!newlyCreatedProduct || !orgId || !stockModalBranchId) return;
+
+    setSubmitting(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/branches/${stockModalBranchId}/products/${newlyCreatedProduct.productId}/stock`,
+        {
+          stock,
+          minStock: minStock ?? 0,
+        }
+      );
+
+      const branchName =
+        availableBranches.find((b) => b.id === stockModalBranchId)?.name ||
+        'branch';
+
+      toast.success(
+        `Stock set: ${stock} ${newlyCreatedProduct.unit} at ${branchName}`
+      );
+
+      setShowStockModal(false);
+      setNewlyCreatedProduct(null);
+      setStockModalBranchId(null);
+
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    } catch (error) {
+      console.error('Stock update failed:', error);
+      toast.error(error.response?.data?.message || 'Failed to set stock');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const closeStockModal = () => {
+    setShowStockModal(false);
+    setNewlyCreatedProduct(null);
+    setStockModalBranchId(null);
+  };
+
+  // ---------- archive / restore ----------
   const confirmArchive = async () => {
     if (!productToArchive || !orgId) return;
     setSubmitting(true);
@@ -425,11 +537,49 @@ const GlobalInventory = () => {
     }
   };
 
+  const handleRestoreProduct = async (product) => {
+    if (!orgId || submitting) return;
+    setSubmitting(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/products/${
+          product.productId || product.id
+        }`,
+        { isActive: true }
+      );
+
+      // Count how many branches still have this product enabled. Restore
+      // does not touch branch_products, so their availability is preserved.
+      const availableCount = (product.branchProducts || []).filter(
+        (bp) => bp.isAvailable !== false
+      ).length;
+
+      toast.success(
+        availableCount > 0
+          ? `${product.name} restored — back at ${availableCount} branch${
+              availableCount === 1 ? '' : 'es'
+            }`
+          : `${product.name} restored`
+      );
+
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || 'Failed to restore product'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const getActiveFilterCount = () => {
     let count = 0;
     if (categoryFilter !== 'all') count++;
     if (statusFilter !== 'all') count++;
     if (searchTerm?.trim()) count++;
+    if (showArchived) count++;
     return count;
   };
 
@@ -453,6 +603,7 @@ const GlobalInventory = () => {
 
   const showSkeleton = loading && !hasLoadedOnceRef.current;
   const healthScore = health?.health ?? 0;
+  const showBranchPicker = availableBranches.length > 1;
 
   return (
     <div className={styles.page}>
@@ -486,7 +637,7 @@ const GlobalInventory = () => {
         </div>
       </div>
 
-      {/* Stats — health-driven */}
+      {/* Stats */}
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconHealth}`}>
@@ -567,6 +718,34 @@ const GlobalInventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
+          {/* Secondary filters popover */}
+          <div className={styles.filterMenu} ref={filterMenuRef}>
+            <button
+              type="button"
+              className={`${styles.iconBtn} ${
+                showArchived ? styles.iconBtnActive : ''
+              }`}
+              onClick={() => setShowFilterMenu((v) => !v)}
+              title="More filters"
+            >
+              <Filter size={16} />
+              {showArchived && <span className={styles.filterDot} />}
+            </button>
+
+            {showFilterMenu && (
+              <div className={styles.filterPopover}>
+                <label className={styles.filterOption}>
+                  <input
+                    type="checkbox"
+                    checked={showArchived}
+                    onChange={(e) => setShowArchived(e.target.checked)}
+                  />
+                  <span>Show archived</span>
+                </label>
+              </div>
+            )}
+          </div>
+
           <button
             className={styles.refreshBtn}
             onClick={handleRefresh}
@@ -622,13 +801,13 @@ const GlobalInventory = () => {
         <div className={styles.emptyState}>
           <Globe size={48} />
           <h3>No products found</h3>
-<p>
-  {getActiveFilterCount() > 0
-    ? 'Try adjusting your filters to see more results'
-    : canCreate
-    ? 'Start by adding your first global product'
-    : 'No products in the catalog yet'}
-</p>
+          <p>
+            {getActiveFilterCount() > 0
+              ? 'Try adjusting your filters to see more results'
+              : canCreate
+              ? 'Start by adding your first global product'
+              : 'No products in the catalog yet'}
+          </p>
           {getActiveFilterCount() > 0 && (
             <button
               className={styles.clearFiltersBtnLarge}
@@ -654,9 +833,15 @@ const GlobalInventory = () => {
             const status = getStockStatus(product);
             const StatusIcon = status.icon;
             const totalStock = Number(product.totalStock || 0);
+            const archived = !product.isActive;
 
             return (
-              <div key={product.id} className={styles.productCard}>
+              <div
+                key={product.id}
+                className={`${styles.productCard} ${
+                  archived ? styles.archivedCard : ''
+                }`}
+              >
                 <div className={styles.productCardHeader}>
                   <div className={styles.productCardIcon}>
                     <Package size={20} />
@@ -671,6 +856,9 @@ const GlobalInventory = () => {
                 </div>
                 <div className={styles.productCardBody}>
                   <h3 className={styles.productCardName}>{product.name}</h3>
+                  {archived && (
+                    <span className={styles.archivedTag}>Archived</span>
+                  )}
                   {product.sku && product.sku !== '-' && (
                     <span className={styles.productCardSku}>
                       SKU: {product.sku}
@@ -716,7 +904,7 @@ const GlobalInventory = () => {
                     <Eye size={14} />
                   </button>
 
-                  {canUpdate && (
+                  {canUpdate && !archived && (
                     <button
                       type="button"
                       className={styles.productCardActionBtn}
@@ -727,7 +915,7 @@ const GlobalInventory = () => {
                     </button>
                   )}
 
-                  {canDelete && (
+                  {canDelete && !archived && (
                     <button
                       type="button"
                       className={`${styles.productCardActionBtn} ${styles.danger}`}
@@ -735,6 +923,18 @@ const GlobalInventory = () => {
                       title="Archive"
                     >
                       <Archive size={14} />
+                    </button>
+                  )}
+
+                  {canUpdate && archived && (
+                    <button
+                      type="button"
+                      className={`${styles.productCardActionBtn} ${styles.restore}`}
+                      onClick={() => handleRestoreProduct(product)}
+                      disabled={submitting}
+                      title="Restore product"
+                    >
+                      <RotateCcw size={14} />
                     </button>
                   )}
                 </div>
@@ -762,17 +962,30 @@ const GlobalInventory = () => {
                 const status = getStockStatus(product);
                 const StatusIcon = status.icon;
                 const totalStock = Number(product.totalStock || 0);
+                const archived = !product.isActive;
 
                 return (
-                  <tr key={product.id} className={styles.tableRow}>
+                  <tr
+                    key={product.id}
+                    className={`${styles.tableRow} ${
+                      archived ? styles.archivedRow : ''
+                    }`}
+                  >
                     <td>
                       <div className={styles.productCell}>
                         <div className={styles.productCellIcon}>
                           <Package size={16} />
                         </div>
-                        <span className={styles.productCellName}>
-                          {product.name}
-                        </span>
+                        <div className={styles.productCellInfo}>
+                          <span className={styles.productCellName}>
+                            {product.name}
+                          </span>
+                          {archived && (
+                            <span className={styles.archivedTag}>
+                              Archived
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
@@ -808,7 +1021,7 @@ const GlobalInventory = () => {
                           <Eye size={14} />
                         </button>
 
-                        {canUpdate && (
+                        {canUpdate && !archived && (
                           <button
                             type="button"
                             className={styles.actionBtn}
@@ -819,7 +1032,7 @@ const GlobalInventory = () => {
                           </button>
                         )}
 
-                        {canDelete && (
+                        {canDelete && !archived && (
                           <button
                             type="button"
                             className={`${styles.actionBtn} ${styles.danger}`}
@@ -827,6 +1040,18 @@ const GlobalInventory = () => {
                             title="Archive"
                           >
                             <Archive size={14} />
+                          </button>
+                        )}
+
+                        {canUpdate && archived && (
+                          <button
+                            type="button"
+                            className={`${styles.actionBtn} ${styles.restore}`}
+                            onClick={() => handleRestoreProduct(product)}
+                            disabled={submitting}
+                            title="Restore product"
+                          >
+                            <RotateCcw size={14} />
                           </button>
                         )}
                       </div>
@@ -889,6 +1114,18 @@ const GlobalInventory = () => {
               }
             : undefined
         }
+      />
+
+      {/* Stock modal — opened right after a new product is created */}
+      <BranchStockModal
+        isOpen={showStockModal}
+        onClose={closeStockModal}
+        onSave={handleNewProductStockSave}
+        product={newlyCreatedProduct}
+        isSubmitting={submitting}
+        branches={showBranchPicker ? availableBranches : undefined}
+        selectedBranchId={stockModalBranchId}
+        onBranchChange={setStockModalBranchId}
       />
 
       {/* Archive Confirmation Modal */}

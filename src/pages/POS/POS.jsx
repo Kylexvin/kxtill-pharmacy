@@ -195,6 +195,12 @@ useEffect(() => {
     try {
       const allProducts = await getAllProducts();
       const branchProds = await getBranchProducts(branchId);
+console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
+  bpId: bp.id,
+  productId: bp.productId,
+  name: bp.name,
+  isAvailable: bp.isAvailable,
+}))); 
 
       const branchProductIds = new Set(branchProds.map((bp) => bp.productId));
       const filteredByBranch = allProducts.filter((p) =>

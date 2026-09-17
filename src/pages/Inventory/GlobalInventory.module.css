@@ -1243,3 +1243,176 @@
     grid-template-columns: 1fr;
   }
 }
+/* Filter popover */
+.filterMenu { position: relative; }
+
+.iconBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #9CA3AF);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #eceef2);
+}
+.iconBtnActive {
+  color: #FF6A2B;
+  border-color: rgba(255, 106, 43, 0.25);
+}
+
+.filterDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #FF6A2B;
+}
+
+.filterPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--surface, #1B1C23);
+  border: 1px solid var(--border, #E5E7EB);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+}
+
+.filterOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.filterOption:hover { background: rgba(255, 255, 255, 0.04); }
+.filterOption input { accent-color: #FF6A2B; }
+
+/* Archived rows / cards */
+.archivedRow { opacity: 0.55; }
+.archivedRow:hover { opacity: 0.85; }
+.archivedCard { opacity: 0.55; }
+.archivedCard:hover { opacity: 0.85; }
+
+/* Tag for archived products */
+.archivedTag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(156, 163, 175, 0.15);
+  color: #9CA3AF;
+}
+
+/* Restore action button */
+.restore {
+  color: #FF6A2B !important;
+}
+.restore:hover {
+  background: rgba(255, 106, 43, 0.1) !important;
+}/* Filter popover */
+.filterMenu { position: relative; }
+
+.iconBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #9CA3AF);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #eceef2);
+}
+.iconBtnActive {
+  color: #FF6A2B;
+  border-color: rgba(255, 106, 43, 0.25);
+}
+
+.filterDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #FF6A2B;
+}
+
+.filterPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--surface, #1B1C23);
+  border: 1px solid var(--border, #E5E7EB);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+}
+
+.filterOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.filterOption:hover { background: rgba(255, 255, 255, 0.04); }
+.filterOption input { accent-color: #FF6A2B; }
+
+/* Archived rows / cards */
+.archivedRow { opacity: 0.55; }
+.archivedRow:hover { opacity: 0.85; }
+.archivedCard { opacity: 0.55; }
+.archivedCard:hover { opacity: 0.85; }
+
+/* Tag for archived products */
+.archivedTag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(156, 163, 175, 0.15);
+  color: #9CA3AF;
+}
+
+/* Restore action button */
+.restore {
+  color: #FF6A2B !important;
+}
+.restore:hover {
+  background: rgba(255, 106, 43, 0.1) !important;
+}

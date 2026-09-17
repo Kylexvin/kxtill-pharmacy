@@ -1,6 +1,6 @@
 // src/pages/Inventory/components/BranchStockModal.jsx
 import React, { useState, useEffect } from 'react';
-import { X, Package } from 'lucide-react';
+import { X, Package, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import styles from './BranchStockModal.module.css';
 
@@ -10,6 +10,10 @@ const BranchStockModal = ({
   onSave,
   product,
   isSubmitting,
+  // Optional — pass these to enable a branch dropdown
+  branches,
+  selectedBranchId,
+  onBranchChange,
 }) => {
   const [stock, setStock] = useState('');
   const [minStock, setMinStock] = useState('');
@@ -26,6 +30,9 @@ const BranchStockModal = ({
   const currentStock = Number(product.stock || 0);
   const parsedStock = parseFloat(stock);
   const parsedMinStock = parseFloat(minStock);
+
+  const showBranchPicker = Array.isArray(branches) && branches.length > 1;
+  const activeBranch = branches?.find((b) => b.id === selectedBranchId);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -55,7 +62,7 @@ const BranchStockModal = ({
           <div className={styles.headerText}>
             <div className={styles.title}>
               <Package size={18} />
-              <span>Update Stock</span>
+              <span>Set Initial Stock</span>
             </div>
             <p className={styles.subtitle}>
               {product.displayName || product.name || product.productName}
@@ -68,12 +75,35 @@ const BranchStockModal = ({
 
         {/* Body */}
         <form onSubmit={handleSubmit} className={styles.body}>
-          <div className={styles.currentRow}>
-            <span className={styles.currentLabel}>Current stock</span>
-            <span className={styles.currentValue}>
-              {currentStock} {unit}
-            </span>
-          </div>
+          {showBranchPicker && (
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>
+                <Building2 size={13} style={{ display: 'inline', marginRight: 6 }} />
+                Branch
+              </label>
+              <select
+                value={selectedBranchId || ''}
+                onChange={(e) => onBranchChange?.(e.target.value)}
+                className={styles.input}
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.fieldHint}>
+                Set stock for this branch. Repeat for other branches in Inventory.
+              </span>
+            </div>
+          )}
+
+          {!showBranchPicker && activeBranch && (
+            <div className={styles.currentRow}>
+              <span className={styles.currentLabel}>Branch</span>
+              <span className={styles.currentValue}>{activeBranch.name}</span>
+            </div>
+          )}
 
           <div className={styles.field}>
             <label className={styles.fieldLabel}>Stock</label>
@@ -130,7 +160,7 @@ const BranchStockModal = ({
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Saving...' : 'Save'}
+            {isSubmitting ? 'Saving...' : 'Save Stock'}
           </button>
         </div>
       </div>
