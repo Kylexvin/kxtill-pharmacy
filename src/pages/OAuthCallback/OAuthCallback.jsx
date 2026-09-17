@@ -56,12 +56,10 @@ export default function OAuthCallback() {
       return;
     }
 
-    axios
-      .post(
-        `${AUTH_BASE_URL}/api/v1/auth/oauth/token`,
-        { code, client_id: 'kxtill' },
-        { withCredentials: true }
-      )
+axios.post(
+  `${AUTH_BASE_URL}/api/v1/auth/oauth/token`,
+  { code, client_id: 'kxtill' }
+) 
       .then((response) => {
         const { access_token, refresh_token, user, organizations } =
           response.data || {};
