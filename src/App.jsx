@@ -36,8 +36,7 @@ import './styles/globals.css';
 // ============================================================
 // AXIOS CONFIG
 // ============================================================
-axios.defaults.baseURL =
-  process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1';
+axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1'; 
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
@@ -214,11 +213,7 @@ const DbLoadingScreen = () => (
 // APP
 // ============================================================
 function App() {
-  console.log('ENV CHECK:', {
-  api: process.env.REACT_APP_API_URL,
-  auth: process.env.REACT_APP_AUTH_BASE_URL,
-  host: window.location.hostname,
-});
+  
   const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {

@@ -9,7 +9,7 @@ const KXBYTE_LOGO = 'https://res.cloudinary.com/dkahrnjrn/image/upload/v17886954
 const DEFAULT_CLIENT_ID = 'kxtill';
 const DEFAULT_REDIRECT_URI = `${window.location.origin}/kx/kxtill/oauth/callback`;
 
-const AUTH_BASE_URL = process.env.REACT_APP_AUTH_BASE_URL || 'http://localhost:5000';
+const AUTH_BASE_URL = 'https://kxbyte.onrender.com';
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();

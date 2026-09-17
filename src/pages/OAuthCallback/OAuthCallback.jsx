@@ -3,8 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 
-const AUTH_BASE_URL =
-  process.env.REACT_APP_AUTH_BASE_URL || 'https://kxbyte.onrender.com/api/v1';
+const AUTH_BASE_URL = 'https://kxbyte.onrender.com';
 
 // postMessage target — restrict to our own origin, not '*'
 const FRONTEND_ORIGIN =
