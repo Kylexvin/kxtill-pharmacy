@@ -1,5 +1,5 @@
 // src/serviceWorkerRegistration.js
-// Standard CRA service worker registration helper.
+// Robust CRA service worker registration helper for KxTill PWA.
 
 const isLocalhost = Boolean(
   window.location.hostname === 'localhost' ||
@@ -9,66 +9,81 @@ const isLocalhost = Boolean(
     )
 );
 
+// Track registration globally so we can expose an update trigger.
+let swRegistration = null;
+
 export function register(config) {
-  if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
-    const publicUrl = new URL(process.env.PUBLIC_URL, window.location.href);
-    if (publicUrl.origin !== window.location.origin) {
-      // Our service worker won't work if PUBLIC_URL is on a different origin
-      return;
-    }
-
-    window.addEventListener('load', () => {
-      const swUrl = `${process.env.PUBLIC_URL}/service-worker.js`;
-
-      if (isLocalhost) {
-        checkValidServiceWorker(swUrl, config);
-        navigator.serviceWorker.ready.then(() => {
-          console.log(
-            'This web app is being served cache-first by a service worker.'
-          );
-        });
-      } else {
-        registerValidSW(swUrl, config);
-      }
-    });
+  if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) {
+    return;
   }
+
+  const publicUrl = new URL(process.env.PUBLIC_URL, window.location.href);
+  if (publicUrl.origin !== window.location.origin) {
+    // Service worker won't work if PUBLIC_URL is on a different origin.
+    return;
+  }
+
+  window.addEventListener('load', () => {
+    const swUrl = `${process.env.PUBLIC_URL}/service-worker.js`;
+
+    if (isLocalhost) {
+      checkValidServiceWorker(swUrl, config);
+      navigator.serviceWorker.ready.then(() => {
+        console.log(
+          '[KxTill SW] App is being served cache-first by a service worker. ' +
+            'Visit https://cra.link/PWA to learn more.'
+        );
+      });
+    } else {
+      registerValidSW(swUrl, config);
+    }
+  });
+
+  // Auto-reload when the user accepts an update (via config.onUpdate).
+  let refreshing = false;
+  navigator.serviceWorker?.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
 }
 
 function registerValidSW(swUrl, config) {
   navigator.serviceWorker
     .register(swUrl)
     .then((registration) => {
+      swRegistration = registration;
+
       registration.onupdatefound = () => {
         const installingWorker = registration.installing;
         if (installingWorker == null) return;
+
         installingWorker.onstatechange = () => {
-          if (installingWorker.state === 'installed') {
-            if (navigator.serviceWorker.controller) {
-              console.log('New content is available; please refresh.');
+          if (installingWorker.state !== 'installed') return;
 
-              if (config && config.onUpdate) {
-                config.onUpdate(registration);
-              }
-            } else {
-              console.log('Content is cached for offline use.');
+          if (navigator.serviceWorker.controller) {
+            console.log('[KxTill SW] New content is available; please refresh.');
 
-              if (config && config.onSuccess) {
-                config.onSuccess(registration);
-              }
+            if (config?.onUpdate) {
+              config.onUpdate(registration);
+            }
+          } else {
+            console.log('[KxTill SW] Content is cached for offline use.');
+
+            if (config?.onSuccess) {
+              config.onSuccess(registration);
             }
           }
         };
       };
     })
     .catch((error) => {
-      console.error('Error during service worker registration:', error);
+      console.error('[KxTill SW] Error during service worker registration:', error);
     });
 }
 
 function checkValidServiceWorker(swUrl, config) {
-  fetch(swUrl, {
-    headers: { 'Service-Worker': 'script' },
-  })
+  fetch(swUrl, { headers: { 'Service-Worker': 'script' } })
     .then((response) => {
       const contentType = response.headers.get('content-type');
       if (
@@ -86,19 +101,33 @@ function checkValidServiceWorker(swUrl, config) {
     })
     .catch(() => {
       console.log(
-        'No internet connection found. App is running in offline mode.'
+        '[KxTill SW] No internet connection found. App is running in offline mode.'
       );
     });
 }
 
 export function unregister() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.ready
-      .then((registration) => {
-        registration.unregister();
-      })
-      .catch((error) => {
-        console.error(error.message);
-      });
-  }
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.ready
+    .then((registration) => registration.unregister())
+    .catch((error) => console.error('[KxTill SW]', error.message));
+}
+
+/**
+ * Imperatively trigger an SW update check.
+ * Returns a promise that resolves to true if an update was found.
+ */
+export function promptForUpdate() {
+  if (!swRegistration) return Promise.resolve(false);
+  return swRegistration.update().then(() => true).catch(() => false);
+}
+
+/**
+ * Tell the waiting SW to skip waiting and activate immediately.
+ * Combined with the `controllerchange` listener above, this reloads the page.
+ */
+export function activateWaitingSW() {
+  if (!swRegistration?.waiting) return;
+  swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
 }
