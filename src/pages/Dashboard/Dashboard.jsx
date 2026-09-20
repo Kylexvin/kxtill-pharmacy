@@ -1,17 +1,14 @@
 // src/pages/Dashboard/Dashboard.jsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
-  TrendingUp, TrendingDown, DollarSign, Package,
-  Clock, RefreshCw, ChevronRight, Award, BarChart3,
-  Building2, AlertCircle, AlertTriangle, WifiOff,
-  Plus, FileText, Package as PackageIcon, Store,
-  Users, Receipt,
+  Package, RefreshCw, Award, BarChart3, Building2,
+  AlertCircle, WifiOff, Plus, FileText,
+  Package as PackageIcon, Store,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -19,37 +16,36 @@ import {
 } from 'recharts';
 import styles from './Dashboard.module.css';
 import usePolling from '../../hooks/usePolling';
-import { getBranchProducts } from '../../db/sqlite';
+import { getBranchProducts, getAllLocalSalesForBranch } from '../../db/sqlite';
+import StatsGrid from './components/StatsGrid';
+import CountersGrid from './components/CountersGrid';
 
 const DASHBOARD_POLL_MS = 5 * 60 * 1000;
-const CACHE_KEY_PREFIX = 'dashboardCache:';
-const CACHE_TTL_MS = 60 * 1000; // 60s
 
-// ---------------------------------------------------------------------------
-// Cache helpers — avoid showing a skeleton on every mount
-// ---------------------------------------------------------------------------
-function readCache(orgId, branchKey) {
+const toNumber = (v) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const snapshotKey = (orgId, serverBranchId) =>
+  `dashboardSnapshot:${orgId}:${serverBranchId || 'all'}`;
+
+function readSnapshot(orgId, serverBranchId) {
   if (!orgId) return null;
   try {
-    const raw = sessionStorage.getItem(`${CACHE_KEY_PREFIX}${orgId}:${branchKey}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || Date.now() - parsed.ts > CACHE_TTL_MS) return null;
-    return parsed.data;
+    const raw = localStorage.getItem(snapshotKey(orgId, serverBranchId));
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-function writeCache(orgId, branchKey, data) {
+function writeSnapshot(orgId, serverBranchId, data) {
   if (!orgId) return;
   try {
-    sessionStorage.setItem(
-      `${CACHE_KEY_PREFIX}${orgId}:${branchKey}`,
-      JSON.stringify({ ts: Date.now(), data })
-    );
+    localStorage.setItem(snapshotKey(orgId, serverBranchId), JSON.stringify(data));
   } catch {
-    // ignore quota errors
+    // quota / private mode
   }
 }
 
@@ -67,14 +63,23 @@ const Dashboard = () => {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isOnline, setIsOnline] = useState(!contextIsOffline);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
   const [period, setPeriod] = useState('today');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [hasProducts, setHasProducts] = useState(null); // null = unknown
+  const [hasProducts, setHasProducts] = useState(null);
 
   const [profitData, setProfitData] = useState({
-    period: 'today', startDate: null, revenue: 0, cost: 0, profit: 0, margin: 0, salesCount: 0,
+    period: 'today',
+    startDate: null,
+    revenue: 0,
+    cost: 0,
+    profit: 0,
+    margin: 0,
+    salesCount: 0,
   });
+  const [localDelta, setLocalDelta] = useState({ revenue: 0, salesCount: 0 });
   const [salesTrend, setSalesTrend] = useState({ labels: [], values: [] });
   const [todaySalesTrend, setTodaySalesTrend] = useState({ labels: [], values: [] });
   const [topProducts, setTopProducts] = useState([]);
@@ -112,21 +117,21 @@ const Dashboard = () => {
     return branchViewFilter;
   }, [branchViewFilter, canViewAllBranches, activeBranch]);
 
-  const handleBranchViewChange = useCallback((value) => {
-    setBranchViewFilter(value);
-    if (value !== 'own' && value !== 'all') {
-      const selectedBranch = branches.find(b => b.id === value);
-      if (selectedBranch) setActiveBranch(selectedBranch);
-    }
-  }, [branches, setActiveBranch]);
+  const handleBranchViewChange = useCallback(
+    (value) => {
+      setBranchViewFilter(value);
+      if (value !== 'own' && value !== 'all') {
+        const selectedBranch = branches.find((b) => b.id === value);
+        if (selectedBranch) setActiveBranch(selectedBranch);
+      }
+    },
+    [branches, setActiveBranch]
+  );
 
-  // ---------------------------------------------------------------------------
-  // Product existence check — SQLite, cheap, cached by branch
-  // ---------------------------------------------------------------------------
+  // ---------- product existence ----------
   useEffect(() => {
     if (!branchId) return;
     let cancelled = false;
-
     (async () => {
       try {
         const bps = await getBranchProducts(branchId);
@@ -136,187 +141,222 @@ const Dashboard = () => {
         if (!cancelled) setHasProducts(false);
       }
     })();
-
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [branchId]);
 
-  // ---------------------------------------------------------------------------
-  // Fetch dashboard data — dedupes concurrent calls, uses cache, no flicker
-  // ---------------------------------------------------------------------------
-  const fetchDashboardData = useCallback(async (opts = {}) => {
-    const { silent = false } = opts;
-    if (!orgId) return;
+  // ---------- offline signal ----------
+  const showOffline = !isOnline || contextIsOffline;
 
-    const serverBranchId = getServerBranchId();
-    const branchKey = serverBranchId || `all:${orgId}`;
-    const cacheKey = `${branchKey}:${period}`;
-
-    // Coalesce duplicate in-flight calls
-    if (inflightRef.current === cacheKey) return;
-    inflightRef.current = cacheKey;
-
-    const thisRequestId = ++requestIdRef.current;
-
-    // Show skeleton only on first-ever load (no cache hit)
-    if (!silent && !hydratedRef.current) {
-      const cached = readCache(orgId, cacheKey);
-      if (!cached) setLoading(true);
-    }
-    setError(null);
-
+  // ---------- local unsynced delta ----------
+  const computeLocalDelta = useCallback(async () => {
+    if (!branchId) return { revenue: 0, salesCount: 0 };
     try {
-      const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
-
-      const params = {};
-      if (serverBranchId) params.branchId = serverBranchId;
-
-      const periodMap = { today: 'today', week: 'week', month: 'month' };
-      const apiPeriod = periodMap[period] || 'today';
-      const daysMap = { today: 1, week: 7, month: 30 };
-
-      const results = await Promise.allSettled([
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/profit`, { params: { ...params, period: apiPeriod } })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/sales-trend`, { params: { ...params, days: daysMap[period] || 7 } })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/today-sales-trend`, { params })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/top-products`, { params: { ...params, limit: 5 } })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/low-stock`, { params })
-          : Promise.resolve({ data: null }),
-        isCurrentlyOnline
-          ? axios.get(`/organizations/${orgId}/kxtill/dashboard/recent-sales`, { params: { ...params, limit: 100 } })
-          : Promise.resolve({ data: null }),
-      ]);
-
-      if (thisRequestId !== requestIdRef.current) return;
-
-      const [profitRes, salesTrendRes, todaySalesTrendRes, topProductsRes, lowStockRes, recentSalesRes] = results;
-
-      let nextProfit = profitData;
-      let nextSalesTrend = salesTrend;
-      let nextTodayTrend = todaySalesTrend;
-      let nextTopProducts = topProducts;
-      let nextLowStock = lowStockCount;
-      let nextRecentSales = recentSalesCount;
-
-      if (profitRes.status === 'fulfilled' && profitRes.value?.data) {
-        const data = profitRes.value.data;
-        nextProfit = {
-          period: data.period || apiPeriod,
-          startDate: data.startDate || null,
-          revenue: data.revenue || 0,
-          cost: data.cost || 0,
-          profit: data.profit || 0,
-          margin: data.margin || 0,
-          salesCount: data.salesCount || 0,
-        };
-      }
-
-      if (salesTrendRes.status === 'fulfilled' && salesTrendRes.value?.data) {
-        const data = salesTrendRes.value.data;
-        nextSalesTrend = {
-          labels: data.labels || data.map?.(d => d.label) || [],
-          values: data.values || data.map?.(d => d.value) || [],
-        };
-      }
-
-      if (todaySalesTrendRes.status === 'fulfilled' && todaySalesTrendRes.value?.data) {
-        const data = todaySalesTrendRes.value.data;
-        nextTodayTrend = {
-          labels: data.labels || [],
-          values: data.values || [],
-        };
-      }
-
-      if (topProductsRes.status === 'fulfilled' && topProductsRes.value?.data) {
-        const raw = topProductsRes.value.data;
-        const list = Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw?.products)
-          ? raw.products
-          : [];
-        nextTopProducts = list;
-      }
-
-      if (lowStockRes.status === 'fulfilled' && lowStockRes.value?.data) {
-        const list = Array.isArray(lowStockRes.value.data) ? lowStockRes.value.data : [];
-        nextLowStock = list.length;
-      }
-
-      if (recentSalesRes.status === 'fulfilled' && recentSalesRes.value?.data) {
-        const list = Array.isArray(recentSalesRes.value.data) ? recentSalesRes.value.data : [];
-        nextRecentSales = list.length;
-      }
-
-      setProfitData(nextProfit);
-      setSalesTrend(nextSalesTrend);
-      setTodaySalesTrend(nextTodayTrend);
-      setTopProducts(nextTopProducts);
-      setLowStockCount(nextLowStock);
-      setRecentSalesCount(nextRecentSales);
-
-      // Cache the assembled result
-      writeCache(orgId, cacheKey, {
-        profitData: nextProfit,
-        salesTrend: nextSalesTrend,
-        todaySalesTrend: nextTodayTrend,
-        topProducts: nextTopProducts,
-        lowStockCount: nextLowStock,
-        recentSalesCount: nextRecentSales,
-      });
-
-      hydratedRef.current = true;
-    } catch (error) {
-      if (thisRequestId !== requestIdRef.current) return;
-      console.error('Error fetching dashboard data:', error);
-      setError('Failed to load dashboard data');
-      toast.error('Failed to load dashboard');
-    } finally {
-      if (inflightRef.current === cacheKey) inflightRef.current = null;
-      if (thisRequestId === requestIdRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
+      const result = await getAllLocalSalesForBranch(branchId, {});
+      const items = result?.items || [];
+      const revenue = items.reduce((sum, s) => sum + toNumber(s.totalAmount), 0);
+      return { revenue, salesCount: items.length };
+    } catch {
+      return { revenue: 0, salesCount: 0 };
     }
-  }, [
-    orgId, period, contextIsOffline, getServerBranchId,
-    profitData, salesTrend, todaySalesTrend, topProducts, lowStockCount, recentSalesCount,
-  ]);
+  }, [branchId]);
 
-  // ---------------------------------------------------------------------------
-  // Hydrate from cache when org/branch/period changes — prevents skeleton flash
-  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!branchId || !showOffline) {
+      setLocalDelta({ revenue: 0, salesCount: 0 });
+      return;
+    }
+    let cancelled = false;
+    computeLocalDelta().then((d) => {
+      if (!cancelled) setLocalDelta(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showOffline, branchId, computeLocalDelta]);
+
+  useEffect(() => {
+    const handler = () => {
+      if (showOffline && branchId) computeLocalDelta().then(setLocalDelta);
+    };
+    window.addEventListener('kxtill:sync-complete', handler);
+    return () => window.removeEventListener('kxtill:sync-complete', handler);
+  }, [showOffline, branchId, computeLocalDelta]);
+
+  // ---------- hydrate from localStorage on mount / scope change ----------
   useEffect(() => {
     if (!orgId) return;
     const serverBranchId = getServerBranchId();
-    const branchKey = serverBranchId || `all:${orgId}`;
-    const cacheKey = `${branchKey}:${period}`;
-    const cached = readCache(orgId, cacheKey);
+    const snap = readSnapshot(orgId, serverBranchId);
+    if (!snap) return;
 
-    if (cached) {
-      setProfitData(cached.profitData);
-      setSalesTrend(cached.salesTrend);
-      setTodaySalesTrend(cached.todaySalesTrend);
-      setTopProducts(cached.topProducts);
-      setLowStockCount(cached.lowStockCount);
-      setRecentSalesCount(cached.recentSalesCount);
-      setLoading(false);
-      hydratedRef.current = true;
-    } else {
-      hydratedRef.current = false;
-    }
-  }, [orgId, period, branchViewFilter, getServerBranchId]);
+    if (snap.profitData) setProfitData(snap.profitData);
+    if (snap.salesTrend) setSalesTrend(snap.salesTrend);
+    if (snap.todaySalesTrend) setTodaySalesTrend(snap.todaySalesTrend);
+    if (Array.isArray(snap.topProducts)) setTopProducts(snap.topProducts);
+    if (typeof snap.lowStockCount === 'number') setLowStockCount(snap.lowStockCount);
+    if (typeof snap.recentSalesCount === 'number') setRecentSalesCount(snap.recentSalesCount);
+
+    setLoading(false);
+    hydratedRef.current = true;
+  }, [orgId, period, getServerBranchId]);
+
+  // ---------- browser online/offline ----------
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     setIsOnline(!contextIsOffline);
   }, [contextIsOffline]);
+
+  // ---------- fetch ----------
+  const fetchDashboardData = useCallback(
+    async (opts = {}) => {
+      const { silent = false } = opts;
+      if (!orgId) return;
+
+      const serverBranchId = getServerBranchId();
+      const inflightKey = `${orgId}:${serverBranchId || 'all'}`;
+
+      if (inflightRef.current === inflightKey) return;
+      inflightRef.current = inflightKey;
+
+      const thisRequestId = ++requestIdRef.current;
+
+      if (!silent && !hydratedRef.current) {
+        const existing = readSnapshot(orgId, serverBranchId);
+        if (!existing) setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const reachable = navigator.onLine && !contextIsOffline;
+
+        const params = {};
+        if (serverBranchId) params.branchId = serverBranchId;
+
+        const periodMap = { today: 'today', week: 'week', month: 'month' };
+        const apiPeriod = periodMap[period] || 'today';
+        const daysMap = { today: 1, week: 7, month: 30 };
+
+        const results = await Promise.allSettled([
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/profit`, {
+                params: { ...params, period: apiPeriod },
+              })
+            : Promise.resolve({ data: null }),
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/sales-trend`, {
+                params: { ...params, days: daysMap[period] || 7 },
+              })
+            : Promise.resolve({ data: null }),
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/today-sales-trend`, { params })
+            : Promise.resolve({ data: null }),
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/top-products`, {
+                params: { ...params, limit: 5 },
+              })
+            : Promise.resolve({ data: null }),
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/low-stock`, { params })
+            : Promise.resolve({ data: null }),
+          reachable
+            ? axios.get(`/organizations/${orgId}/kxtill/dashboard/recent-sales`, {
+                params: { ...params, limit: 100 },
+              })
+            : Promise.resolve({ data: null }),
+        ]);
+
+        if (thisRequestId !== requestIdRef.current) return;
+
+        const [
+          profitRes,
+          salesTrendRes,
+          todaySalesTrendRes,
+          topProductsRes,
+          lowStockRes,
+          recentSalesRes,
+        ] = results;
+
+        // Start from whatever we had — never blank out
+        const snap = readSnapshot(orgId, serverBranchId) || {};
+
+        if (profitRes.status === 'fulfilled' && profitRes.value?.data) {
+          const data = profitRes.value.data;
+          snap.profitData = {
+            period: data.period || apiPeriod,
+            startDate: data.startDate || null,
+            revenue: data.revenue || 0,
+            cost: data.cost || 0,
+            profit: data.profit || 0,
+            margin: data.margin || 0,
+            salesCount: data.salesCount || 0,
+          };
+          setProfitData(snap.profitData);
+        }
+
+        if (salesTrendRes.status === 'fulfilled' && salesTrendRes.value?.data) {
+          const data = salesTrendRes.value.data;
+          snap.salesTrend = {
+            labels: data.labels || data.map?.((d) => d.label) || [],
+            values: data.values || data.map?.((d) => d.value) || [],
+          };
+          setSalesTrend(snap.salesTrend);
+        }
+
+        if (todaySalesTrendRes.status === 'fulfilled' && todaySalesTrendRes.value?.data) {
+          const data = todaySalesTrendRes.value.data;
+          snap.todaySalesTrend = {
+            labels: data.labels || [],
+            values: data.values || [],
+          };
+          setTodaySalesTrend(snap.todaySalesTrend);
+        }
+
+        if (topProductsRes.status === 'fulfilled' && topProductsRes.value?.data) {
+          const raw = topProductsRes.value.data;
+          snap.topProducts = Array.isArray(raw) ? raw : Array.isArray(raw?.products) ? raw.products : [];
+          setTopProducts(snap.topProducts);
+        }
+
+        if (lowStockRes.status === 'fulfilled' && lowStockRes.value?.data) {
+          const list = Array.isArray(lowStockRes.value.data) ? lowStockRes.value.data : [];
+          snap.lowStockCount = list.length;
+          setLowStockCount(snap.lowStockCount);
+        }
+
+        if (recentSalesRes.status === 'fulfilled' && recentSalesRes.value?.data) {
+          const list = Array.isArray(recentSalesRes.value.data) ? recentSalesRes.value.data : [];
+          snap.recentSalesCount = list.length;
+          setRecentSalesCount(snap.recentSalesCount);
+        }
+
+        writeSnapshot(orgId, serverBranchId, snap);
+        hydratedRef.current = true;
+      } catch (err) {
+        if (thisRequestId !== requestIdRef.current) return;
+        console.error('Error fetching dashboard data:', err);
+        // silent — cached + local stays
+      } finally {
+        if (inflightRef.current === inflightKey) inflightRef.current = null;
+        if (thisRequestId === requestIdRef.current) {
+          setLoading(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [orgId, period, getServerBranchId, contextIsOffline]
+  );
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
@@ -331,8 +371,8 @@ const Dashboard = () => {
 
   usePolling(
     () => {
-      if (contextIsOffline) return;
       if (!navigator.onLine) return;
+      if (contextIsOffline) return;
       fetchDashboardData({ silent: true });
     },
     DASHBOARD_POLL_MS,
@@ -351,9 +391,16 @@ const Dashboard = () => {
     return null;
   };
 
-  // ---------------------------------------------------------------------------
-  // Empty state classification
-  // ---------------------------------------------------------------------------
+  // ---------- merged view ----------
+  const mergedProfitData = useMemo(() => {
+    if (!showOffline) return profitData;
+    return {
+      ...profitData,
+      revenue: toNumber(profitData.revenue) + toNumber(localDelta.revenue),
+      salesCount: toNumber(profitData.salesCount) + toNumber(localDelta.salesCount),
+    };
+  }, [profitData, localDelta, showOffline]);
+
   const hasCatalog = hasProducts === true;
   const noCatalog = hasProducts === false;
   const noSalesYet = hasCatalog && recentSalesCount === 0;
@@ -370,7 +417,6 @@ const Dashboard = () => {
     );
   }
 
-  const showOffline = !isOnline || contextIsOffline;
   const showBranchSwitch = canViewAllBranches && branches && branches.length > 1;
 
   const todayChartData = todaySalesTrend.labels.map((label, i) => ({
@@ -385,38 +431,33 @@ const Dashboard = () => {
 
   const isTodayView = period === 'today';
   const chartData = isTodayView ? todayChartData : weekMonthChartData;
-  const hasSalesData = chartData.some(d => d.sales > 0);
+  const hasSalesData = chartData.some((d) => d.sales > 0);
   const shouldShowChart = isTodayView
     ? hasSalesData
-    : chartData.filter(d => d.sales > 0).length >= 2;
+    : chartData.filter((d) => d.sales > 0).length >= 2;
 
   const getPeriodLabel = () => {
     switch (period) {
-      case 'today': return 'Today (Hourly)';
-      case 'week': return 'This Week';
-      case 'month': return 'This Month';
-      default: return 'Today';
+      case 'today':
+        return 'Today (Hourly)';
+      case 'week':
+        return 'This Week';
+      case 'month':
+        return 'This Month';
+      default:
+        return 'Today';
     }
   };
 
   const getBranchDisplayName = () => {
     if (branchViewFilter === 'all') return 'All Branches';
     if (branchViewFilter !== 'own') {
-      const found = branches.find(b => b.id === branchViewFilter);
+      const found = branches.find((b) => b.id === branchViewFilter);
       if (found) return found.name;
     }
     return activeBranch?.name || activeOrganization?.name || 'Dashboard';
   };
 
-  const getMarginClass = () => {
-    if (profitData.margin > 0) return styles.statChangePositive;
-    if (profitData.margin < 0) return styles.statChangeNegative;
-    return styles.statChangeNeutral;
-  };
-
-  // ---------------------------------------------------------------------------
-  // Full-page takeover: no products at all
-  // ---------------------------------------------------------------------------
   if (noCatalog && !loading) {
     return (
       <div className={styles.dashboard}>
@@ -424,8 +465,7 @@ const Dashboard = () => {
           <Package size={48} />
           <h3>Welcome to KxTill</h3>
           <p style={{ maxWidth: 380, margin: '8px auto 0', lineHeight: 1.5 }}>
-            You don't have any products yet. Add your first product to start
-            making sales.
+            You don't have any products yet. Add your first product to start making sales.
           </p>
           <button
             className={styles.quickActionBtn}
@@ -440,9 +480,10 @@ const Dashboard = () => {
     );
   }
 
+  const offlineTag = showOffline ? 'offline' : null;
+
   return (
     <div className={styles.dashboard}>
-      {/* Quick Actions */}
       <div className={styles.quickActions}>
         <button className={styles.quickActionBtn} onClick={() => navigate('/pos')}>
           <Plus size={18} />
@@ -462,7 +503,6 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Header */}
       <div className={styles.headerCard}>
         <div className={styles.headerLeft}>
           <Store size={18} className={styles.orgIcon} />
@@ -481,9 +521,11 @@ const Dashboard = () => {
                 <option value="own">{activeBranch?.name || 'My Branch'}</option>
                 <option value="all">All Branches</option>
                 {branches
-                  .filter(b => b.id !== activeBranch?.id)
+                  .filter((b) => b.id !== activeBranch?.id)
                   .map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
                   ))}
               </select>
             </div>
@@ -517,7 +559,11 @@ const Dashboard = () => {
             </button>
           </div>
 
-          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={isRefreshing}>
+          <button
+            className={styles.refreshBtn}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
             <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
             {isRefreshing ? '...' : 'Refresh'}
           </button>
@@ -533,67 +579,14 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Stats Grid */}
-      {loading ? (
-        <div className={styles.statsGrid}>
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className={`${styles.statCard} ${styles.skeleton}`}>
-              <div className={styles.skeletonIcon} />
-              <div className={styles.skeletonText} />
-              <div className={styles.skeletonValue} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className={styles.statsGrid}>
-          <div className={styles.statCard}>
-            <div className={`${styles.statIcon} ${styles.statIconRevenue}`}>
-              <DollarSign size={20} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Revenue</span>
-              <span className={styles.statValue}>{formatCompactCurrency(profitData.revenue)}</span>
-              <span className={styles.statSubtext}>{profitData.salesCount} sales</span>
-            </div>
-          </div>
+      <StatsGrid
+        loading={loading}
+        profitData={mergedProfitData}
+        periodLabel={getPeriodLabel()}
+        offlineTag={offlineTag}
+        formatCompactCurrency={formatCompactCurrency}
+      />
 
-          <div className={styles.statCard}>
-            <div className={`${styles.statIcon} ${styles.statIconProfit}`}>
-              <TrendingUp size={20} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Profit</span>
-              <span className={styles.statValue}>{formatCompactCurrency(profitData.profit)}</span>
-              <span className={getMarginClass()}>
-                {profitData.margin >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                {Math.abs(profitData.margin).toFixed(1)}% margin
-              </span>
-            </div>
-          </div>
-
-          <div className={styles.statCard}>
-            <div className={`${styles.statIcon} ${styles.statIconCost}`}>
-              <Package size={20} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Cost of Goods</span>
-              <span className={styles.statValue}>{formatCompactCurrency(profitData.cost)}</span>
-            </div>
-          </div>
-
-          <div className={styles.statCard}>
-            <div className={`${styles.statIcon} ${styles.statIconPeriod}`}>
-              <Clock size={20} />
-            </div>
-            <div className={styles.statInfo}>
-              <span className={styles.statLabel}>Period</span>
-              <span className={styles.statValue} style={{ fontSize: '16px' }}>{getPeriodLabel()}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sales Trend */}
       <div className={styles.card}>
         <div className={styles.cardHeader}>
           <div className={styles.cardTitle}>
@@ -642,74 +635,41 @@ const Dashboard = () => {
           ) : (
             <div className={styles.chartEmpty}>
               <BarChart3 size={32} />
-              <p>{noSalesYet ? 'No sales yet' : 'No sales in this period'}</p>
+              <p>
+                {showOffline
+                  ? 'Chart not available offline'
+                  : noSalesYet
+                  ? 'No sales yet'
+                  : 'No sales in this period'}
+              </p>
               <span>
-                {noSalesYet
+                {showOffline
+                  ? 'Reconnect to load the trend'
+                  : noSalesYet
                   ? 'Head to the POS to make your first sale'
                   : 'Try a wider period, or make a new sale'}
               </span>
-              <button
-                className={styles.quickActionBtn}
-                style={{ marginTop: 12 }}
-                onClick={() => navigate('/pos')}
-              >
-                <Plus size={16} />
-                Go to POS
-              </button>
+              {!showOffline && (
+                <button
+                  className={styles.quickActionBtn}
+                  style={{ marginTop: 12 }}
+                  onClick={() => navigate('/pos')}
+                >
+                  <Plus size={16} />
+                  Go to POS
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Counter cards — navigable */}
-      <div className={styles.countersGrid}>
-        <button
-          type="button"
-          className={styles.counterCard}
-          onClick={() => navigate('/inventory')}
-        >
-          <div className={`${styles.counterIcon} ${styles.counterIconWarning}`}>
-            <AlertTriangle size={20} />
-          </div>
-          <div className={styles.counterInfo}>
-            <span className={styles.counterValue}>{lowStockCount}</span>
-            <span className={styles.counterLabel}>Low Stock Items</span>
-          </div>
-          <ChevronRight size={16} className={styles.counterArrow} />
-        </button>
+      <CountersGrid
+        lowStockCount={lowStockCount}
+        recentSalesCount={recentSalesCount}
+        customersCount={null}
+      />
 
-        <button
-          type="button"
-          className={styles.counterCard}
-          onClick={() => navigate('/sales')}
-        >
-          <div className={`${styles.counterIcon} ${styles.counterIconSuccess}`}>
-            <Receipt size={20} />
-          </div>
-          <div className={styles.counterInfo}>
-            <span className={styles.counterValue}>{recentSalesCount}</span>
-            <span className={styles.counterLabel}>Recent Sales</span>
-          </div>
-          <ChevronRight size={16} className={styles.counterArrow} />
-        </button>
-
-        <button
-          type="button"
-          className={styles.counterCard}
-          onClick={() => navigate('/customers')}
-        >
-          <div className={`${styles.counterIcon} ${styles.counterIconInfo}`}>
-            <Users size={20} />
-          </div>
-          <div className={styles.counterInfo}>
-            <span className={styles.counterValue}>—</span>
-            <span className={styles.counterLabel}>Customers</span>
-          </div>
-          <ChevronRight size={16} className={styles.counterArrow} />
-        </button>
-      </div>
-
-      {/* Top Products preview */}
       {topProducts.length > 0 && (
         <div className={styles.card}>
           <div className={styles.cardHeader}>

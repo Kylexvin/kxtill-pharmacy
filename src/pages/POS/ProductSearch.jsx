@@ -4,32 +4,51 @@ import { Package, Layers, X } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import styles from './POS.module.css';
 
+const POPOVER_MIN_WIDTH = 200;
+const POPOVER_MAX_HEIGHT = 260;
+const GAP = 6;
+
 const ProductSearch = ({ products, loading, onAddToCart }) => {
   const [openUnitsFor, setOpenUnitsFor] = useState(null);
-  const gridRef = useRef(null);
-  
-  // Use settings for currency and decimal places
+  const [popoverStyle, setPopoverStyle] = useState(null);
+
+  const cardRefs = useRef({});
+  const popoverRef = useRef(null);
+
   const { getCurrency, getDecimalPlaces } = useSettings();
   const currency = getCurrency();
   const decimals = getDecimalPlaces();
 
+  // Close on click-outside, Escape, or scroll/resize (position would go
+  // stale otherwise — simplest correct behavior is to just close it).
   useEffect(() => {
     if (!openUnitsFor) return;
 
     const handleClickOutside = (e) => {
-      if (gridRef.current && !gridRef.current.contains(e.target)) {
+      const cardEl = cardRefs.current[openUnitsFor];
+      const clickedCard = cardEl && cardEl.contains(e.target);
+      const clickedPopover = popoverRef.current && popoverRef.current.contains(e.target);
+      if (!clickedCard && !clickedPopover) {
         setOpenUnitsFor(null);
       }
     };
     const handleEscape = (e) => {
       if (e.key === 'Escape') setOpenUnitsFor(null);
     };
+    const handleClose = () => setOpenUnitsFor(null);
 
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
+    // capture:true so this also fires for scrolling inside .productsGrid,
+    // not just window-level scroll
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('resize', handleClose);
+
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('resize', handleClose);
     };
   }, [openUnitsFor]);
 
@@ -37,13 +56,54 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
     setOpenUnitsFor(null);
   }, [products]);
 
+  // Measures the clicked card and computes where the popover should sit:
+  // below by default, flipped above if there's not enough room below,
+  // and clamped horizontally so it never runs off the screen edge.
+  const openPickerForCard = (productId) => {
+    const cardEl = cardRefs.current[productId];
+    if (!cardEl) return;
+
+    const rect = cardEl.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    const spaceBelow = viewportH - rect.bottom - GAP;
+    const spaceAbove = rect.top - GAP;
+    const openAbove = spaceBelow < POPOVER_MAX_HEIGHT && spaceAbove > spaceBelow;
+
+    const availableSpace = openAbove ? spaceAbove : spaceBelow;
+    const maxHeight = Math.max(120, Math.min(POPOVER_MAX_HEIGHT, availableSpace));
+
+    const width = Math.max(rect.width, POPOVER_MIN_WIDTH);
+    let left = rect.left;
+    if (left + width > viewportW - GAP) {
+      left = viewportW - width - GAP;
+    }
+    if (left < GAP) left = GAP;
+
+    setPopoverStyle({
+      position: 'fixed',
+      left,
+      width,
+      maxHeight,
+      ...(openAbove
+        ? { bottom: viewportH - rect.top + GAP, top: 'auto' }
+        : { top: rect.bottom + GAP, bottom: 'auto' }),
+    });
+    setOpenUnitsFor(productId);
+  };
+
   const handleCardClick = (product) => {
     const units = product.units || [];
     if (units.length <= 1) {
       onAddToCart(product, units[0] || { id: 'default', name: 'Unit', price: product.price || 0 });
       return;
     }
-    setOpenUnitsFor((current) => (current === product.id ? null : product.id));
+    if (openUnitsFor === product.id) {
+      setOpenUnitsFor(null);
+      return;
+    }
+    openPickerForCard(product.id);
   };
 
   const handleUnitPick = (product, unit) => {
@@ -51,10 +111,7 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
     setOpenUnitsFor(null);
   };
 
-  // Format price with proper decimal places
-  const formatPrice = (amount) => {
-    return Number(amount || 0).toFixed(decimals);
-  };
+  const formatPrice = (amount) => Number(amount || 0).toFixed(decimals);
 
   if (loading) {
     return (
@@ -84,8 +141,12 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
     );
   }
 
+  const openProduct = openUnitsFor
+    ? products.find((p) => p.id === openUnitsFor)
+    : null;
+
   return (
-    <div className={styles.productsGrid} ref={gridRef}>
+    <div className={styles.productsGrid}>
       {products.map((product) => {
         const stock = Number(product.stock || 0);
         const minStock = Number(product.minStock || 0);
@@ -98,14 +159,16 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
         return (
           <div key={product.id} className={styles.productCardWrap}>
             <button
+              ref={(el) => { cardRefs.current[product.id] = el; }}
               type="button"
-              className={`${styles.productCard} ${unavailable ? styles.disabledCard : ''}`}
+              className={`${styles.productCard} ${unavailable ? styles.disabledCard : ''} ${isOpen ? styles.selected : ''}`}
               onClick={() => !unavailable && handleCardClick(product)}
               disabled={unavailable}
             >
               {isOutOfStock && <span className={styles.lowStockBadge}>Out of Stock</span>}
               {isLow && !isOutOfStock && <span className={styles.lowStockBadge}>Low stock</span>}
               {unavailable && !isOutOfStock && <span className={styles.lowStockBadge}>Unavailable</span>}
+              {!isOutOfStock && <span className={styles.stockTag}>{stock}</span>}
 
               <div className={styles.productInfo}>
                 <div className={styles.productTopText}>
@@ -125,33 +188,37 @@ const ProductSearch = ({ products, loading, onAddToCart }) => {
                 </div>
               </div>
             </button>
-
-            {isOpen && units.length > 1 && (
-              <div className={styles.unitPopover}>
-                <button
-                  type="button"
-                  className={styles.unitPopoverLabel}
-                  onClick={() => setOpenUnitsFor(null)}
-                >
-                  <span>Choose unit</span>
-                  <X size={12} />
-                </button>
-                {units.map((unit) => (
-                  <button
-                    key={unit.id}
-                    type="button"
-                    className={styles.unitOption}
-                    onClick={() => handleUnitPick(product, unit)}
-                  >
-                    <span>{unit.name}</span>
-                    <span className={styles.unitPrice}>{formatPrice(unit.price)} {currency}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         );
       })}
+
+      {openProduct && (
+        <div ref={popoverRef} className={styles.unitPopover} style={popoverStyle || {}}>
+          <button
+            type="button"
+            className={styles.unitPopoverLabel}
+            onClick={() => setOpenUnitsFor(null)}
+          >
+            <span>Choose unit</span>
+            <X size={12} />
+          </button>
+          <div className={styles.unitPopoverList}>
+            {(openProduct.units || []).map((unit) => (
+              <button
+                key={unit.id}
+                type="button"
+                className={styles.unitOption}
+                onClick={() => handleUnitPick(openProduct, unit)}
+              >
+                <span>{unit.name}</span>
+                <span className={styles.unitPrice}>
+                  {formatPrice(unit.price)} {currency}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -288,271 +288,8 @@
 }
 
 /* ============================================================
-   RESPONSIVE
+   SEARCH BAR
    ============================================================ */
-
-@media (max-width: 1024px) {
-  .cartPanel {
-    width: 280px;
-    min-width: 240px;
-  }
-
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .pos {
-    flex-direction: column;
-    padding: 12px;
-    gap: 12px;
-  }
-
-  .productsPanel {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 8px;
-  }
-
-  .cartPanel {
-    display: none;
-  }
-
-  .categoryBtn {
-    width: 60px;
-    height: 30px;
-    gap: 4px;
-  }
-
-  .searchBar {
-    flex-wrap: nowrap;
-  }
-
-  .barcodeForm {
-    width: auto;
-    flex: 1 1 90px;
-    min-width: 0;
-    max-width: 140px;
-  }
-
-  .searchInput {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .syncBtn {
-    width: 40px;
-  }
-
-  .cartToggle {
-    width: 40px;
-  }
-}
-
-@media (max-width: 480px) {
-  .pos {
-    padding: 8px;
-    gap: 8px;
-  }
-
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-    gap: 6px;
-  }
-
-  .productCard {
-    padding: 8px;
-    min-height: 100px;
-  }
-
-  .categoryBtn {
-    width: auto;
-    height: 28px;
-    padding: 0 10px;
-    gap: 4px;
-  }
-
-  .barcodeForm {
-    max-width: 100px;
-    padding: 0 8px;
-  }
-
-  .barcodeInput {
-    font-size: 12px;
-  }
-
-  .syncBtn {
-    width: 34px;
-  }
-
-  .cartToggle {
-    width: 34px;
-  }
-}
-
-/* ============================================================
-   EMPTY STATE — no org/branch selected yet
-   ============================================================ */
-
-.noBranch {
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-}
-
-.noBranch svg {
-  color: var(--text-faint);
-}
-
-@media (max-width: 1024px) {
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .productsGrid {
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-    gap: 6px;
-  }
-} 
-
-@media (max-width: 1024px) {
-  .cartPanel {
-    width: 280px;
-    min-width: 240px;
-  }
-
-}
-
-@media (max-width: 768px) {
-  .pos {
-    flex-direction: column;
-    padding: 12px;
-    gap: 12px;
-  }
-
-  .productsPanel {
-    flex: 1;
-    min-height: 0;
-  }
-
-
-  .cartPanel {
-    display: none;
-  }
-
-  .categoryBtn {
-    width: 60px;
-    height: 30px;
-    gap: 4px;
-  }
-
-  .searchBar {
-    flex-wrap: nowrap;
-  }
-
-  .barcodeForm {
-    width: auto;
-    flex: 1 1 90px;
-    min-width: 0;
-    max-width: 140px;
-  }
-
-  .searchInput {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .syncBtn {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-  }
-
-  .cartToggle {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-  }
-}
-
-@media (max-width: 480px) {
-  .pos {
-    padding: 8px;
-    gap: 8px;
-  }
-
-  .productsGrid {
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 6px;
-  }
-
-  .productCard {
-    padding: 8px;
-    min-height: 100px;
-  }
-
-  .categoryBtn {
-    width: auto;
-    height: 28px;
-    padding: 0 10px;
-    gap: 4px;
-  }
-
-  .barcodeForm {
-    max-width: 100px;
-    padding: 0 8px;
-  }
-
-  .barcodeInput {
-    font-size: 12px;
-  }
-
-  .syncBtn {
-    width: 34px;
-    height: 40px;
-    min-width: 34px;
-  }
-
-  .cartToggle {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-  }
-}
-
-/* ============================================================
-   EMPTY STATE — no org/branch selected yet
-   ============================================================ */
-
-.noBranch {
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-}
-
-.noBranch svg {
-  color: var(--text-faint);
-}
 
 .searchBar {
   display: flex;
@@ -560,6 +297,7 @@
   flex-shrink: 0;
   align-items: stretch;
 }
+
 .searchInput {
   flex: 1;
   padding: 8px 14px;
@@ -610,7 +348,10 @@
   min-width: 0;
 }
 
-/* Empty State */
+/* ============================================================
+   EMPTY STATES
+   ============================================================ */
+
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -636,7 +377,65 @@
   color: var(--text-faint);
 }
 
-/* Skeleton Loading */
+.emptyStateFull {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.emptyStateFull p {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 8px 0 0 0;
+}
+
+.noBranch {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.noBranch svg {
+  color: var(--text-faint);
+}
+
+.emptyCart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 150px;
+  color: var(--text-muted);
+}
+
+.emptyCart svg {
+  color: var(--text-faint);
+}
+
+.emptyCart p {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.emptyCart span {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+/* ============================================================
+   SKELETON LOADING (product grid)
+   ============================================================ */
+
 .skeleton .productName {
   background: var(--border);
   animation: pulse 1.5s ease-in-out infinite;
@@ -659,7 +458,10 @@
   50% { opacity: 0.7; }
 }
 
-/* Product Card Enhancements */
+/* ============================================================
+   PRODUCT CARD ENHANCEMENTS
+   ============================================================ */
+
 .productCardWrap {
   position: relative;
 }
@@ -690,6 +492,26 @@
   color: #fff;
   font-size: 9.5px;
   font-weight: 700;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+/* Raw stock count — separate from lowStockBadge, which flags a
+   status (low/out/unavailable). This is just the number, always
+   visible at a glance so you don't need to add to cart to see it. */
+.stockTag {
+  position: absolute;
+  top: -7px;
+  left: -6px;
+  min-width: 16px;
+  padding: 1px 5px;
+  background: var(--bg-raised-hi);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
   border-radius: 999px;
   z-index: 1;
 }
@@ -726,14 +548,24 @@
   flex-shrink: 0;
 }
 
-/* Unit picker — overlays directly on top of the exact card that was
-   clicked, rather than floating above/below it. Anchoring here means it
-   can never end up clipped by the grid's scroll bounds or land on a
-   neighboring card where a cashier might miss it. */
+/* ============================================================
+   UNIT PICKER — anchored to the clicked card, not the whole screen.
+   Positioning is computed in JS (getBoundingClientRect) and passed
+   in as inline style, then rendered with position: fixed. Fixed
+   positioning is relative to the viewport, not to any scrolling
+   ancestor — that's what lets this sit right below/above the exact
+   card that was tapped without ever being clipped by the grid's
+   own overflow-y: auto, and without overlapping a neighboring card.
+   JS also flips it above the card and clamps it horizontally when
+   there isn't room, so this same CSS covers every screen position.
+   z-index budget for this page:
+     unitPopover              : 150
+     cartOverlay / cartSheet  : 90 / 95
+     PaymentModal / ReceiptModal : >= 300 (always on top)
+   ============================================================ */
+
 .unitPopover {
-  position: absolute;
-  inset: -4px;
-  z-index: 10;
+  z-index: 150;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -742,14 +574,14 @@
   border: 1px solid var(--accent);
   border-radius: 14px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 106, 43, 0.12);
-  transform-origin: center;
   animation: unitPopIn 0.14s ease-out;
+  overflow: hidden;
 }
 
 @keyframes unitPopIn {
   from {
     opacity: 0;
-    transform: scale(0.9);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
@@ -762,6 +594,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  flex-shrink: 0;
   padding: 4px 6px 6px;
   border: none;
   background: none;
@@ -778,10 +611,35 @@
   color: var(--text-secondary);
 }
 
+/* Scrolls internally once units exceed the space JS allotted it,
+   instead of growing past the card/grid bounds */
+.unitPopoverList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.unitPopoverList::-webkit-scrollbar {
+  width: 4px;
+}
+
+.unitPopoverList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.unitPopoverList::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
 .unitOption {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  flex-shrink: 0;
   padding: 8px 10px;
   border: none;
   background: var(--bg-panel);
@@ -792,6 +650,13 @@
   font-size: 12.5px;
 }
 
+.unitOption span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .unitOption:hover {
   background: var(--bg-raised);
   color: var(--text-primary);
@@ -800,9 +665,13 @@
 .unitPrice {
   color: var(--accent-glow);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
-/* Cart Enhancements */
+/* ============================================================
+   CART ENHANCEMENTS
+   ============================================================ */
+
 .cartTitle {
   display: flex;
   align-items: center;
@@ -848,7 +717,6 @@
 .customerBadge button:hover {
   color: var(--danger);
 }
-/* Add to src/pages/POS/POS.module.css — near .customerBadge */
 
 .unsyncedTag {
   font-size: 9px;
@@ -861,13 +729,10 @@
   letter-spacing: 0.04em;
   margin-left: 2px;
 }
+
 /* ============================================================
    INLINE CUSTOMER PANEL
    ============================================================ */
-
-.customerSection {
-  flex-shrink: 0;
-}
 
 .customerInlinePanel {
   display: flex;
@@ -1152,17 +1017,6 @@
   cursor: not-allowed;
 }
 
-.unsyncedTag {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 6px;
-  background: rgba(255, 149, 0, 0.15);
-  color: #ff9500;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-left: 2px;
-}
 .addCustomerBtn {
   display: flex;
   align-items: center;
@@ -1182,30 +1036,9 @@
   color: var(--text-primary);
 }
 
-.emptyCart {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 100%;
-  min-height: 150px;
-  color: var(--text-muted);
-}
-
-.emptyCart svg {
-  color: var(--text-faint);
-}
-
-.emptyCart p {
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.emptyCart span {
-  font-size: 13px;
-  color: var(--text-faint);
-}
+/* ============================================================
+   CART ITEM ROWS
+   ============================================================ */
 
 .cartItem {
   display: flex;
@@ -1320,12 +1153,16 @@
   color: var(--accent-glow);
 }
 
-/* Loading states */
+/* ============================================================
+   LOADING STATES (full-page)
+   ============================================================ */
+
 .loadingState {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
   height: 100%;
   gap: 16px;
   color: var(--text-muted);
@@ -1378,23 +1215,6 @@
   cursor: not-allowed;
 }
 
-.emptyStateFull {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 12px;
-  color: var(--text-muted);
-}
-
-.emptyStateFull p {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 8px 0 0 0;
-}
-
 .syncBtnLarge {
   display: flex;
   align-items: center;
@@ -1426,9 +1246,10 @@
    ============================================================
    z-index budget for this page:
      cartOverlay / cartSheet : 90 / 95
+     unitPopover             : 150
      PaymentModal / ReceiptModal overlays should be >= 300
-     so they always sit above the cart sheet regardless of
-     whether the sheet happens to still be mounted.
+     so they always sit above everything else regardless of
+     what else happens to still be mounted.
    ============================================================ */
 
 .cartToggle {
@@ -1531,7 +1352,121 @@
   max-height: 45vh;
 }
 
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 1024px) {
+  .cartPanel {
+    width: 280px;
+    min-width: 240px;
+  }
+
+  .productsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .pos {
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .productsPanel {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .productsGrid {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+  }
+
+  .cartPanel {
+    display: none;
+  }
+
+  .categoryBtn {
+    width: 60px;
+    height: 30px;
+    gap: 4px;
+  }
+
+  .searchBar {
+    flex-wrap: nowrap;
+  }
+
+  .barcodeForm {
+    width: auto;
+    flex: 1 1 90px;
+    min-width: 0;
+    max-width: 140px;
+  }
+
+  .searchInput {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .syncBtn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .cartToggle {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+}
+
 @media (max-width: 480px) {
+  .pos {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .productsGrid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 6px;
+  }
+
+  .productCard {
+    padding: 8px;
+    min-height: 100px;
+  }
+
+  .categoryBtn {
+    width: auto;
+    height: 28px;
+    padding: 0 10px;
+    gap: 4px;
+  }
+
+  .barcodeForm {
+    max-width: 100px;
+    padding: 0 8px;
+  }
+
+  .barcodeInput {
+    font-size: 12px;
+  }
+
+  .syncBtn {
+    width: 34px;
+    height: 40px;
+    min-width: 34px;
+  }
+
+  .cartToggle {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
   .cartSheet {
     max-height: 90vh;
   }

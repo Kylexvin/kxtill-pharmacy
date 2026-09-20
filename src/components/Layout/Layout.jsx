@@ -1,7 +1,10 @@
+// src/components/Layout/Layout.jsx
+
 import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import SubscriptionBanner from '../Common/SubscriptionBanner';
 import styles from './Layout.module.css';
 
 const Layout = () => {
@@ -21,34 +24,23 @@ const Layout = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-  };
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div className={styles.layout}>
-      {/* TopBar - always visible */}
       <TopBar isMobile={isMobile} onToggleSidebar={toggleSidebar} />
 
-      {/* Sidebar Overlay - mobile only, and only when sidebar is open */}
       {isMobile && sidebarOpen && (
-        <div 
-          className={styles.overlay}
-          onClick={closeSidebar}
-        />
+        <div className={styles.overlay} onClick={closeSidebar} />
       )}
-      
-      {/* Sidebar */}
+
       <div className={`${styles.sidebarWrap} ${sidebarOpen ? styles.open : ''}`}>
         <Sidebar isMobile={isMobile} onClose={closeSidebar} />
       </div>
 
-      {/* Main Content */}
       <div className={styles.contentWrap}>
+        <SubscriptionBanner />
         <main className={styles.content}>
           <Outlet />
         </main>

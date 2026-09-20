@@ -9,9 +9,8 @@ import { openPrintWindow } from '../../utils/receipt/print';
 import toast from 'react-hot-toast';
 import {
   Search, Filter, Eye, ChevronLeft, ChevronRight,
-  DollarSign, ShoppingBag, Users, FileText, Printer,
-  RefreshCw, Clock, CheckCircle, XCircle, AlertCircle,
-  Receipt, Copy, Check, User, Building2, CreditCard, X,
+  FileText, Printer, RefreshCw, Clock, CheckCircle, XCircle,
+  AlertCircle, Receipt, Copy, Check, User, Building2, CreditCard, X,
   Banknote, Smartphone, CloudOff, RotateCw, WifiOff,
 } from 'lucide-react';
 import axios from 'axios';
@@ -23,10 +22,12 @@ import {
   getPendingSalesCount,
   getFailedSalesCount,
 } from '../../db/sqlite';
+import SalesStats from './components/SalesStats';
+import PendingBanner from './components/PendingBanner';
 import styles from './Sales.module.css';
 
 // ---------------------------------------------------------------------------
-// Tuning constants
+// Tuning
 // ---------------------------------------------------------------------------
 const POLL_INTERVAL_IDLE_MS = 30000;
 const POLL_INTERVAL_PENDING_MS = 8000;
@@ -37,13 +38,6 @@ const SYNC_EVENT_NAME = 'kxtill:sync-complete';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-// A sale is "local-only" (offline, not yet on server) when:
-//   - it came from the local SQLite store, AND
-//   - its local status isn't SYNCED, AND
-//   - it has no serverSaleId
-// The serverSaleId check is the reliable signal — a synced sale will always
-// have one, and merged server rows never do.
 const isLocalOnly = (sale) => {
   if (!sale) return false;
   if (sale.serverSaleId) return false;
@@ -106,6 +100,10 @@ const isAbortError = (error) =>
   error?.name === 'AbortError' ||
   axios.isCancel?.(error);
 
+// localStorage key for cached server totals (per org + branch scope)
+const totalsCacheKey = (orgId, branchId) =>
+  `salesTotals:${orgId}:${branchId || 'all'}`;
+
 const Sales = () => {
   const navigate = useNavigate();
   const {
@@ -119,6 +117,8 @@ const Sales = () => {
   const { formatCurrency, formatDate, formatDateTime } = useSettings();
 
   const [rawSales, setRawSales] = useState([]);
+  const [serverTotals, setServerTotals] = useState(null);
+  const [localUnsyncedTotal, setLocalUnsyncedTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const [searchInput, setSearchInput] = useState('');
@@ -162,12 +162,10 @@ const Sales = () => {
     };
   }, []);
 
-  // Debounced online/offline — brief blips don't flash the UI.
   const rawOffline = !navigator.onLine || contextIsOffline;
 
   useEffect(() => {
     if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
-
     if (rawOffline) {
       offlineTimerRef.current = setTimeout(() => {
         if (isMountedRef.current) setIsOnline(false);
@@ -175,7 +173,6 @@ const Sales = () => {
     } else {
       setIsOnline(true);
     }
-
     return () => {
       if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
     };
@@ -187,7 +184,7 @@ const Sales = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBranch?.id]);
 
-  // ---------- derived branch helpers ----------
+  // ---------- branch helpers ----------
   const canViewAllBranches = hasAllBranches || isOwner;
   const availableBranches = useMemo(() => branches || [], [branches]);
   const showBranchFilter = canViewAllBranches && availableBranches.length > 1;
@@ -217,7 +214,6 @@ const Sales = () => {
   const fetchLocalCounts = useCallback(async () => {
     const branchId = getActiveBranchId();
     if (!branchId) return;
-
     try {
       const pending = await getPendingSalesCount(branchId);
       const failed = await getFailedSalesCount(branchId);
@@ -230,10 +226,7 @@ const Sales = () => {
     }
   }, [getActiveBranchId]);
 
-  // ---------------------------------------------------------------------------
-  // mergeSales — server rows are authoritative. A row with a serverSaleId is
-  // ALWAYS synced, regardless of what its local status column says.
-  // ---------------------------------------------------------------------------
+  // ---------- merge ----------
   const mergeSales = useCallback((serverSales, localSales) => {
     const localMap = {};
     localSales.forEach((local) => {
@@ -269,15 +262,12 @@ const Sales = () => {
 
     const localOnly = localSales
       .filter((local) => {
-        // Trust serverSaleId: if it's set, this sale synced.
         if (local.serverSaleId) return false;
-
         const onServer =
           serverIds.has(local.id) ||
           serverClientIds.has(local.id) ||
           (local.reference && serverRefs.has(local.reference));
         if (onServer) return false;
-
         return local.localStatus === 'PENDING' || local.localStatus === 'FAILED';
       })
       .map((local) => ({ ...local, isLocal: true }));
@@ -321,6 +311,18 @@ const Sales = () => {
     };
   }, [dateRange]);
 
+  // ---------- hydrate cached server totals on mount / scope change ----------
+  useEffect(() => {
+    if (!orgId) return;
+    try {
+      const key = totalsCacheKey(orgId, getServerBranchId());
+      const cached = localStorage.getItem(key);
+      if (cached) setServerTotals(JSON.parse(cached));
+    } catch {
+      // ignore
+    }
+  }, [orgId, getServerBranchId]);
+
   const fetchSales = useCallback(async () => {
     if (!orgId) {
       setLoading(false);
@@ -335,6 +337,7 @@ const Sales = () => {
 
     let serverSales = [];
     let localSales = [];
+    let serverTotalsResult = null;
     const isCurrentlyOnline = !contextIsOffline && navigator.onLine;
 
     try {
@@ -350,6 +353,19 @@ const Sales = () => {
             { params, timeout: 10000, signal: controller.signal }
           );
           serverSales = response.data.items || [];
+          serverTotalsResult = response.data.totals || null;
+
+          if (serverTotalsResult) {
+            setServerTotals(serverTotalsResult);
+            // cache for offline use
+            try {
+              const key = totalsCacheKey(orgId, serverBranchId);
+              localStorage.setItem(key, JSON.stringify(serverTotalsResult));
+            } catch {
+              // quota / private mode
+            }
+          }
+
           if (!controller.signal.aborted && isMountedRef.current) {
             setLastSyncTime(new Date());
           }
@@ -371,8 +387,15 @@ const Sales = () => {
 
       const mergedSales = mergeSales(serverSales, localSales);
       setRawSales(mergedSales);
-      hasLoadedOnceRef.current = true;
 
+      const localOnly = mergedSales.filter(isLocalOnly);
+      const unsyncedTotal = localOnly.reduce(
+        (sum, s) => sum + toNumber(s.totalAmount),
+        0
+      );
+      setLocalUnsyncedTotal(unsyncedTotal);
+
+      hasLoadedOnceRef.current = true;
       await fetchLocalCounts();
     } catch (error) {
       if (isAbortError(error)) return;
@@ -383,12 +406,15 @@ const Sales = () => {
           const localResult = await getAllLocalSalesForBranch(localBranchId, {});
           if (isMountedRef.current) {
             setRawSales(localResult.items || []);
+            // do NOT clear serverTotals — keep last cached value
             hasLoadedOnceRef.current = true;
           }
         }
       } catch (localError) {
         console.error('Failed to load local sales:', localError);
-        if (isMountedRef.current) setRawSales([]);
+        if (isMountedRef.current) {
+          setRawSales([]);
+        }
       }
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
@@ -416,7 +442,35 @@ const Sales = () => {
     return filteredSales.slice(start, start + limit);
   }, [filteredSales, currentPage, limit]);
 
+  // ---------- stats: server totals + local unsynced ----------
   const stats = useMemo(() => {
+    const localOnly = filteredSales.filter(isLocalOnly);
+    const localRevenue = localOnly.reduce(
+      (sum, s) => sum + toNumber(s.totalAmount),
+      0
+    );
+    const localCount = localOnly.length;
+
+    const noClientFilters =
+      statusFilter === 'all' &&
+      paymentFilter === 'all' &&
+      searchTerm.trim() === '' &&
+      dateRange === 'all';
+
+    const canUseServerTotals = Boolean(serverTotals) && noClientFilters;
+
+    if (canUseServerTotals) {
+      const totalRevenue = serverTotals.revenue + localRevenue;
+      const totalSales = serverTotals.salesCount + localCount;
+      return {
+        totalSales,
+        totalRevenue,
+        averageOrderValue: totalSales > 0 ? totalRevenue / totalSales : 0,
+        uniqueCustomers: serverTotals.uniqueCustomers,
+        source: 'server+local',
+      };
+    }
+
     const totalRevenue = filteredSales.reduce(
       (sum, s) => sum + toNumber(s.totalAmount),
       0
@@ -429,8 +483,16 @@ const Sales = () => {
       uniqueCustomers: new Set(
         filteredSales.map((s) => s.customerName || 'Walk-in Customer')
       ).size,
+      source: 'page',
     };
-  }, [filteredSales]);
+  }, [
+    filteredSales,
+    serverTotals,
+    statusFilter,
+    paymentFilter,
+    searchTerm,
+    dateRange,
+  ]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -457,6 +519,7 @@ const Sales = () => {
     setCurrentPage(1);
   }, [statusFilter, paymentFilter, searchTerm, branchFilter, dateRange]);
 
+  // ---------- user-triggered refresh ----------
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -469,6 +532,15 @@ const Sales = () => {
     }
   }, [fetchSales, isRefreshing]);
 
+  // ---------- background refresh (silent) ----------
+  const refreshInBackground = useCallback(async () => {
+    try {
+      await fetchSales();
+    } catch (error) {
+      console.error('Background refresh failed:', error);
+    }
+  }, [fetchSales]);
+
   useEffect(() => {
     if (!isOnline || contextIsOffline) return;
 
@@ -479,7 +551,7 @@ const Sales = () => {
 
     const interval = setInterval(() => {
       if (navigator.onLine && !contextIsOffline) {
-        handleRefresh();
+        refreshInBackground();
       }
     }, intervalMs);
 
@@ -487,17 +559,17 @@ const Sales = () => {
   }, [
     isOnline,
     contextIsOffline,
-    handleRefresh,
+    refreshInBackground,
     localPendingCount,
     localFailedCount,
   ]);
 
   useEffect(() => {
     const onOnline = () => {
-      if (orgId) handleRefresh();
+      if (orgId) refreshInBackground();
     };
     const onSyncComplete = () => {
-      if (orgId) handleRefresh();
+      if (orgId) refreshInBackground();
     };
 
     window.addEventListener('online', onOnline);
@@ -506,36 +578,23 @@ const Sales = () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener(SYNC_EVENT_NAME, onSyncComplete);
     };
-  }, [orgId, handleRefresh]);
+  }, [orgId, refreshInBackground]);
 
-  const handleSearch = () => {
-    setSearchTerm(searchInput);
-  };
+  const handleSearch = () => setSearchTerm(searchInput);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleSearch();
   };
 
-  const handlePageChange = (newPage) => {
-    setCurrentPage(newPage);
-  };
+  const handlePageChange = (newPage) => setCurrentPage(newPage);
 
   const handleFilterChange = useCallback((type, value) => {
     switch (type) {
-      case 'status':
-        setStatusFilter(value);
-        break;
-      case 'payment':
-        setPaymentFilter(value);
-        break;
-      case 'date':
-        setDateRange(value);
-        break;
-      case 'branch':
-        setBranchFilter(value);
-        break;
-      default:
-        break;
+      case 'status': setStatusFilter(value); break;
+      case 'payment': setPaymentFilter(value); break;
+      case 'date': setDateRange(value); break;
+      case 'branch': setBranchFilter(value); break;
+      default: break;
     }
   }, []);
 
@@ -573,13 +632,9 @@ const Sales = () => {
     if (!orgId) return;
     setDetailLoading(true);
     try {
-      // 1. Resolve locally first, to learn whether this sale ever synced.
       let localRow = await getLocalSaleFormatted(saleId);
-      if (!localRow) {
-        localRow = await getLocalSaleByServerId(saleId);
-      }
+      if (!localRow) localRow = await getLocalSaleByServerId(saleId);
 
-      // 2. Genuinely offline-only → show the local row, done.
       const localOnly =
         localRow && !localRow.serverSaleId && localRow.localStatus !== 'SYNCED';
 
@@ -589,7 +644,6 @@ const Sales = () => {
         return;
       }
 
-      // 3. Synced sale → fetch the server row (authoritative).
       const targetId = localRow?.serverSaleId || saleId;
       const response = await axios.get(
         `/organizations/${orgId}/kxtill/sales/${targetId}`
@@ -597,8 +651,6 @@ const Sales = () => {
       setShowDetail(response.data.sale);
     } catch (error) {
       console.error('Error fetching sale detail:', error);
-
-      // 4. Server failed → fall back to local so the user sees *something*.
       try {
         const fallback =
           (await getLocalSaleFormatted(saleId)) ||
@@ -610,21 +662,15 @@ const Sales = () => {
       } catch {
         // ignore
       }
-
       toast.error('Failed to load sale details');
     } finally {
       setDetailLoading(false);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Receipts — server only. Local-only sales block with a toast because the
-  // server is the only place that can produce an ETIMS-compliant receipt.
-  // ---------------------------------------------------------------------------
   const handlePrintReceipt = async (sale) => {
     if (!orgId) return;
 
-    // Only offline-only sales are blocked.
     if (isLocalOnly(sale)) {
       toast.error(
         'Receipt will be available after this sale syncs to the server.',
@@ -633,8 +679,6 @@ const Sales = () => {
       return;
     }
 
-    // Synced sales: server ID is either the local serverSaleId
-    // (offline-created and synced), or sale.id (server-originated).
     const targetId = sale.serverSaleId || sale.id;
     if (!targetId) {
       toast.error('Receipt is not available for this sale.', { id: 'receipt' });
@@ -643,11 +687,9 @@ const Sales = () => {
 
     try {
       toast.loading('Loading receipt...', { id: 'receipt' });
-
       const response = await axios.get(
         `/organizations/${orgId}/kxtill/sales/${targetId}/receipt`
       );
-
       const data = response.data;
       const text = renderReceipt(data, data?.receipt?.template);
 
@@ -655,15 +697,12 @@ const Sales = () => {
         toast.error('Please allow popups for this site', { id: 'receipt' });
         return;
       }
-
       toast.dismiss('receipt');
     } catch (error) {
       console.error('Error fetching receipt:', error);
       const status = error.response?.status;
       if (status === 404) {
-        toast.error('Receipt not ready yet — try again in a moment.', {
-          id: 'receipt',
-        });
+        toast.error('Receipt not ready yet — try again in a moment.', { id: 'receipt' });
       } else {
         toast.error('Failed to load receipt', { id: 'receipt' });
       }
@@ -682,7 +721,6 @@ const Sales = () => {
     if (statusFilter !== 'all') count++;
     if (paymentFilter !== 'all') count++;
     if (dateRange !== 'all') count++;
-    if (branchFilter !== 'all') count++;
     if (searchTerm && searchTerm.trim()) count++;
     return count;
   };
@@ -690,51 +728,19 @@ const Sales = () => {
   const getStatusBadgeWithLocal = (sale) => {
     if (isLocalOnly(sale)) {
       const statusMap = {
-        PENDING: {
-          label: 'Pending Sync',
-          className: styles.statusPending,
-          icon: Clock,
-        },
-        FAILED: {
-          label: 'Sync Failed',
-          className: styles.statusFailed,
-          icon: XCircle,
-        },
+        PENDING: { label: 'Pending Sync', className: styles.statusPending, icon: Clock },
+        FAILED: { label: 'Sync Failed', className: styles.statusFailed, icon: XCircle },
       };
       return statusMap[sale.localStatus] || statusMap.PENDING;
     }
 
     const statusMap = {
-      COMPLETED: {
-        label: 'Completed',
-        className: styles.statusCompleted,
-        icon: CheckCircle,
-      },
-      PAID: {
-        label: 'Paid',
-        className: styles.statusCompleted,
-        icon: CheckCircle,
-      },
-      PENDING: {
-        label: 'Pending',
-        className: styles.statusPending,
-        icon: Clock,
-      },
-      REFUNDED: {
-        label: 'Refunded',
-        className: styles.statusRefunded,
-        icon: XCircle,
-      },
-      VOIDED: {
-        label: 'Voided',
-        className: styles.statusVoided,
-        icon: XCircle,
-      },
-      CANCELLED: {
-        label: 'Cancelled',
-        className: styles.statusVoided,
-        icon: XCircle,
-      },
+      COMPLETED: { label: 'Completed', className: styles.statusCompleted, icon: CheckCircle },
+      PAID: { label: 'Paid', className: styles.statusCompleted, icon: CheckCircle },
+      PENDING: { label: 'Pending', className: styles.statusPending, icon: Clock },
+      REFUNDED: { label: 'Refunded', className: styles.statusRefunded, icon: XCircle },
+      VOIDED: { label: 'Voided', className: styles.statusVoided, icon: XCircle },
+      CANCELLED: { label: 'Cancelled', className: styles.statusVoided, icon: XCircle },
     };
     return statusMap[sale.status] || statusMap.PENDING;
   };
@@ -832,49 +838,15 @@ const Sales = () => {
         )}
       </div>
 
-      {/* Stats Cards */}
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconTotal}`}>
-            <ShoppingBag size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Total Sales</span>
-            <span className={styles.statValue}>{stats.totalSales}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconRevenue}`}>
-            <DollarSign size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Revenue</span>
-            <span className={styles.statValue}>
-              {formatCurrency(stats.totalRevenue)}
-            </span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconAvg}`}>
-            <FileText size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Avg. Order Value</span>
-            <span className={styles.statValue}>
-              {formatCurrency(stats.averageOrderValue)}
-            </span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconCustomers}`}>
-            <Users size={20} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Unique Customers</span>
-            <span className={styles.statValue}>{stats.uniqueCustomers}</span>
-          </div>
-        </div>
-      </div>
+      {/* Stats */}
+      <SalesStats
+        stats={stats}
+        isOnline={isOnline}
+        localPendingCount={localPendingCount}
+        localFailedCount={localFailedCount}
+        localUnsyncedTotal={localUnsyncedTotal}
+        formatCurrency={formatCurrency}
+      />
 
       {/* Filters */}
       <div className={styles.filtersBar}>
@@ -959,6 +931,17 @@ const Sales = () => {
         </div>
       </div>
 
+      {/* Pending sync banner */}
+      <PendingBanner
+        pendingCount={localPendingCount}
+        failedCount={localFailedCount}
+        total={localUnsyncedTotal}
+        isOnline={isOnline && !contextIsOffline}
+        isRefreshing={isRefreshing}
+        onSync={handleRefresh}
+        formatCurrency={formatCurrency}
+      />
+
       {/* Sales Table */}
       <div className={styles.tableContainer}>
         {showSkeleton ? (
@@ -1017,18 +1000,6 @@ const Sales = () => {
                 {lastSyncTime && isOnline && (
                   <span className={styles.lastSyncTime}>
                     • Updated: {lastSyncTime.toLocaleTimeString()}
-                  </span>
-                )}
-                {isRefreshing && (
-                  <span className={styles.lastSyncTime}>
-                    {' '}
-                    •{' '}
-                    <RefreshCw
-                      size={11}
-                      className={styles.spinning}
-                      style={{ display: 'inline', verticalAlign: 'middle' }}
-                    />{' '}
-                    refreshing…
                   </span>
                 )}
               </span>
@@ -1299,7 +1270,7 @@ const Sales = () => {
                       </span>
                     </div>
                     <div className={styles.detailMetaItem}>
-                      <Users size={14} />
+                      <User size={14} />
                       <span>
                         {showDetail.customerName || 'Walk-in Customer'}
                       </span>
@@ -1479,7 +1450,7 @@ const Sales = () => {
         </div>
       )}
 
-      {/* Receipt Modal (kept for potential future use — not opened currently) */}
+      {/* Receipt Modal (kept for future use) */}
       {showReceipt && (
         <div
           className={styles.receiptOverlay}

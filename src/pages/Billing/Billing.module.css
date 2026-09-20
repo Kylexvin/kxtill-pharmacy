@@ -1,0 +1,578 @@
+/* Products/kxtill/src/pages/Billing/Billing.module.css */
+
+/* ============================================================
+   PAGE
+   ============================================================ */
+
+.page {
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.header {
+  margin-bottom: 4px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================================
+   CARD
+   ============================================================ */
+
+.card {
+  background: var(--bg-panel, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.cardWarn {
+  border-color: rgba(255, 180, 0, 0.3);
+  background: rgba(255, 180, 0, 0.04);
+}
+
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cardLabel {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.cardValue {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cardSub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ============================================================
+   PROGRESS BAR
+   ============================================================ */
+
+.progressWrap {
+  margin: 16px 0 20px;
+}
+
+.progressTrack {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.progressLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  gap: 8px;
+}
+
+/* ============================================================
+   KEY-VALUE GRID
+   ============================================================ */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kvLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.kvValue {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   WHAT HAPPENS NEXT
+   ============================================================ */
+
+.nextTitle {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.nextBody {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   ACCESS GRID (included / blocked)
+   ============================================================ */
+
+.accessGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.accessHead {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.dotGreen,
+.dotRed {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotGreen {
+  background: #34c759;
+}
+
+.dotRed {
+  background: #ef5350;
+}
+
+.accessList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.accessList li {
+  margin-bottom: 2px;
+}
+
+/* ============================================================
+   AMOUNT BLOCK
+   ============================================================ */
+
+.amountBlock {
+  padding: 14px;
+  border-radius: 6px;
+  background: var(--bg-raised, rgba(255, 255, 255, 0.03));
+  margin-bottom: 16px;
+}
+
+.amountLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.amountValue {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.amountNote {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   PAYMENT ROWS
+   ============================================================ */
+
+.payGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 16px;
+}
+
+.payRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.payRow:last-child {
+  border-bottom: none;
+}
+
+.payLabel {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.payValueWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.payValue {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.copyBtn {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.copyBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* ============================================================
+   STEPS
+   ============================================================ */
+
+.stepsLabel {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  margin-top: 16px;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.steps li {
+  margin-bottom: 2px;
+}
+
+.alternatives {
+  margin-top: 8px;
+}
+
+/* ============================================================
+   PAYMENT HISTORY TABLE
+   ============================================================ */
+
+.empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  padding: 8px 6px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  vertical-align: top;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* ============================================================
+   CONTACT
+   ============================================================ */
+
+.contactRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.contactRow:last-child {
+  border-bottom: none;
+}
+
+.contactRow span {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.contactRow strong {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ============================================================
+   LOADING / ERROR
+   ============================================================ */
+
+.centered {
+  padding: 60px 40px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   MOBILE — tablet
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .page {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .title {
+    font-size: 19px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .card {
+    padding: 16px;
+    border-radius: 6px;
+  }
+
+  .cardHead {
+    margin-bottom: 12px;
+  }
+
+  .cardValue {
+    font-size: 16px;
+  }
+
+  .amountValue {
+    font-size: 20px;
+  }
+
+  .accessGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+}
+
+/* ============================================================
+   MOBILE — small phone
+   ============================================================ */
+
+@media (max-width: 480px) {
+  .page {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 17px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .cardHead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .cardHead > div:last-child {
+    /* Badge on its own line if wrapped */
+    align-self: flex-start;
+  }
+
+  .cardValue {
+    font-size: 15px;
+  }
+
+  .amountValue {
+    font-size: 18px;
+  }
+
+  .amountBlock {
+    padding: 12px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .progressLabels {
+    font-size: 11px;
+  }
+
+  /* Payment rows stack vertically on very small screens */
+  .payRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px 0;
+  }
+
+  .payValueWrap {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+  }
+
+  .payValue {
+    text-align: left;
+    font-size: 13px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .copyBtn {
+    flex-shrink: 0;
+  }
+
+  /* Table scroll on small screens */
+  .table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table thead,
+  .table tbody {
+    display: table;
+    width: 100%;
+    min-width: 520px;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+
+  .steps {
+    font-size: 12px;
+    padding-left: 18px;
+  }
+
+  .accessList {
+    font-size: 12px;
+  }
+
+  .contactRow {
+    font-size: 12px;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+  }
+
+  .contactRow strong {
+    text-align: left;
+  }
+
+  .centered {
+    padding: 40px 20px;
+    min-height: 200px;
+  }
+}

@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
-import { Toaster } from './components/Common/Toast';
+import { Toaster, showToast } from './components/Common/Toast';
 import { AuthProvider } from './contexts/AuthContext';
 import { PermissionsProvider } from './contexts/PermissionsContext';
+import { SubscriptionProvider } from "./contexts/SubscriptionContext";
 import { SettingsProvider } from './contexts/SettingsContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import RequireAuth from './components/Auth/RequireAuth';
@@ -28,6 +29,7 @@ import CustomerDetail from './pages/Customers/CustomerDetail';
 import KxTillStaff from './pages/KxTillStaff/KxTillStaff';
 import Branches from './pages/Branches/Branches';
 import Account from './pages/Account/Account';
+import Billing from './pages/Billing/Billing';
 import { KXTILL, PLATFORM } from './constants/permissions';
 import { initDb } from './db/sqlite';
 import './App.css';
@@ -36,9 +38,22 @@ import './styles/globals.css';
 // ============================================================
 // AXIOS CONFIG
 // ============================================================
-axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1'; 
+axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1';
+// axios.defaults.baseURL = 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
+
+// ============================================================
+// SUBSCRIPTION BLOCK MESSAGES
+// ============================================================
+const SUBSCRIPTION_CODES = {
+  SUBSCRIPTION_EXPIRED: 'Your subscription has expired. Contact KxByte to renew.',
+  SUBSCRIPTION_GRACE_READONLY: 'Read-only mode. Renew to restore write access.',
+  SUBSCRIPTION_SUSPENDED: 'Your account is suspended. Contact KxByte.',
+  SUBSCRIPTION_CANCELLED: 'Your subscription is cancelled. Contact KxByte.',
+  SUBSCRIPTION_INACTIVE: 'Your subscription is inactive.',
+  NO_SUBSCRIPTION: 'No subscription found for this product.',
+};
 
 // ============================================================
 // SESSION CACHE PURGE
@@ -75,10 +90,15 @@ function clearAuthStorage() {
 }
 
 // ============================================================
-// REQUEST INTERCEPTOR — attach bearer token
+// REQUEST INTERCEPTOR — attach bearer token (opt-out via skipAuth)
 // ============================================================
 axios.interceptors.request.use(
   (config) => {
+    // Public endpoints (e.g. OAuth token exchange) can opt out of
+    // attaching a possibly-stale bearer token.
+    if (config.skipAuth) {
+      return config;
+    }
     const token = localStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -89,7 +109,7 @@ axios.interceptors.request.use(
 );
 
 // ============================================================
-// RESPONSE INTERCEPTOR — single-flight refresh on 401
+// RESPONSE INTERCEPTOR — subscription block + 401 refresh
 // ============================================================
 let isRefreshing = false;
 let failedQueue = [];
@@ -105,13 +125,30 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-const AUTH_ENDPOINTS = ['/auth/refresh', '/auth/login', '/auth/register'];
+// Endpoints that must never trigger the refresh loop.
+// OAuth token exchange is public and unauthenticated.
+const AUTH_ENDPOINTS = [
+  '/auth/refresh',
+  '/auth/login',
+  '/auth/register',
+  '/auth/oauth/token',
+];
 
 axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
     const url = originalRequest?.url || '';
+
+    // ---- Subscription blocks: surface the right toast once ----
+    if (error.response?.status === 403) {
+      const code = error.response?.data?.code;
+      if (code && SUBSCRIPTION_CODES[code]) {
+        error.isSubscriptionBlock = true;
+        error.userMessage = SUBSCRIPTION_CODES[code];
+        showToast.error(SUBSCRIPTION_CODES[code]);
+      }
+    }
 
     // Auth endpoints themselves must never trigger a refresh loop
     if (AUTH_ENDPOINTS.some((ep) => url.includes(ep))) {
@@ -213,7 +250,6 @@ const DbLoadingScreen = () => (
 // APP
 // ============================================================
 function App() {
-  
   const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {
@@ -236,176 +272,179 @@ function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <PermissionsProvider>
-            <SettingsProvider>
-              <Toaster />
-              <Routes>
-                {/* ==================== PUBLIC ==================== */}
-                <Route path="/login" element={<Login />} />
-                <Route path="/oauth/login" element={<Login />} />
-                <Route path="/oauth/callback" element={<OAuthCallback />} />
-                <Route
-                  path="/kx/kxtill/oauth/callback"
-                  element={<OAuthCallback />}
-                />
-                <Route path="/select-org" element={<SelectOrg />} />
-                <Route path="/select-branch" element={<SelectBranch />} />
+          <SubscriptionProvider>
+            <PermissionsProvider>
+              <SettingsProvider>
+                <Toaster />
+                <Routes>
+                  {/* ==================== PUBLIC ==================== */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/oauth/login" element={<Login />} />
+                  <Route path="/oauth/callback" element={<OAuthCallback />} />
+                  <Route
+                    path="/kx/kxtill/oauth/callback"
+                    element={<OAuthCallback />}
+                  />
+                  <Route path="/select-org" element={<SelectOrg />} />
+                  <Route path="/select-branch" element={<SelectBranch />} />
 
-                {/* ==================== PROTECTED ==================== */}
-                <Route
-                  path="/"
-                  element={
-                    <RequireAuth>
-                      <Layout />
-                    </RequireAuth>
-                  }
-                >
-                  <Route index element={<Navigate to="/pos" replace />} />
+                  {/* ==================== PROTECTED ==================== */}
+                  <Route
+                    path="/"
+                    element={
+                      <RequireAuth>
+                        <Layout />
+                      </RequireAuth>
+                    }
+                  >
+                    <Route index element={<Navigate to="/pos" replace />} />
 
-                  {/* ---------- POS ---------- */}
-                  <Route
-                    path="pos"
-                    element={
-                      <RequirePermission permission={KXTILL.SALES.CREATE}>
-                        <POS />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- POS ---------- */}
+                    <Route
+                      path="pos"
+                      element={
+                        <RequirePermission permission={KXTILL.SALES.CREATE}>
+                          <POS />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- Dashboard ---------- */}
-                  <Route
-                    path="dashboard"
-                    element={
-                      <RequirePermission
-                        anyOf={[
-                          KXTILL.SALES.VIEW,
-                          KXTILL.SALES.CREATE,
-                          KXTILL.INVENTORY.VIEW,
-                          KXTILL.REPORTS.VIEW,
-                          PLATFORM.BRANCHES.VIEW,
-                        ]}
-                      >
-                        <Dashboard />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- Dashboard ---------- */}
+                    <Route
+                      path="dashboard"
+                      element={
+                        <RequirePermission
+                          anyOf={[
+                            KXTILL.SALES.VIEW,
+                            KXTILL.SALES.CREATE,
+                            KXTILL.INVENTORY.VIEW,
+                            KXTILL.REPORTS.VIEW,
+                            PLATFORM.BRANCHES.VIEW,
+                          ]}
+                        >
+                          <Dashboard />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- Sales ---------- */}
-                  <Route
-                    path="sales"
-                    element={
-                      <RequirePermission permission={KXTILL.SALES.VIEW}>
-                        <Sales />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="refunds"
-                    element={
-                      <RequirePermission permission={KXTILL.SALES.REFUND}>
-                        <Refunds />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- Sales ---------- */}
+                    <Route
+                      path="sales"
+                      element={
+                        <RequirePermission permission={KXTILL.SALES.VIEW}>
+                          <Sales />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="refunds"
+                      element={
+                        <RequirePermission permission={KXTILL.SALES.REFUND}>
+                          <Refunds />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- Customers ---------- */}
-                  <Route
-                    path="customers"
-                    element={
-                      <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
-                        <Customers />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="customers/:id"
-                    element={
-                      <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
-                        <CustomerDetail />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- Customers ---------- */}
+                    <Route
+                      path="customers"
+                      element={
+                        <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
+                          <Customers />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="customers/:id"
+                      element={
+                        <RequirePermission permission={PLATFORM.CUSTOMERS.VIEW}>
+                          <CustomerDetail />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- Inventory ---------- */}
-                  <Route
-                    path="inventory"
-                    element={
-                      <RequirePermission permission={KXTILL.INVENTORY.VIEW}>
-                        <Inventory />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="global-inventory"
-                    element={
-                      <RequirePermission permission={KXTILL.INVENTORY.GLOBAL_VIEW}>
-                        <GlobalInventory />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="transfers"
-                    element={
-                      <RequirePermission
-                        anyOf={[
-                          KXTILL.INVENTORY.TRANSFERS.CREATE,
-                          KXTILL.INVENTORY.TRANSFERS.APPROVE,
-                          KXTILL.INVENTORY.TRANSFERS.COMPLETE,
-                        ]}
-                      >
-                        <Transfers />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- Inventory ---------- */}
+                    <Route
+                      path="inventory"
+                      element={
+                        <RequirePermission permission={KXTILL.INVENTORY.VIEW}>
+                          <Inventory />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="global-inventory"
+                      element={
+                        <RequirePermission permission={KXTILL.INVENTORY.GLOBAL_VIEW}>
+                          <GlobalInventory />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="transfers"
+                      element={
+                        <RequirePermission
+                          anyOf={[
+                            KXTILL.INVENTORY.TRANSFERS.CREATE,
+                            KXTILL.INVENTORY.TRANSFERS.APPROVE,
+                            KXTILL.INVENTORY.TRANSFERS.COMPLETE,
+                          ]}
+                        >
+                          <Transfers />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- KxTill Staff — owner only ---------- */}
-                  <Route
-                    path="kxtill/staff"
-                    element={
-                      <RequirePermission ownerOnly>
-                        <KxTillStaff />
-                      </RequirePermission>
-                    }
-                  />
+                    {/* ---------- KxTill Staff — owner only ---------- */}
+                    <Route
+                      path="kxtill/staff"
+                      element={
+                        <RequirePermission ownerOnly>
+                          <KxTillStaff />
+                        </RequirePermission>
+                      }
+                    />
 
-                  {/* ---------- Platform ---------- */}
-                  <Route
-                    path="branches"
-                    element={
-                      <RequirePermission
-                        anyOf={[
-                          PLATFORM.BRANCHES.VIEW,
-                          PLATFORM.BRANCHES.MANAGE,
-                        ]}
-                      >
-                        <Branches />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="reports"
-                    element={
-                      <RequirePermission permission={KXTILL.REPORTS.VIEW}>
-                        <Reports />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="settings"
-                    element={
-                      <RequirePermission permission={KXTILL.SETTINGS.VIEW}>
-                        <Settings />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route path="account" element={<Account />} />
-                </Route>
+                    {/* ---------- Platform ---------- */}
+                    <Route
+                      path="branches"
+                      element={
+                        <RequirePermission
+                          anyOf={[
+                            PLATFORM.BRANCHES.VIEW,
+                            PLATFORM.BRANCHES.MANAGE,
+                          ]}
+                        >
+                          <Branches />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="reports"
+                      element={
+                        <RequirePermission permission={KXTILL.REPORTS.VIEW}>
+                          <Reports />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="settings"
+                      element={
+                        <RequirePermission permission={KXTILL.SETTINGS.VIEW}>
+                          <Settings />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route path="account" element={<Account />} />
+                    <Route path="billing" element={<Billing />} />
+                  </Route>
 
-                {/* ==================== CATCH-ALL ==================== */}
-                <Route path="*" element={<Navigate to="/pos" replace />} />
-              </Routes>
-            </SettingsProvider>
-          </PermissionsProvider>
+                  {/* ==================== CATCH-ALL ==================== */}
+                  <Route path="*" element={<Navigate to="/pos" replace />} />
+                </Routes>
+              </SettingsProvider>
+            </PermissionsProvider>
+          </SubscriptionProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

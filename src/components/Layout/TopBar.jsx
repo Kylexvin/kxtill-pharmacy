@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import axios from 'axios';
 import {
-  Bell, User, Settings, HelpCircle, LogOut, AlertTriangle,
+  Bell, User, Settings, HelpCircle, LogOut,
   Menu, Moon, Sun, Building2, Check, ChevronRight,
   Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, UserCircle,
   CreditCard,
@@ -15,17 +15,32 @@ import styles from './TopBar.module.css';
 import { sync, setOnlineStatus } from '../../sync/engine';
 import { getPendingSales } from '../../db/sqlite';
 import usePolling from '../../hooks/usePolling';
+import { useNotifications } from '../../hooks/useNotifications';
 
+// ============================================================
+// CONSTANTS
+// ============================================================
 const HEARTBEAT_URL = '/auth/me';
-const HEARTBEAT_INTERVAL_MS = 20000;
+const HEARTBEAT_ONLINE_MS = 60000;
+const HEARTBEAT_OFFLINE_MS = 15000;
 const HEARTBEAT_TIMEOUT_MS = 5000;
+
+// Symmetric hysteresis: need N confirmations in either direction
+// before flipping the verdict.
+const ONLINE_CONFIRM_THRESHOLD = 2;
+const OFFLINE_CONFIRM_THRESHOLD = 2;
 
 const SYNC_INTERVAL_POS_MS = 60 * 1000;
 const SYNC_INTERVAL_IDLE_MS = 5 * 60 * 1000;
+const SYNC_RESULT_LINGER_MS = 3000;
 
+// ============================================================
+// TOPBAR
+// ============================================================
 const TopBar = ({ isMobile, onToggleSidebar }) => {
   const navigate = useNavigate();
   const location = useLocation();
+
   const {
     user,
     logout,
@@ -42,38 +57,60 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const { darkMode, toggleTheme } = useTheme();
   const { settings } = useSettings();
 
-  // Feature flags
+  const {
+    items: notifications,
+    unreadCount,
+    refresh: refreshNotifications,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications({
+    productKey: 'kxtill',
+    organizationId: activeOrganization?.id,
+  });
+
   const allowBranchSwitch = settings?.allowBranchSwitch !== false;
 
+  // ---------- UI state ----------
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
-  const [isOnline, setIsOnline] = useState(true);
-  const [checkingConnectivity, setCheckingConnectivity] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncStatus, setLastSyncStatus] = useState(null);
+  // ---------- connectivity state ----------
+  // 'checking' | 'online' | 'offline'
+  const [connectionState, setConnectionState] = useState('checking');
+
+  // ---------- sync state ----------
+  // 'idle' | 'syncing' | 'success' | 'error'
+  const [syncState, setSyncState] = useState('idle');
+
   const [pendingCount, setPendingCount] = useState(0);
 
+  // ---------- refs ----------
   const userMenuRef = useRef(null);
   const notifMenuRef = useRef(null);
 
-  const isSyncingRef = useRef(isSyncing);
+  // Synchronous mirrors
+  const connectionRef = useRef('checking');
+  const syncStateRef = useRef('idle');
   const activeBranchRef = useRef(activeBranch);
+
   const heartbeatInFlightRef = useRef(false);
+  const okStreakRef = useRef(0);
+  const failStreakRef = useRef(0);
+
+  // Tracks whether we've ever been confirmed offline in this session,
+  // so the "back online" effect only fires on a genuine reconnect,
+  // not the initial mount → online transition.
+  const hasBeenOfflineRef = useRef(false);
+  const wasOnlineRef = useRef(false);
 
   const isPos = location.pathname === '/pos';
 
-  useEffect(() => {
-    isSyncingRef.current = isSyncing;
-  }, [isSyncing]);
-
-  useEffect(() => {
-    activeBranchRef.current = activeBranch;
-  }, [activeBranch]);
-
-  const lowStockCount = 0;
+  // ---------- mirror effects ----------
+  useEffect(() => { connectionRef.current = connectionState; }, [connectionState]);
+  useEffect(() => { syncStateRef.current = syncState; }, [syncState]);
+  useEffect(() => { activeBranchRef.current = activeBranch; }, [activeBranch]);
 
   // ---------- click-outside ----------
   useEffect(() => {
@@ -125,94 +162,184 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
   useEffect(() => {
     checkPendingSales();
-  }, [isOnline, lastSyncStatus, checkPendingSales]);
+  }, [connectionState, syncState, checkPendingSales]);
 
   // ---------- manual sync ----------
   const handleManualSync = useCallback(async () => {
-    if (isSyncingRef.current) return;
+    if (syncStateRef.current === 'syncing') return;
     if (!activeBranchRef.current?.id) return;
+    if (connectionRef.current === 'offline') return;
 
-    setIsSyncing(true);
-    setLastSyncStatus(null);
+    setSyncState('syncing');
 
     try {
       const result = await sync(activeBranchRef.current.id);
-      setLastSyncStatus(result.success ? 'success' : 'error');
-      await checkPendingSales();
-    } catch (error) {
-      setLastSyncStatus('error');
+
+      if (result?.success) {
+        setSyncState('success');
+        await checkPendingSales();
+      } else {
+        // Soft failure — the sync engine already knows why.
+        // If it was a 403 subscription block, App.jsx's interceptor
+        // already showed a toast. Don't flash a red "Sync failed"
+        // for something already explained.
+        console.warn('Sync returned non-success:', result);
+        setSyncState('idle');
+        return;
+      }
+    } catch (err) {
+      // Only surface a visible error for actual network failures.
+      // HTTP errors (401/403/500) are already handled elsewhere.
+      if (!err?.response) {
+        setSyncState('error');
+      } else {
+        setSyncState('idle');
+      }
     } finally {
-      setIsSyncing(false);
-      setTimeout(() => setLastSyncStatus(null), 3000);
+      setTimeout(() => {
+        if (syncStateRef.current !== 'syncing') {
+          setSyncState('idle');
+        }
+      }, SYNC_RESULT_LINGER_MS);
     }
   }, [checkPendingSales]);
 
-  // ---------- auto sync ----------
-  const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
-  usePolling(
-    () => {
-      if (!isOnline) return;
-      if (!activeBranchRef.current?.id) return;
-      if (isSyncingRef.current) return;
-      handleManualSync();
-    },
-    syncInterval,
-    [syncInterval, isOnline, activeBranch?.id]
-  );
-
-  // ---------- connectivity heartbeat ----------
-  const checkConnectivity = useCallback(async () => {
+  // ---------- heartbeat ----------
+  const runHeartbeat = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
     heartbeatInFlightRef.current = true;
-    setCheckingConnectivity(true);
 
     try {
       await axios.get(HEARTBEAT_URL, { timeout: HEARTBEAT_TIMEOUT_MS });
-      setIsOnline(true);
-      setOnlineStatus(true);
-      setContextIsOffline(false);
-    } catch (err) {
-      if (err.response) {
-        setIsOnline(true);
+
+      okStreakRef.current += 1;
+      failStreakRef.current = 0;
+
+      if (
+        connectionRef.current !== 'online' &&
+        okStreakRef.current >= ONLINE_CONFIRM_THRESHOLD
+      ) {
+        setConnectionState('online');
         setOnlineStatus(true);
         setContextIsOffline(false);
+      }
+    } catch (err) {
+      // A response — even 4xx/5xx — means we reached the server.
+      if (err.response) {
+        okStreakRef.current += 1;
+        failStreakRef.current = 0;
+
+        if (
+          connectionRef.current !== 'online' &&
+          okStreakRef.current >= ONLINE_CONFIRM_THRESHOLD
+        ) {
+          setConnectionState('online');
+          setOnlineStatus(true);
+          setContextIsOffline(false);
+        }
       } else {
-        setIsOnline(false);
-        setOnlineStatus(false);
-        setContextIsOffline(true);
+        // Network-level failure
+        failStreakRef.current += 1;
+        okStreakRef.current = 0;
+
+        if (
+          connectionRef.current !== 'offline' &&
+          failStreakRef.current >= OFFLINE_CONFIRM_THRESHOLD
+        ) {
+          setConnectionState('offline');
+          setOnlineStatus(false);
+          setContextIsOffline(true);
+        }
       }
     } finally {
       heartbeatInFlightRef.current = false;
-      setCheckingConnectivity(false);
     }
   }, [setContextIsOffline]);
 
-  usePolling(checkConnectivity, HEARTBEAT_INTERVAL_MS, [checkConnectivity]);
+  // ---------- heartbeat polling ----------
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await runHeartbeat();
+      if (cancelled) return;
+      const interval =
+        connectionRef.current === 'online'
+          ? HEARTBEAT_ONLINE_MS
+          : HEARTBEAT_OFFLINE_MS;
+      timeoutId = setTimeout(tick, interval);
+    };
+
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [runHeartbeat]);
 
   // ---------- browser online/offline ----------
   useEffect(() => {
-    const handleBrowserOnline = () => checkConnectivity();
+    const handleBrowserOnline = () => {
+      // Browser says online — re-verify from scratch
+      okStreakRef.current = 0;
+      failStreakRef.current = 0;
+      setConnectionState('checking');
+      runHeartbeat();
+    };
+
     const handleBrowserOffline = () => {
-      setIsOnline(false);
+      // Browser says offline — trust it, go offline immediately
+      okStreakRef.current = 0;
+      failStreakRef.current = OFFLINE_CONFIRM_THRESHOLD;
+      setConnectionState('offline');
       setOnlineStatus(false);
       setContextIsOffline(true);
     };
+
     window.addEventListener('online', handleBrowserOnline);
     window.addEventListener('offline', handleBrowserOffline);
     return () => {
       window.removeEventListener('online', handleBrowserOnline);
       window.removeEventListener('offline', handleBrowserOffline);
     };
-  }, [checkConnectivity, setContextIsOffline]);
+  }, [runHeartbeat, setContextIsOffline]);
 
-  // ---------- sync on coming back online ----------
-  const wasOnlineRef = useRef(isOnline);
+  // ---------- remember if we've been offline ----------
   useEffect(() => {
-    if (!wasOnlineRef.current && isOnline) {
+    if (connectionState === 'offline') {
+      hasBeenOfflineRef.current = true;
+    }
+  }, [connectionState]);
+
+  // ---------- sync on GENUINE reconnect only ----------
+  // Skips the initial mount → online transition, which was causing
+  // a spurious "Syncing... → Sync failed → Online" flash on load.
+  useEffect(() => {
+    const nowOnline = connectionState === 'online';
+    const justReconnected =
+      !wasOnlineRef.current && nowOnline && hasBeenOfflineRef.current;
+    wasOnlineRef.current = nowOnline;
+
+    if (justReconnected) {
       handleManualSync();
     }
-    wasOnlineRef.current = isOnline;
-  }, [isOnline, handleManualSync]);
+  }, [connectionState, handleManualSync]);
+
+  // ---------- auto sync ----------
+  const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
+  usePolling(
+    () => {
+      if (connectionRef.current !== 'online') return;
+      if (!activeBranchRef.current?.id) return;
+      if (syncStateRef.current === 'syncing') return;
+      handleManualSync();
+    },
+    syncInterval,
+    [syncInterval, connectionState, activeBranch?.id]
+  );
 
   // ---------- handlers ----------
   const handleLogout = () => {
@@ -267,28 +394,34 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     setBranchDropdownOpen(false);
   };
 
+  // ---------- status derivation ----------
+  // Priority: offline beats everything. Then checking. Then sync lifecycle.
   const getSyncStatusColor = () => {
-    if (isSyncing) return 'sync';
-    if (lastSyncStatus === 'success') return 'success';
-    if (lastSyncStatus === 'error') return 'error';
-    if (checkingConnectivity) return 'sync';
-    return isOnline ? 'online' : 'offline';
+    if (connectionState === 'offline') return 'offline';
+    if (connectionState === 'checking') return 'sync';
+    if (syncState === 'syncing') return 'sync';
+    if (syncState === 'success') return 'success';
+    if (syncState === 'error') return 'error';
+    return 'online';
   };
 
   const getSyncStatusLabel = () => {
-    if (isSyncing) return 'Syncing...';
-    if (lastSyncStatus === 'success') return 'Synced';
-    if (lastSyncStatus === 'error') return 'Sync failed';
-    if (checkingConnectivity) return 'Checking...';
-    return isOnline ? 'Online' : 'Offline';
+    if (connectionState === 'offline') return 'Offline';
+    if (connectionState === 'checking') return 'Checking...';
+    if (syncState === 'syncing') return 'Syncing...';
+    if (syncState === 'success') return 'Synced';
+    if (syncState === 'error') return 'Sync failed';
+    return 'Online';
   };
 
-  const handleSyncButtonClick = () => {
-    checkConnectivity().then(() => {
-      if (isOnline) handleManualSync();
-    });
-  };
+  const handleSyncButtonClick = useCallback(async () => {
+    await runHeartbeat();
+    if (connectionRef.current === 'online') {
+      handleManualSync();
+    }
+  }, [runHeartbeat, handleManualSync]);
 
+  // ---------- notifications content ----------
   const getNotificationContent = () => {
     const items = [];
 
@@ -297,20 +430,25 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         id: 'pending-sales',
         icon: <RefreshCw size={15} />,
         title: `${pendingCount} sale${pendingCount > 1 ? 's' : ''} pending sync`,
-        desc: isOnline ? 'Click sync to upload' : 'Will sync when online',
+        desc:
+          connectionState === 'online'
+            ? 'Click sync to upload'
+            : 'Will sync when online',
         type: 'pending',
       });
     }
 
-    if (lowStockCount > 0) {
+    notifications.forEach((n) => {
       items.push({
-        id: 'low-stock',
-        icon: <AlertTriangle size={15} />,
-        title: 'Low Stock Alert',
-        desc: `${lowStockCount} items below minimum stock`,
-        type: 'warning',
+        id: n.id,
+        icon: <Bell size={15} />,
+        title: n.title,
+        desc: n.message,
+        type: 'backend',
+        notificationId: n.id,
+        read: Boolean(n.readAt),
       });
-    }
+    });
 
     if (items.length === 0) {
       items.push({
@@ -332,12 +470,14 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     .map((w) => w[0].toUpperCase())
     .join('');
 
-  // Section label condition — depends on both switchers
   const showOrgSwitcher = organizations && organizations.length > 0;
   const showBranchSwitcher =
     allowBranchSwitch && branches && branches.length > 0;
   const showOrgSection = showOrgSwitcher || showBranchSwitcher;
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <header className={styles.topBar}>
       <div className={styles.leftGroup}>
@@ -381,16 +521,16 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
           <button
             className={`${styles.syncBtn} ${styles[getSyncStatusColor()]}`}
             onClick={handleSyncButtonClick}
-            disabled={isSyncing || checkingConnectivity}
+            disabled={syncState === 'syncing' || connectionState === 'checking'}
             aria-label="Sync now"
           >
-            {isSyncing || checkingConnectivity ? (
+            {syncState === 'syncing' || connectionState === 'checking' ? (
               <RefreshCw size={16} className={styles.spinning} />
-            ) : lastSyncStatus === 'success' ? (
+            ) : syncState === 'success' ? (
               <CheckCircle size={16} />
-            ) : lastSyncStatus === 'error' ? (
+            ) : syncState === 'error' ? (
               <XCircle size={16} />
-            ) : isOnline ? (
+            ) : connectionState === 'online' ? (
               <Wifi size={16} />
             ) : (
               <WifiOff size={16} />
@@ -400,7 +540,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
             className={`${styles.syncStatusText} ${styles[getSyncStatusColor()]}`}
           >
             {getSyncStatusLabel()}
-            {pendingCount > 0 && !isSyncing && (
+            {pendingCount > 0 && syncState !== 'syncing' && (
               <span className={styles.pendingBadge}>{pendingCount}</span>
             )}
           </span>
@@ -419,13 +559,16 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
         <div className={styles.dropdownWrap} ref={notifMenuRef}>
           <button
             className={styles.iconBtn}
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={() => {
+              setNotifOpen((v) => !v);
+              if (!notifOpen) refreshNotifications();
+            }}
             title="Notifications"
             aria-expanded={notifOpen}
           >
             <Bell size={17} />
-            {pendingCount > 0 && (
-              <span className={styles.notifBadge}>{pendingCount}</span>
+            {unreadCount > 0 && (
+              <span className={styles.notifBadge}>{unreadCount}</span>
             )}
           </button>
 
@@ -433,15 +576,25 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
             <div className={styles.notifMenu}>
               <div className={styles.notifHeader}>
                 <span>Notifications</span>
-                {pendingCount > 0 && isOnline && (
-                  <button
-                    className={styles.notifMarkAll}
-                    onClick={handleSyncButtonClick}
-                    disabled={isSyncing}
-                  >
-                    Sync now
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {unreadCount > 0 && (
+                    <button
+                      className={styles.notifMarkAll}
+                      onClick={markAllAsRead}
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  {pendingCount > 0 && connectionState === 'online' && (
+                    <button
+                      className={styles.notifMarkAll}
+                      onClick={handleSyncButtonClick}
+                      disabled={syncState === 'syncing'}
+                    >
+                      Sync now
+                    </button>
+                  )}
+                </div>
               </div>
               <div className={styles.notifList}>
                 {getNotificationContent().map((item) => (
@@ -449,7 +602,19 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                     key={item.id}
                     className={`${styles.notifItem} ${
                       item.type === 'pending' ? styles.pendingItem : ''
+                    } ${
+                      item.type === 'backend' && !item.read
+                        ? styles.notifUnread
+                        : ''
                     }`}
+                    onClick={() => {
+                      if (item.type === 'backend' && !item.read) {
+                        markAsRead(item.notificationId);
+                      }
+                    }}
+                    style={
+                      item.type === 'backend' ? { cursor: 'pointer' } : undefined
+                    }
                   >
                     {item.icon && (
                       <span
@@ -531,7 +696,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <button
                 className={styles.menuItem}
                 role="menuitem"
-                onClick={() => openSuitePath('/billing')}
+                onClick={() => navigateAndClose('/billing')}
               >
                 <CreditCard size={15} />
                 Billing &amp; Subscription
@@ -611,9 +776,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
                         <button
                           key={branch.id}
                           className={`${styles.switcherOption} ${
-                            activeBranch?.id === branch.id
-                              ? styles.active
-                              : ''
+                            activeBranch?.id === branch.id ? styles.active : ''
                           }`}
                           onClick={() => handleSwitchBranch(branch)}
                         >

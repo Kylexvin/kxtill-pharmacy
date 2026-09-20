@@ -39,7 +39,6 @@ const DEFAULT_SETTINGS = {
   allowBranchSwitch: true,
 };
 
-// Currency symbols for fallback rendering (unsupported Intl currencies)
 const CURRENCY_SYMBOLS = {
   UGX: 'USh',
   KES: 'KSh',
@@ -61,13 +60,10 @@ const CURRENCY_SYMBOLS = {
 };
 
 const CACHE_KEY = 'app_settings';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const SettingsContext = createContext(null);
 
-// ============================================================
-// PROVIDER
-// ============================================================
 export const SettingsProvider = ({ children }) => {
   const { activeOrganization, isOffline } = useAuth();
 
@@ -77,12 +73,36 @@ export const SettingsProvider = ({ children }) => {
   const [lastFetched, setLastFetched] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
 
-  // Refs for race-condition safety
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
 
   // ----------------------------------------------------------
-  // CACHE HELPERS (per-org scoped, so switching orgs doesn't leak)
+  // Org-aware defaults — used everywhere fallback is needed
+  // ----------------------------------------------------------
+  const orgDefaults = useMemo(
+    () => ({
+      ...DEFAULT_SETTINGS,
+      currency: activeOrganization?.currency || DEFAULT_SETTINGS.currency,
+      timezone: activeOrganization?.timezone || DEFAULT_SETTINGS.timezone,
+    }),
+    [activeOrganization?.currency, activeOrganization?.timezone]
+  );
+
+  const withOrgFallback = useCallback(
+    (s) => ({
+      ...orgDefaults,
+      ...(s || {}),
+      // If the incoming object is missing currency, use org's
+      currency:
+        s?.currency || activeOrganization?.currency || DEFAULT_SETTINGS.currency,
+      timezone:
+        s?.timezone || activeOrganization?.timezone || DEFAULT_SETTINGS.timezone,
+    }),
+    [orgDefaults, activeOrganization?.currency, activeOrganization?.timezone]
+  );
+
+  // ----------------------------------------------------------
+  // CACHE HELPERS
   // ----------------------------------------------------------
   const cacheKeyFor = useCallback(
     (orgId) => (orgId ? `${CACHE_KEY}:${orgId}` : CACHE_KEY),
@@ -95,7 +115,6 @@ export const SettingsProvider = ({ children }) => {
         const key = cacheKeyFor(orgId);
         const cached = localStorage.getItem(key);
         if (!cached) return null;
-
         const parsed = JSON.parse(cached);
         if (
           parsed?.timestamp &&
@@ -133,30 +152,28 @@ export const SettingsProvider = ({ children }) => {
   const fetchSettings = useCallback(
     async (force = false) => {
       if (!activeOrganization?.id) {
-        setSettings(DEFAULT_SETTINGS);
-        return DEFAULT_SETTINGS;
+        setSettings(orgDefaults);
+        return orgDefaults;
       }
 
       const orgId = activeOrganization.id;
 
-      // Cache-first
       if (!force) {
         const cached = getCachedSettings(orgId);
         if (cached) {
-          setSettings(cached);
-          return cached;
+          const merged = withOrgFallback(cached);
+          setSettings(merged);
+          return merged;
         }
       }
 
-      // Offline: return cache or defaults
       if (isOffline) {
         const cached = getCachedSettings(orgId);
-        const fallback = cached || DEFAULT_SETTINGS;
+        const fallback = withOrgFallback(cached);
         setSettings(fallback);
         return fallback;
       }
 
-      // Abort any in-flight fetch
       fetchControllerRef.current?.abort();
       const controller = new AbortController();
       fetchControllerRef.current = controller;
@@ -175,7 +192,7 @@ export const SettingsProvider = ({ children }) => {
         }
 
         const fetched = response.data?.settings ?? response.data ?? {};
-        const merged = { ...DEFAULT_SETTINGS, ...fetched };
+        const merged = withOrgFallback(fetched);
 
         setSettings(merged);
         cacheSettings(orgId, merged);
@@ -199,7 +216,7 @@ export const SettingsProvider = ({ children }) => {
         }
 
         const cached = getCachedSettings(orgId);
-        const fallback = cached || DEFAULT_SETTINGS;
+        const fallback = withOrgFallback(cached);
         setSettings(fallback);
         return fallback;
       } finally {
@@ -214,11 +231,13 @@ export const SettingsProvider = ({ children }) => {
       getCachedSettings,
       cacheSettings,
       settings,
+      orgDefaults,
+      withOrgFallback,
     ]
   );
 
   // ----------------------------------------------------------
-  // UPDATE (PATCH — fixed from PUT)
+  // UPDATE
   // ----------------------------------------------------------
   const updateSettings = useCallback(
     async (partial) => {
@@ -228,7 +247,6 @@ export const SettingsProvider = ({ children }) => {
 
       const orgId = activeOrganization.id;
 
-      // Optimistic: apply immediately, rollback on failure
       const previous = settings;
       const optimistic = { ...settings, ...partial };
       setSettings(optimistic);
@@ -244,7 +262,7 @@ export const SettingsProvider = ({ children }) => {
         );
 
         const updated = response.data?.settings ?? response.data ?? partial;
-        const merged = { ...DEFAULT_SETTINGS, ...optimistic, ...updated };
+        const merged = withOrgFallback({ ...optimistic, ...updated });
 
         if (!isMountedRef.current) return merged;
 
@@ -255,7 +273,6 @@ export const SettingsProvider = ({ children }) => {
 
         return merged;
       } catch (err) {
-        // Rollback on failure
         if (isMountedRef.current) {
           setSettings(previous);
           setError(
@@ -270,21 +287,15 @@ export const SettingsProvider = ({ children }) => {
         if (isMountedRef.current) setLoading(false);
       }
     },
-    [activeOrganization?.id, settings, cacheSettings]
+    [activeOrganization?.id, settings, cacheSettings, withOrgFallback]
   );
 
-  // ----------------------------------------------------------
-  // RESET (local only — caller must still save to persist)
-  // ----------------------------------------------------------
   const resetSettings = useCallback(async () => {
-    setSettings(DEFAULT_SETTINGS);
+    setSettings(orgDefaults);
     setIsDirty(true);
-    return DEFAULT_SETTINGS;
-  }, []);
+    return orgDefaults;
+  }, [orgDefaults]);
 
-  // ----------------------------------------------------------
-  // REFRESH (force fetch)
-  // ----------------------------------------------------------
   const refreshSettings = useCallback(
     () => fetchSettings(true),
     [fetchSettings]
@@ -301,7 +312,6 @@ export const SettingsProvider = ({ children }) => {
     };
   }, []);
 
-  // Auto-fetch on org change (and on offline → online transition)
   useEffect(() => {
     if (activeOrganization?.id) {
       fetchSettings();
@@ -312,32 +322,41 @@ export const SettingsProvider = ({ children }) => {
   }, [activeOrganization?.id, isOffline]);
 
   // ----------------------------------------------------------
-  // DERIVED GETTERS
+  // DERIVED GETTERS — currency always falls back to org
   // ----------------------------------------------------------
   const getCurrency = useCallback(
-    () => settings.currency || 'KES',
-    [settings.currency]
+    () =>
+      settings.currency ||
+      activeOrganization?.currency ||
+      DEFAULT_SETTINGS.currency,
+    [settings.currency, activeOrganization?.currency]
   );
+
   const getDecimalPlaces = useCallback(
     () => settings.decimalPlaces ?? 2,
     [settings.decimalPlaces]
   );
+
   const getShopName = useCallback(
-    () => settings.shopName || 'My Shop',
-    [settings.shopName]
+    () => settings.shopName || activeOrganization?.name || 'My Shop',
+    [settings.shopName, activeOrganization?.name]
   );
+
   const getTaxNumber = useCallback(
     () => settings.taxNumber || '',
     [settings.taxNumber]
   );
+
   const getReceiptHeader = useCallback(
     () => settings.receiptHeader || DEFAULT_SETTINGS.receiptHeader,
     [settings.receiptHeader]
   );
+
   const getReceiptFooter = useCallback(
     () => settings.receiptFooter || DEFAULT_SETTINGS.receiptFooter,
     [settings.receiptFooter]
   );
+
   const getDefaultPaymentMethod = useCallback(
     () => settings.defaultPaymentMethod || 'CASH',
     [settings.defaultPaymentMethod]
@@ -348,7 +367,10 @@ export const SettingsProvider = ({ children }) => {
   // ----------------------------------------------------------
   const formatCurrency = useCallback(
     (amount) => {
-      const currency = settings.currency || 'KES';
+      const currency =
+        settings.currency ||
+        activeOrganization?.currency ||
+        DEFAULT_SETTINGS.currency;
       const decimals = settings.decimalPlaces ?? 2;
       const n = Number(amount || 0);
 
@@ -360,7 +382,6 @@ export const SettingsProvider = ({ children }) => {
           maximumFractionDigits: decimals,
         }).format(n);
       } catch {
-        // Fallback for currencies Intl doesn't know (e.g. UGX historically)
         const symbol = CURRENCY_SYMBOLS[currency] || currency;
         const fixed = n.toFixed(decimals);
         const [intPart, decPart = ''] = fixed.split('.');
@@ -370,7 +391,11 @@ export const SettingsProvider = ({ children }) => {
         }`;
       }
     },
-    [settings.currency, settings.decimalPlaces]
+    [
+      settings.currency,
+      settings.decimalPlaces,
+      activeOrganization?.currency,
+    ]
   );
 
   const formatCompactCurrency = useCallback(
@@ -389,7 +414,6 @@ export const SettingsProvider = ({ children }) => {
     if (isNaN(d.getTime())) return 'N/A';
 
     const pattern = options.format || 'DD/MM/YYYY';
-
     const replacements = {
       DD: String(d.getDate()).padStart(2, '0'),
       MM: String(d.getMonth() + 1).padStart(2, '0'),
@@ -511,9 +535,6 @@ export const SettingsProvider = ({ children }) => {
   );
 };
 
-// ============================================================
-// HOOK
-// ============================================================
 export const useSettings = () => {
   const context = useContext(SettingsContext);
   if (!context) {

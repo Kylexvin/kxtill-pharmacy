@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useGuardedWrite } from "../../hooks/useGuardedWrite";
 import toast from 'react-hot-toast';
 import { ScanLine, Store, RefreshCw, ShoppingCart } from 'lucide-react';
 import ProductSearch from './ProductSearch';
@@ -18,6 +19,8 @@ import {
   createLocalSale,
   enqueueSync,
   getDb,
+  decrementBranchProductStock,
+  flushBranchProducts,
 } from '../../db/sqlite';
 import { initialSync, sync } from '../../sync/engine';
 
@@ -78,6 +81,8 @@ const POS = () => {
 
   const syncFlagKey =
     orgId && branchId ? `initialSyncDone:${orgId}:${branchId}` : null;
+
+  const guarded = useGuardedWrite();
 
   // ---------- responsive ----------
   useEffect(() => {
@@ -245,39 +250,43 @@ console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
     }
   }, [dbReady, branchId, shouldFetch, debouncedSearch, selectedCategory]);
 
-  // ---------- initial sync + auto fetch ----------
-  useEffect(() => {
-    if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
+// ---------- initial sync + auto fetch ----------
+useEffect(() => {
+  if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
+    return;
+  }
+
+  const runInitialSync = async () => {
+    const done = localStorage.getItem(syncFlagKey);
+    if (done === 'true') {
+      setInitialSyncDone(true);
+      await fetchProducts(); // show cached data immediately
+      // catch up with the server quietly, then refresh again once it lands
+      sync(branchId)
+        .then(() => fetchProducts())
+        .catch(() => {});
       return;
     }
 
-    const runInitialSync = async () => {
-      const done = localStorage.getItem(syncFlagKey);
-      if (done === 'true') {
-        setInitialSyncDone(true);
-        fetchProducts();
-        return;
-      }
+    setSyncing(true);
+    try {
+      toast.loading('Syncing products...', { id: 'initial-sync' });
+      await initialSync(branchId);
+      localStorage.setItem(syncFlagKey, 'true');
+      setInitialSyncDone(true);
+      toast.success('Products synced', { id: 'initial-sync' });
+      fetchProducts();
+    } catch (err) {
+      console.error('Initial sync failed:', err);
+      toast.error('Failed to sync products', { id: 'initial-sync' });
+      setInitialSyncDone(false);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
-      setSyncing(true);
-      try {
-        toast.loading('Syncing products...', { id: 'initial-sync' });
-        await initialSync(branchId);
-        localStorage.setItem(syncFlagKey, 'true');
-        setInitialSyncDone(true);
-        toast.success('Products synced', { id: 'initial-sync' });
-        fetchProducts();
-      } catch (err) {
-        console.error('Initial sync failed:', err);
-        toast.error('Failed to sync products', { id: 'initial-sync' });
-        setInitialSyncDone(false);
-      } finally {
-        setSyncing(false);
-      }
-    };
-
-    runInitialSync();
-  }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
+  runInitialSync();
+}, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
 
   // ---------- categories ----------
   useEffect(() => {
@@ -297,13 +306,34 @@ console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
     loadCategories();
   }, [dbReady, shouldFetch, initialSyncDone]);
 
-  // ---------- refetch on branch / sync change ----------
-  useEffect(() => {
-    if (initialSyncDone && branchId) {
+// ---------- refetch on branch / sync change ----------
+useEffect(() => {
+  if (initialSyncDone && branchId) {
+    fetchProducts();
+    sync(branchId)
+      .then(() => fetchProducts())
+      .catch(() => {});
+  }
+}, [branchId, initialSyncDone, fetchProducts]);
+
+// ---------- refresh when tab/window regains focus ----------
+useEffect(() => {
+  if (!dbReady || !shouldFetch || !branchId || !initialSyncDone) return;
+
+  const refreshOnReturn = () => {
+    if (document.visibilityState === 'visible') {
       fetchProducts();
-      sync(branchId).catch(() => {});
+      sync(branchId).then(() => fetchProducts()).catch(() => {});
     }
-  }, [branchId, initialSyncDone, fetchProducts]);
+  };
+
+  document.addEventListener('visibilitychange', refreshOnReturn);
+  window.addEventListener('focus', refreshOnReturn);
+  return () => {
+    document.removeEventListener('visibilitychange', refreshOnReturn);
+    window.removeEventListener('focus', refreshOnReturn);
+  };
+}, [dbReady, shouldFetch, branchId, initialSyncDone, fetchProducts]);
 
   useEffect(() => {
     if (initialSyncDone) {
@@ -510,31 +540,27 @@ return [
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   // ---------- checkout ----------
-  const handleCheckout = () => {
-    if (cartItems.length === 0) {
-      toast.error('Cart is empty');
+const handleCheckout = guarded(() => {
+  if (cartItems.length === 0) {
+    toast.error('Cart is empty');
+    return;
+  }
+  if (!branchId) {
+    toast.error('No active branch selected');
+    return;
+  }
+  for (const item of cartItems) {
+    const stock = Number(item.stock || 0);
+    if (stock < item.quantity) {
+      toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
       return;
     }
-    if (!branchId) {
-      toast.error('No active branch selected');
-      return;
-    }
+  }
+  setCartOpen(false);
+  setShowPaymentModal(true);
+});
 
-    for (const item of cartItems) {
-      const stock = Number(item.stock || 0);
-      if (stock < item.quantity) {
-        toast.error(
-          `Not enough stock for ${item.productName}. Available: ${stock}`
-        );
-        return;
-      }
-    }
-
-    setCartOpen(false);
-    setShowPaymentModal(true);
-  };
-
-  const handlePaymentComplete = async ({ method, reference }) => {
+  const handlePaymentComplete = guarded(async ({ method, reference }) => {
     setCheckingOut(true);
     try {
       const clientSaleId = `sale_${Date.now()}_${Math.random()
@@ -542,37 +568,31 @@ return [
         .substring(2, 8)}`;
       const now = new Date().toISOString();
 
-// Denormalize items: persist display fields + computed totals alongside
-// the references, so offline receipts and detail views work without the
-// server. Anything the server needs is a subset of what we store here.
-const saleItems = cartItems.map((item) => {
-  const quantity = Number(item.quantity || 0);
-  const unitPrice = Number(item.unitPrice || 0);
-  const lineTotal = Number(item.total) || unitPrice * quantity;
+      const saleItems = cartItems.map((item) => {
+        const quantity = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const lineTotal = Number(item.total) || unitPrice * quantity;
 
-  return {
-    // References (needed by the server)
-    productId: item.productId,
-    branchProductId: item.branchProductId,
-    unitId: item.unitId,
+        return {
+          productId: item.productId,
+          branchProductId: item.branchProductId,
+          unitId: item.unitId,
 
-    // Denormalized display fields (needed by offline receipt + detail modal)
-    productName: item.productName || item.name || 'Unknown',
-    sku: item.sku || null,
-    unitName: item.unitName || '',
-    unitAbbrev: item.unitAbbrev || item.unitName || '',
-    unitType: item.unitType || 'unit',
-    conversionQty: Number(item.conversionQty || 1),
+          productName: item.productName || item.name || 'Unknown',
+          sku: item.sku || null,
+          unitName: item.unitName || '',
+          unitAbbrev: item.unitAbbrev || item.unitName || '',
+          unitType: item.unitType || 'unit',
+          conversionQty: Number(item.conversionQty || 1),
 
-    // Numbers
-    quantity,
-    unitPrice,
-    taxRate: Number(item.taxRate || 0),
-    taxAmount: Number(item.taxAmount || 0),
-    discount: Number(item.discount || 0),
-    total: lineTotal,
-  };
-}); 
+          quantity,
+          unitPrice,
+          taxRate: Number(item.taxRate || 0),
+          taxAmount: Number(item.taxAmount || 0),
+          discount: Number(item.discount || 0),
+          total: lineTotal,
+        };
+      });
 
       const payments = [
         {
@@ -605,6 +625,20 @@ const saleItems = cartItems.map((item) => {
 
       await createLocalSale(localSale);
 
+      // Optimistically decrement local stock so the UI reflects the sale
+      // immediately. Server-side decrement happens on sync; the next pull
+      // overwrites with the same value — no drift.
+      for (const item of cartItems) {
+        if (!item.branchProductId) continue;
+        const qty = Number(item.quantity || 0);
+        const conv = Number(item.conversionQty || 1);
+        const baseQty = qty * conv;
+        if (baseQty > 0) {
+          await decrementBranchProductStock(item.branchProductId, baseQty);
+        }
+      }
+      flushBranchProducts();
+
       await enqueueSync('sale', clientSaleId, 'CREATE', {
         clientSaleId,
         branchId,
@@ -618,7 +652,6 @@ const saleItems = cartItems.map((item) => {
 
       sync(branchId).catch(() => {});
 
-      // Hand raw data to ReceiptModal — it builds the text from settings.
       const receipt = {
         sale: {
           id: clientSaleId,
@@ -654,7 +687,7 @@ const saleItems = cartItems.map((item) => {
     } finally {
       setCheckingOut(false);
     }
-  };
+  });
 
   // ---------- render helpers ----------
   const cartElement = (

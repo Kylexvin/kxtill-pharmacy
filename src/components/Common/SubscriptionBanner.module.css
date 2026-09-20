@@ -1,0 +1,94 @@
+/* src/components/Common/SubscriptionBanner.module.css */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+  border-bottom: 1px solid transparent;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.label {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offline {
+  opacity: 0.65;
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+.cta {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 640px) {
+  .banner {
+    padding: 5px 12px;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .body {
+    gap: 6px;
+  }
+
+  .label {
+    padding: 1px 6px;
+    font-size: 9px;
+    letter-spacing: 0.3px;
+  }
+
+  .message {
+    font-size: 11px;
+  }
+
+  .cta {
+    padding: 2px 8px;
+    font-size: 10px;
+    border-radius: 4px;
+  }
+}

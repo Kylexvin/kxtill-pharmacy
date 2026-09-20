@@ -3,9 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 
-const AUTH_BASE_URL = 'https://kxbyte.onrender.com';
-
-// postMessage target — restrict to our own origin, not '*'
 const FRONTEND_ORIGIN =
   typeof window !== 'undefined' ? window.location.origin : '*';
 
@@ -56,10 +53,12 @@ export default function OAuthCallback() {
       return;
     }
 
-axios.post(
-  `${AUTH_BASE_URL}/api/v1/auth/oauth/token`,
-  { code, client_id: 'kxtill' }
-) 
+    axios
+      .post(
+        '/auth/oauth/token',
+        { code, client_id: 'kxtill' },
+        { skipAuth: true } // <-- don't attach a stale bearer token
+      )
       .then((response) => {
         const { access_token, refresh_token, user, organizations } =
           response.data || {};
@@ -90,7 +89,6 @@ axios.post(
           if (delivered) {
             closeSoon();
           } else {
-            // Opener didn't accept the message — fall back to full navigation
             navigate(
               organizations?.length > 0 ? '/select-org' : '/dashboard'
             );
@@ -146,13 +144,7 @@ axios.post(
         >
           K
         </div>
-        <p
-          style={{
-            margin: '0 0 4px',
-            fontSize: '16px',
-            fontWeight: '500',
-          }}
-        >
+        <p style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: '500' }}>
           Completing authorization...
         </p>
         <p style={{ fontSize: '13px', color: '#62636e', margin: 0 }}>

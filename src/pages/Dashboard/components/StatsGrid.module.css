@@ -1,0 +1,191 @@
+/* src/pages/Dashboard/components/StatsGrid.module.css */
+
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================================
+   GRID
+   ============================================================ */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+/* ============================================================
+   CARD
+   ============================================================ */
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.15s ease;
+}
+
+.card:hover:not(.skeleton) {
+  border-color: var(--border-strong);
+}
+
+/* ============================================================
+   ICON
+   ============================================================ */
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+
+.iconRevenue {
+  background: rgba(52, 199, 89, 0.12);
+  color: #34c759;
+}
+
+.iconProfit {
+  background: rgba(90, 200, 250, 0.12);
+  color: #5ac8fa;
+}
+
+.iconCost {
+  background: rgba(255, 159, 10, 0.12);
+  color: #ff9f0a;
+}
+
+.iconPeriod {
+  background: rgba(255, 106, 43, 0.12);
+  color: var(--accent);
+}
+
+/* ============================================================
+   INFO
+   ============================================================ */
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.subtext {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.changePositive,
+.changeNegative,
+.changeNeutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.changePositive { color: #34c759; }
+.changeNegative { color: var(--danger); }
+.changeNeutral  { color: var(--text-muted); }
+
+/* ============================================================
+   OFFLINE TAG
+   ============================================================ */
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: rgba(255, 159, 10, 0.15);
+  color: #ff9f0a;
+}
+
+/* ============================================================
+   SKELETON
+   ============================================================ */
+.skeleton {
+  pointer-events: none;
+}
+
+.skeletonIcon,
+.skeletonText,
+.skeletonValue {
+  background: linear-gradient(
+    90deg,
+    var(--bg-panel) 0%,
+    var(--bg-raised-hi) 50%,
+    var(--bg-panel) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+.skeletonIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.skeletonText {
+  width: 60%;
+  height: 11px;
+}
+
+.skeletonValue {
+  width: 40%;
+  height: 20px;
+  margin-top: 6px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .value {
+    font-size: 18px;
+  }
+}

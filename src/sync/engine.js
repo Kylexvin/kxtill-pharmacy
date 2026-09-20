@@ -38,9 +38,6 @@ import {
 const RECEIPT_FETCH_TIMEOUT_MS = 5000;
 const SYNC_HTTP_TIMEOUT_MS = 15000;
 const MAX_QUEUE_ATTEMPTS = 5;
-
-// How often we force a full (non-incremental) sync so we can detect
-// products that were archived or unlinked server-side.
 const FULL_PULL_INTERVAL_MS = 5 * 60 * 1000;
 
 // ============================================================
@@ -54,6 +51,13 @@ export const getOnlineStatus = () => isOnline;
 export const setOnlineStatus = (value) => {
   isOnline = !!value;
 };
+
+// ============================================================
+// IN-FLIGHT GUARDS
+// ============================================================
+
+let syncInFlight = false;
+let queueInFlight = false;
 
 // ============================================================
 // STORAGE HELPERS
@@ -117,76 +121,88 @@ if (typeof window !== 'undefined') {
 // ============================================================
 
 export const sync = async (branchId) => {
-  if (!isOnline) {
-    return { success: false, reason: 'offline' };
+  if (syncInFlight) {
+    return { success: false, reason: 'in-flight' };
   }
-
-  const results = {
-    customersPushed: 0,
-    customersFailed: 0,
-    customersPulled: 0,
-    salesPushed: 0,
-    salesFailed: 0,
-    productsUpdated: 0,
-    branchProductsUpdated: 0,
-    receiptsFetched: 0,
-    errors: [],
-  };
+  syncInFlight = true;
 
   try {
-    await pushPendingCustomers(results);
-  } catch (err) {
-    results.errors.push(`Customer push fatal: ${describeError(err)}`);
-  }
-
-  try {
-    await pullCustomerUpdates(results);
-  } catch (err) {
-    results.errors.push(`Customer pull fatal: ${describeError(err)}`);
-  }
-
-  try {
-    await pushPendingSales(results);
-  } catch (err) {
-    results.errors.push(`Sales push fatal: ${describeError(err)}`);
-    try {
-      const { getPendingSales } = await import('../db/sqlite');
-      const stuck = await getPendingSales();
-      for (const s of stuck) {
-        await updateSaleStatus(
-          s.id,
-          'FAILED',
-          `Sync crashed before processing: ${describeError(err)}`
-        );
-        results.salesFailed++;
-      }
-    } catch (cleanupErr) {
-      results.errors.push(
-        `Failed to mark stuck sales as FAILED: ${describeError(cleanupErr)}`
-      );
+    if (!isOnline) {
+      return { success: false, reason: 'offline' };
     }
-  }
 
-  try {
-    await pullProductUpdates(results, branchId);
-  } catch (err) {
-    results.errors.push(`Product pull fatal: ${describeError(err)}`);
-  }
+    const results = {
+      customersPushed: 0,
+      customersFailed: 0,
+      customersPulled: 0,
+      salesPushed: 0,
+      salesFailed: 0,
+      productsUpdated: 0,
+      branchProductsUpdated: 0,
+      receiptsFetched: 0,
+      errors: [],
+    };
 
-  try {
-    await pullBranchProductUpdates(results, branchId);
-  } catch (err) {
-    results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
-  }
+    try {
+      await pushPendingCustomers(results);
+    } catch (err) {
+      results.errors.push(`Customer push fatal: ${describeError(err)}`);
+    }
 
-  try {
-    await new Promise((r) => setTimeout(r, 1500));
-    await fetchPendingReceipts(results);
-  } catch (err) {
-    results.errors.push(`Receipt fetch fatal: ${describeError(err)}`);
-  }
+    try {
+      await pullCustomerUpdates(results);
+    } catch (err) {
+      results.errors.push(`Customer pull fatal: ${describeError(err)}`);
+    }
 
-  return { success: true, results };
+    try {
+      await pushPendingSales(results);
+    } catch (err) {
+      results.errors.push(`Sales push fatal: ${describeError(err)}`);
+      try {
+        const stuck = await getPendingSales();
+        for (const s of stuck) {
+          await updateSaleStatus(
+            s.id,
+            'FAILED',
+            `Sync crashed before processing: ${describeError(err)}`
+          );
+          results.salesFailed++;
+        }
+      } catch (cleanupErr) {
+        results.errors.push(
+          `Failed to mark stuck sales as FAILED: ${describeError(cleanupErr)}`
+        );
+      }
+    }
+
+    try {
+      await pullProductUpdates(results, branchId);
+    } catch (err) {
+      results.errors.push(`Product pull fatal: ${describeError(err)}`);
+    }
+
+    try {
+      await pullBranchProductUpdates(results, branchId);
+    } catch (err) {
+      results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
+    }
+
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      await fetchPendingReceipts(results);
+    } catch (err) {
+      results.errors.push(`Receipt fetch fatal: ${describeError(err)}`);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kxtill:sync-complete', { detail: results }));
+    }
+
+    return { success: true, results };
+  } finally {
+    syncInFlight = false;
+  }
 };
 
 // ============================================================
@@ -342,7 +358,7 @@ const pushPendingSales = async (results) => {
         const reread = await getLocalSale(sale.id);
         if (reread) freshSale = reread;
       } catch {
-        // fall back to the row we already have
+        // fall back
       }
 
       const customerId = freshSale?.customerId || null;
@@ -387,7 +403,11 @@ const pushPendingSales = async (results) => {
       const status = error.response?.status;
       const message = describeError(error);
 
-      if (status === 409) {
+      const isDuplicate =
+        status === 409 ||
+        (status === 500 && /Unique constraint/i.test(message));
+
+      if (isDuplicate) {
         await updateSaleStatus(sale.id, 'SYNCED', 'Duplicate sale on server');
         results.salesPushed++;
       } else if (status === 400 || status === 422) {
@@ -404,6 +424,21 @@ const pushPendingSales = async (results) => {
 // ============================================================
 // RECEIPTS
 // ============================================================
+
+const coerceReceiptText = (data) => {
+  if (data == null) return null;
+  if (typeof data === 'string') return data;
+  if (typeof data === 'object') {
+    if (typeof data.text === 'string') return data.text;
+    if (typeof data.receipt === 'string') return data.receipt;
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return null;
+    }
+  }
+  return String(data);
+};
 
 export const fetchPendingReceipts = async (results = null) => {
   if (!isOnline) return;
@@ -425,12 +460,8 @@ export const fetchPendingReceipts = async (results = null) => {
         { timeout: RECEIPT_FETCH_TIMEOUT_MS }
       );
 
-      const receiptText =
-        res.data?.text ||
-        res.data?.receipt ||
-        (res.data ? JSON.stringify(res.data) : null);
-
-      if (receiptText) {
+      const receiptText = coerceReceiptText(res.data);
+      if (receiptText && typeof receiptText === 'string') {
         await saveReceiptText(sale.id, receiptText);
         fetchedCount++;
       }
@@ -550,8 +581,6 @@ const pullBranchProductUpdates = async (results, branchId) => {
       return;
     }
 
-    // Force a full pull periodically so we can detect server-side
-    // removals/archivals. Incremental pulls between them keep things fast.
     const lastFullPull = await getSyncMetadata('last_branch_full_pull');
     const shouldFullPull =
       !lastFullPull ||
@@ -613,10 +642,6 @@ const pullBranchProductUpdates = async (results, branchId) => {
       results.branchProductsUpdated++;
     }
 
-    // On a full pull, prune any local branch_products row that the
-    // server no longer returns (archived product, unlinked branch, or
-    // isAvailable: false). This is what stops deleted products from
-    // lingering in the POS.
     if (shouldFullPull) {
       const activeIds = branchProductsList.map((bp) => bp.id).filter(Boolean);
       const removed = await deleteBranchProductsNotIn(branchId, activeIds);
@@ -639,80 +664,87 @@ const pullBranchProductUpdates = async (results, branchId) => {
 // ============================================================
 
 export const processSyncQueue = async () => {
-  if (!isOnline) return;
+  if (queueInFlight) return;
+  queueInFlight = true;
 
-  const items = await getPendingSyncItems(20);
-  if (items.length === 0) return;
+  try {
+    if (!isOnline) return;
 
-  const organizationId = getOrgId();
-  if (!organizationId) return;
+    const items = await getPendingSyncItems(20);
+    if (items.length === 0) return;
 
-  const sorted = [...items].sort((a, b) => {
-    if (a.entityType === 'customer' && b.entityType !== 'customer') return -1;
-    if (b.entityType === 'customer' && a.entityType !== 'customer') return 1;
-    return 0;
-  });
+    const organizationId = getOrgId();
+    if (!organizationId) return;
 
-  for (const item of sorted) {
-    try {
-      const payload = JSON.parse(item.payload);
+    const sorted = [...items].sort((a, b) => {
+      if (a.entityType === 'customer' && b.entityType !== 'customer') return -1;
+      if (b.entityType === 'customer' && a.entityType !== 'customer') return 1;
+      return 0;
+    });
 
-      switch (item.entityType) {
-        case 'customer': {
-          const res = await axios.post(
-            `/organizations/${organizationId}/customers`,
-            payload,
-            { timeout: SYNC_HTTP_TIMEOUT_MS }
-          );
-          const created = res.data?.customer || res.data;
-          const serverId = created?.id;
+    for (const item of sorted) {
+      try {
+        const payload = JSON.parse(item.payload);
 
-          if (serverId && payload.tempId) {
-            await markCustomerSynced(payload.tempId, serverId);
-            await replaceCustomerIdInSales(payload.tempId, serverId);
+        switch (item.entityType) {
+          case 'customer': {
+            const res = await axios.post(
+              `/organizations/${organizationId}/customers`,
+              payload,
+              { timeout: SYNC_HTTP_TIMEOUT_MS }
+            );
+            const created = res.data?.customer || res.data;
+            const serverId = created?.id;
+
+            if (serverId && payload.tempId) {
+              await markCustomerSynced(payload.tempId, serverId);
+              await replaceCustomerIdInSales(payload.tempId, serverId);
+            }
+            break;
           }
-          break;
-        }
-        case 'sale': {
-          const response = await axios.post(
-            `/organizations/${organizationId}/kxtill/sales/offline`,
-            payload,
-            { timeout: SYNC_HTTP_TIMEOUT_MS }
-          );
-          const serverSaleId = response.data?.sale?.id;
-          if (serverSaleId && payload.clientSaleId) {
-            await setSaleServerId(payload.clientSaleId, serverSaleId);
+          case 'sale': {
+            const response = await axios.post(
+              `/organizations/${organizationId}/kxtill/sales/offline`,
+              payload,
+              { timeout: SYNC_HTTP_TIMEOUT_MS }
+            );
+            const serverSaleId = response.data?.sale?.id;
+            if (serverSaleId && payload.clientSaleId) {
+              await setSaleServerId(payload.clientSaleId, serverSaleId);
+            }
+            break;
           }
-          break;
+          default:
+            await updateSyncItemStatus(
+              item.id,
+              'FAILED',
+              `Unknown entity type: ${item.entityType}`
+            );
+            continue;
         }
-        default:
+
+        await updateSyncItemStatus(item.id, 'SYNCED');
+      } catch (error) {
+        const status = error.response?.status;
+        const message = describeError(error);
+
+        if (status === 409) {
+          await updateSyncItemStatus(item.id, 'SYNCED', 'Already exists on server');
+        } else if (status === 400 || status === 422) {
+          await updateSyncItemStatus(item.id, 'FAILED', message);
+        } else if (item.attempts >= MAX_QUEUE_ATTEMPTS) {
           await updateSyncItemStatus(
             item.id,
             'FAILED',
-            `Unknown entity type: ${item.entityType}`
+            `Max retries exceeded: ${message}`
           );
-          continue;
-      }
-
-      await updateSyncItemStatus(item.id, 'SYNCED');
-    } catch (error) {
-      const status = error.response?.status;
-      const message = describeError(error);
-
-      if (status === 409) {
-        await updateSyncItemStatus(item.id, 'SYNCED', 'Already exists on server');
-      } else if (status === 400 || status === 422) {
-        await updateSyncItemStatus(item.id, 'FAILED', message);
-      } else if (item.attempts >= MAX_QUEUE_ATTEMPTS) {
-        await updateSyncItemStatus(
-          item.id,
-          'FAILED',
-          `Max retries exceeded: ${message}`
-        );
-      } else {
-        await updateSyncItemStatus(item.id, 'PENDING', message);
+        } else {
+          await updateSyncItemStatus(item.id, 'PENDING', message);
+        }
       }
     }
+  } finally {
+    queueInFlight = false;
   }
 };
 
@@ -733,7 +765,6 @@ export const initialSync = async (branchId) => {
   await clearProductUnits();
   await clearBranchProducts();
 
-  // ---- Products ----
   const productsResponse = await axios.get(
     `/organizations/${organizationId}/kxtill/sync/products`,
     { params: { branchId }, timeout: SYNC_HTTP_TIMEOUT_MS }
@@ -789,7 +820,6 @@ export const initialSync = async (branchId) => {
     await setLastProductSync(productsData.version);
   }
 
-  // ---- Branch products ----
   const branchResponse = await axios.get(
     `/organizations/${organizationId}/kxtill/sync/branch-products`,
     { params: { branchId }, timeout: SYNC_HTTP_TIMEOUT_MS }
@@ -845,7 +875,6 @@ export const initialSync = async (branchId) => {
 
   await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
 
-  // ---- Customers (non-fatal) ----
   try {
     const customersResponse = await axios.get(
       `/organizations/${organizationId}/kxtill/customers/sync`,
@@ -924,4 +953,4 @@ const syncEngine = {
   fetchPendingReceipts,
 };
 
-export default syncEngine; 
+export default syncEngine;

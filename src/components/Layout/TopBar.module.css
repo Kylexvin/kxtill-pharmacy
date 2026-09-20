@@ -25,7 +25,13 @@
   align-items: center;
   gap: 12px;
 }
+.notifUnread {
+  background: rgba(64, 156, 255, 0.06);
+}
 
+.notifUnread .notifTitle {
+  font-weight: 600;
+}
 /* ---- Logo ---- */
 .logo {
   display: flex;
