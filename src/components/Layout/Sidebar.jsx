@@ -78,8 +78,7 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   };
 
 const handleVisitSuite = async () => {
-  const suiteUrl =
-    process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
+  const suiteUrl = 'https://suite.kxbyte.co.ke';
   try {
     const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
     const ssoUrl = `${suiteUrl}/sso?code=${encodeURIComponent(data.code)}`;
