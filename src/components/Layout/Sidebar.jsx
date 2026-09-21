@@ -6,6 +6,8 @@ import {
   LogOut, ChevronDown, ShoppingCart, Users, Building2,
   Globe, ExternalLink, UserCog,
 } from 'lucide-react';
+import axios from 'axios';
+import { showToast } from '../Common/Toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { KXTILL, PLATFORM } from '../../constants/permissions';
@@ -75,16 +77,18 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
     if (isMobile && onClose) onClose();
   };
 
-  const handleVisitSuite = () => {
-    const suiteUrl =
-      process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
-    const token = localStorage.getItem('accessToken');
-    if (token) {
-      window.open(`${suiteUrl}?sso_token=${token}`, '_blank');
-    } else {
-      window.open(suiteUrl, '_blank');
-    }
-  };
+const handleVisitSuite = async () => {
+  const suiteUrl =
+    process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
+  try {
+    const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
+    const ssoUrl = `${suiteUrl}/sso?code=${encodeURIComponent(data.code)}`;
+    window.open(ssoUrl, '_blank', 'noopener,noreferrer');
+  } catch (err) {
+    console.error('Failed to open Suite:', err);
+    showToast.error('Failed to open Suite. Please try again.');
+  }
+};
 
   // ---------- link class helpers ----------
   const navLinkClass = ({ isActive }) =>
