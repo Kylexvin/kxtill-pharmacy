@@ -12,7 +12,11 @@ import {
   CreditCard,
 } from 'lucide-react';
 import styles from './TopBar.module.css';
-import { sync, setOnlineStatus } from '../../sync/engine';
+import {
+  sync,
+  setOnlineStatus,
+  getOnlineStatus,
+} from '../../sync/engine';
 import { getPendingSales } from '../../db/sqlite';
 import usePolling from '../../hooks/usePolling';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -25,14 +29,17 @@ const HEARTBEAT_ONLINE_MS = 60000;
 const HEARTBEAT_OFFLINE_MS = 15000;
 const HEARTBEAT_TIMEOUT_MS = 5000;
 
-// Symmetric hysteresis: need N confirmations in either direction
-// before flipping the verdict.
-const ONLINE_CONFIRM_THRESHOLD = 2;
+// Only OFFLINE needs hysteresis (a false "offline" is disruptive).
+// A single successful heartbeat is enough to declare "online".
 const OFFLINE_CONFIRM_THRESHOLD = 2;
 
 const SYNC_INTERVAL_POS_MS = 60 * 1000;
 const SYNC_INTERVAL_IDLE_MS = 5 * 60 * 1000;
-const SYNC_RESULT_LINGER_MS = 3000;
+
+// How long to show "Synced" before returning to "Online".
+const SYNC_SUCCESS_LINGER_MS = 2500;
+// How long to show "Sync failed" before returning to "Online".
+const SYNC_ERROR_LINGER_MS = 4000;
 
 // ============================================================
 // TOPBAR
@@ -50,8 +57,6 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     branches,
     setActiveOrganization,
     setActiveBranch,
-    // eslint-disable-next-line no-unused-vars
-    isOffline: contextIsOffline,
     setIsOffline: setContextIsOffline,
   } = useAuth();
   const { darkMode, toggleTheme } = useTheme();
@@ -77,8 +82,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
   // ---------- connectivity state ----------
-  // 'checking' | 'online' | 'offline'
-  const [connectionState, setConnectionState] = useState('checking');
+  // 'online' | 'offline'  (no more 'checking' purgatory)
+  const [connectionState, setConnectionState] = useState(
+    getOnlineStatus() ? 'online' : 'offline'
+  );
 
   // ---------- sync state ----------
   // 'idle' | 'syncing' | 'success' | 'error'
@@ -90,20 +97,13 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   const userMenuRef = useRef(null);
   const notifMenuRef = useRef(null);
 
-  // Synchronous mirrors
-  const connectionRef = useRef('checking');
+  const connectionRef = useRef(connectionState);
   const syncStateRef = useRef('idle');
   const activeBranchRef = useRef(activeBranch);
 
   const heartbeatInFlightRef = useRef(false);
-  const okStreakRef = useRef(0);
   const failStreakRef = useRef(0);
-
-  // Tracks whether we've ever been confirmed offline in this session,
-  // so the "back online" effect only fires on a genuine reconnect,
-  // not the initial mount → online transition.
-  const hasBeenOfflineRef = useRef(false);
-  const wasOnlineRef = useRef(false);
+  const syncLingerTimerRef = useRef(null);
 
   const isPos = location.pathname === '/pos';
 
@@ -164,47 +164,56 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     checkPendingSales();
   }, [connectionState, syncState, checkPendingSales]);
 
-  // ---------- manual sync ----------
-  const handleManualSync = useCallback(async () => {
-    if (syncStateRef.current === 'syncing') return;
-    if (!activeBranchRef.current?.id) return;
-    if (connectionRef.current === 'offline') return;
-
-    setSyncState('syncing');
-
-    try {
-      const result = await sync(activeBranchRef.current.id);
-
-      if (result?.success) {
-        setSyncState('success');
-        await checkPendingSales();
-      } else {
-        // Soft failure — the sync engine already knows why.
-        // If it was a 403 subscription block, App.jsx's interceptor
-        // already showed a toast. Don't flash a red "Sync failed"
-        // for something already explained.
-        console.warn('Sync returned non-success:', result);
-        setSyncState('idle');
-        return;
+  // ============================================================
+  // ENGINE EVENT BRIDGE — the important part
+  // ============================================================
+  useEffect(() => {
+    const clearLinger = () => {
+      if (syncLingerTimerRef.current) {
+        clearTimeout(syncLingerTimerRef.current);
+        syncLingerTimerRef.current = null;
       }
-    } catch (err) {
-      // Only surface a visible error for actual network failures.
-      // HTTP errors (401/403/500) are already handled elsewhere.
-      if (!err?.response) {
+    };
+
+    const onSyncStart = () => {
+      clearLinger();
+      setSyncState('syncing');
+    };
+
+    const onSyncComplete = (e) => {
+      const detail = e?.detail;
+      // Engine now passes { success, reason, results } OR raw results.
+      const failed =
+        detail?.success === false ||
+        (Array.isArray(detail?.errors) && detail.errors.length > 0);
+
+      if (failed) {
         setSyncState('error');
+        syncLingerTimerRef.current = setTimeout(() => {
+          if (syncStateRef.current !== 'syncing') setSyncState('idle');
+        }, SYNC_ERROR_LINGER_MS);
       } else {
-        setSyncState('idle');
+        setSyncState('success');
+        syncLingerTimerRef.current = setTimeout(() => {
+          if (syncStateRef.current !== 'syncing') setSyncState('idle');
+        }, SYNC_SUCCESS_LINGER_MS);
       }
-    } finally {
-      setTimeout(() => {
-        if (syncStateRef.current !== 'syncing') {
-          setSyncState('idle');
-        }
-      }, SYNC_RESULT_LINGER_MS);
-    }
+
+      checkPendingSales();
+    };
+
+    window.addEventListener('kxtill:sync-start', onSyncStart);
+    window.addEventListener('kxtill:sync-complete', onSyncComplete);
+    return () => {
+      clearLinger();
+      window.removeEventListener('kxtill:sync-start', onSyncStart);
+      window.removeEventListener('kxtill:sync-complete', onSyncComplete);
+    };
   }, [checkPendingSales]);
 
-  // ---------- heartbeat ----------
+  // ============================================================
+  // HEARTBEAT — only for OFFLINE detection (online = 1 success)
+  // ============================================================
   const runHeartbeat = useCallback(async () => {
     if (heartbeatInFlightRef.current) return;
     heartbeatInFlightRef.current = true;
@@ -212,44 +221,33 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     try {
       await axios.get(HEARTBEAT_URL, { timeout: HEARTBEAT_TIMEOUT_MS });
 
-      okStreakRef.current += 1;
       failStreakRef.current = 0;
-
-      if (
-        connectionRef.current !== 'online' &&
-        okStreakRef.current >= ONLINE_CONFIRM_THRESHOLD
-      ) {
+      if (connectionRef.current !== 'online') {
         setConnectionState('online');
         setOnlineStatus(true);
         setContextIsOffline(false);
       }
     } catch (err) {
-      // A response — even 4xx/5xx — means we reached the server.
+      // Any HTTP response means we reached the server — treat as online.
       if (err.response) {
-        okStreakRef.current += 1;
         failStreakRef.current = 0;
-
-        if (
-          connectionRef.current !== 'online' &&
-          okStreakRef.current >= ONLINE_CONFIRM_THRESHOLD
-        ) {
+        if (connectionRef.current !== 'online') {
           setConnectionState('online');
           setOnlineStatus(true);
           setContextIsOffline(false);
         }
-      } else {
-        // Network-level failure
-        failStreakRef.current += 1;
-        okStreakRef.current = 0;
+        return;
+      }
 
-        if (
-          connectionRef.current !== 'offline' &&
-          failStreakRef.current >= OFFLINE_CONFIRM_THRESHOLD
-        ) {
-          setConnectionState('offline');
-          setOnlineStatus(false);
-          setContextIsOffline(true);
-        }
+      // Network-level failure
+      failStreakRef.current += 1;
+      if (
+        connectionRef.current !== 'offline' &&
+        failStreakRef.current >= OFFLINE_CONFIRM_THRESHOLD
+      ) {
+        setConnectionState('offline');
+        setOnlineStatus(false);
+        setContextIsOffline(true);
       }
     } finally {
       heartbeatInFlightRef.current = false;
@@ -280,19 +278,20 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     };
   }, [runHeartbeat]);
 
-  // ---------- browser online/offline ----------
+  // ---------- browser online/offline events ----------
   useEffect(() => {
     const handleBrowserOnline = () => {
-      // Browser says online — re-verify from scratch
-      okStreakRef.current = 0;
       failStreakRef.current = 0;
-      setConnectionState('checking');
+      // Trust it optimistically, then verify with a heartbeat.
+      setConnectionState('online');
+      setOnlineStatus(true);
+      setContextIsOffline(false);
       runHeartbeat();
+      // Engine also listens to 'online' and will fire kxtill:sync-start
+      // on its own — we don't need to call sync() here.
     };
 
     const handleBrowserOffline = () => {
-      // Browser says offline — trust it, go offline immediately
-      okStreakRef.current = 0;
       failStreakRef.current = OFFLINE_CONFIRM_THRESHOLD;
       setConnectionState('offline');
       setOnlineStatus(false);
@@ -307,35 +306,18 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     };
   }, [runHeartbeat, setContextIsOffline]);
 
-  // ---------- remember if we've been offline ----------
-  useEffect(() => {
-    if (connectionState === 'offline') {
-      hasBeenOfflineRef.current = true;
-    }
-  }, [connectionState]);
-
-  // ---------- sync on GENUINE reconnect only ----------
-  // Skips the initial mount → online transition, which was causing
-  // a spurious "Syncing... → Sync failed → Online" flash on load.
-  useEffect(() => {
-    const nowOnline = connectionState === 'online';
-    const justReconnected =
-      !wasOnlineRef.current && nowOnline && hasBeenOfflineRef.current;
-    wasOnlineRef.current = nowOnline;
-
-    if (justReconnected) {
-      handleManualSync();
-    }
-  }, [connectionState, handleManualSync]);
-
-  // ---------- auto sync ----------
+  // ============================================================
+  // AUTO SYNC — observe only, never fire-and-ignore
+  // ============================================================
   const syncInterval = isPos ? SYNC_INTERVAL_POS_MS : SYNC_INTERVAL_IDLE_MS;
   usePolling(
     () => {
       if (connectionRef.current !== 'online') return;
       if (!activeBranchRef.current?.id) return;
       if (syncStateRef.current === 'syncing') return;
-      handleManualSync();
+      // Fire and forget — the engine will emit kxtill:sync-start,
+      // which flips our indicator to "Syncing..." immediately.
+      sync(activeBranchRef.current.id).catch(() => {});
     },
     syncInterval,
     [syncInterval, connectionState, activeBranch?.id]
@@ -395,10 +377,8 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   };
 
   // ---------- status derivation ----------
-  // Priority: offline beats everything. Then checking. Then sync lifecycle.
   const getSyncStatusColor = () => {
     if (connectionState === 'offline') return 'offline';
-    if (connectionState === 'checking') return 'sync';
     if (syncState === 'syncing') return 'sync';
     if (syncState === 'success') return 'success';
     if (syncState === 'error') return 'error';
@@ -407,7 +387,6 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
   const getSyncStatusLabel = () => {
     if (connectionState === 'offline') return 'Offline';
-    if (connectionState === 'checking') return 'Checking...';
     if (syncState === 'syncing') return 'Syncing...';
     if (syncState === 'success') return 'Synced';
     if (syncState === 'error') return 'Sync failed';
@@ -415,11 +394,15 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
   };
 
   const handleSyncButtonClick = useCallback(async () => {
-    await runHeartbeat();
-    if (connectionRef.current === 'online') {
-      handleManualSync();
+    if (connectionRef.current === 'offline') {
+      // Try to come back online first.
+      await runHeartbeat();
+      if (connectionRef.current === 'offline') return;
     }
-  }, [runHeartbeat, handleManualSync]);
+    if (!activeBranchRef.current?.id) return;
+    if (syncStateRef.current === 'syncing') return;
+    sync(activeBranchRef.current.id).catch(() => {});
+  }, [runHeartbeat]);
 
   // ---------- notifications content ----------
   const getNotificationContent = () => {
@@ -521,10 +504,10 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
           <button
             className={`${styles.syncBtn} ${styles[getSyncStatusColor()]}`}
             onClick={handleSyncButtonClick}
-            disabled={syncState === 'syncing' || connectionState === 'checking'}
+            disabled={syncState === 'syncing'}
             aria-label="Sync now"
           >
-            {syncState === 'syncing' || connectionState === 'checking' ? (
+            {syncState === 'syncing' ? (
               <RefreshCw size={16} className={styles.spinning} />
             ) : syncState === 'success' ? (
               <CheckCircle size={16} />

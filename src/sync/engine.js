@@ -126,8 +126,24 @@ export const sync = async (branchId) => {
   }
   syncInFlight = true;
 
+  // NEW: announce start so the UI can reflect engine-initiated
+  // syncs (window 'online', auto-interval, branch switch, etc.)
+  // immediately — not just TopBar-triggered ones.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('kxtill:sync-start'));
+  }
+
   try {
     if (!isOnline) {
+      // NEW: short-circuit path still signals completion so the
+      // TopBar's "Syncing..." state never gets stuck.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('kxtill:sync-complete', {
+            detail: { success: false, reason: 'offline', results: null },
+          })
+        );
+      }
       return { success: false, reason: 'offline' };
     }
 
@@ -195,11 +211,32 @@ export const sync = async (branchId) => {
       results.errors.push(`Receipt fetch fatal: ${describeError(err)}`);
     }
 
+    // Completion event — keeps the existing shape (raw results).
+    // The TopBar treats non-empty `errors` as failure, which is
+    // correct: any per-domain fatal lands in `errors`.
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kxtill:sync-complete', { detail: results }));
+      window.dispatchEvent(
+        new CustomEvent('kxtill:sync-complete', { detail: results })
+      );
     }
 
     return { success: true, results };
+  } catch (fatalErr) {
+    // NEW: if anything throws outside the per-domain try/catch
+    // blocks (e.g. a bug in results bookkeeping), still fire
+    // completion so the UI doesn't hang on "Syncing...".
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('kxtill:sync-complete', {
+          detail: {
+            success: false,
+            reason: 'fatal',
+            results: { errors: [describeError(fatalErr)] },
+          },
+        })
+      );
+    }
+    throw fatalErr;
   } finally {
     syncInFlight = false;
   }
