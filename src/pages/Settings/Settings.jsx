@@ -59,7 +59,7 @@ const EDITABLE_KEYS = [
   'showTax', 'showCustomer', 'showCashier',
   'currency', 'timezone', 'decimalPlaces', 'defaultPaymentMethod',
   'lowStockAlerts', 'dailySalesReport', 'weeklySummary', 'refundNotifications',
-  'sessionTimeout', 'requirePinForRefund', 'auditLogRetention',
+  'sessionTimeout', 'requirePinForRefund', 
   'allowBranchSwitch',
 ];
 
@@ -183,8 +183,7 @@ const Settings = () => {
       // Coerce numeric fields — NumberInput can emit '' on clear
       const payload = {
         ...draft,
-        sessionTimeout:    Number(draft.sessionTimeout)    || 30,
-        auditLogRetention: Number(draft.auditLogRetention) || 90,
+        sessionTimeout:    Number(draft.sessionTimeout)    || 30,        
         decimalPlaces:     Number(draft.decimalPlaces)     || 2,
       };
       await updateSettings(payload);
@@ -587,47 +586,38 @@ const Settings = () => {
           </div>
         )}
 
-        {activeTab === 'security' && (
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Security</h2>
-              <p className={styles.sectionDesc}>
-                Session, PIN, and audit log controls.
-              </p>
-            </div>
+{activeTab === 'security' && (
+  <div className={styles.section}>
+    <div className={styles.sectionHeader}>
+      <h2 className={styles.sectionTitle}>Security</h2>
+      <p className={styles.sectionDesc}>
+        Session and PIN controls for KxTill.
+      </p>
+    </div>
 
-            <div className={styles.grid2}>
-              <Field label="Session Timeout" hint="Auto-logout after inactivity (minutes)">
-                <NumberInput
-                  value={draft.sessionTimeout}
-                  onChange={(v) => setField('sessionTimeout', v)}
-                  min={5}
-                  max={480}
-                  disabled={readonly}
-                />
-              </Field>
-              <Field label="Audit Log Retention" hint="Days to keep audit logs">
-                <NumberInput
-                  value={draft.auditLogRetention}
-                  onChange={(v) => setField('auditLogRetention', v)}
-                  min={7}
-                  max={365}
-                  disabled={readonly}
-                />
-              </Field>
-            </div>
+    <div className={styles.grid2}>
+      <Field label="Session Timeout" hint="Auto-logout after inactivity (minutes)">
+        <NumberInput
+          value={draft.sessionTimeout}
+          onChange={(v) => setField('sessionTimeout', v)}
+          min={5}
+          max={480}
+          disabled={readonly}
+        />
+      </Field>
+    </div>
 
-            <div className={styles.toggleGroup}>
-              <Toggle
-                label="Require PIN for Refunds"
-                hint="Cashier must enter PIN before processing a refund"
-                checked={!!draft.requirePinForRefund}
-                onChange={(v) => setField('requirePinForRefund', v)}
-                disabled={readonly}
-              />
-            </div>
-          </div>
-        )}
+    <div className={styles.toggleGroup}>
+      <Toggle
+        label="Require PIN for Refunds"
+        hint="Cashier must enter PIN before processing a refund"
+        checked={!!draft.requirePinForRefund}
+        onChange={(v) => setField('requirePinForRefund', v)}
+        disabled={readonly}
+      />
+    </div>
+  </div>
+)}
 
         {activeTab === 'branch' && (
           <div className={styles.section}>
