@@ -171,7 +171,8 @@ export default function Support() {
   const canCreate = isOwner || can('support.tickets.create');
   const canManage = isOwner || can('support.tickets.manage');
 
-  const isInboxView = canViewAll;
+
+  const isInboxView = canManage;  
 
   // ============================================================
   // LOAD
