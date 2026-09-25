@@ -147,7 +147,7 @@ function ListSkeleton() {
 // ============================================================
 
 export default function Support() {
-  const { activeOrganization, user } = useAuth();
+  const { activeOrganization, activeBranch, user } = useAuth();
   const { isOwner, can } = usePermissions();
 
   const orgId = activeOrganization?.id;
@@ -448,18 +448,19 @@ export default function Support() {
       )}
 
       {/* CREATE MODAL */}
-      {showCreate && (
-        <CreateTicketModal
-          categories={categories}
-          orgId={orgId}
-          onClose={() => setShowCreate(false)}
-          onCreated={async () => {
-            setShowCreate(false);
-            await loadList();
-            toast.success('Ticket created');
-          }}
-        />
-      )}
+{showCreate && (
+  <CreateTicketModal
+    categories={categories}
+    orgId={orgId}
+    activeBranch={activeBranch}
+    onClose={() => setShowCreate(false)}
+    onCreated={async () => {
+      setShowCreate(false);
+      await loadList();
+      toast.success('Ticket created');
+    }}
+  />
+)}
     </div>
   );
 }
@@ -468,7 +469,13 @@ export default function Support() {
 // CREATE TICKET MODAL
 // ============================================================
 
-function CreateTicketModal({ categories, orgId, onClose, onCreated }) {
+function CreateTicketModal({
+  categories,
+  orgId,
+  activeBranch,
+  onClose,
+  onCreated,
+}) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -500,13 +507,15 @@ function CreateTicketModal({ categories, orgId, onClose, onCreated }) {
 
     setSaving(true);
     try {
-      await axios.post(`/organizations/${orgId}/support/tickets`, {
-        title: title.trim(),
-        description: description.trim(),
-        categoryId,
-        priority,
-        productKey: 'kxtill',
-      });
+await axios.post(`/organizations/${orgId}/support/tickets`, {
+  title: title.trim(),
+  description: description.trim(),
+  categoryId,
+  priority,
+  productKey: 'kxtill',
+  contextId: activeBranch?.id || undefined,
+  contextType: activeBranch ? 'branch' : undefined,
+});
       onCreated();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to create ticket'));
@@ -581,6 +590,11 @@ function CreateTicketModal({ categories, orgId, onClose, onCreated }) {
                 <option value="HIGH">High</option>
                 <option value="URGENT">Urgent</option>
               </select>
+              {activeBranch && (
+  <p className={styles.branchHint}>
+    Filing against <strong>{activeBranch.name}</strong>
+  </p>
+)}
             </div>
           </div>
 

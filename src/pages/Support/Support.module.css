@@ -1050,3 +1050,18 @@
     max-width: 100%;
   }
 }
+
+.branchHint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.branchHint strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
