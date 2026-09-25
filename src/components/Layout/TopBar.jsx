@@ -363,18 +363,18 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
     navigate(path);
   };
 
-  const openSuitePath = (path = '') => {
-    const suiteUrl =
-      process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
-    const token = localStorage.getItem('accessToken');
-    const url = token
-      ? `${suiteUrl}${path}?sso_token=${token}`
-      : `${suiteUrl}${path}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setUserMenuOpen(false);
-    setOrgDropdownOpen(false);
-    setBranchDropdownOpen(false);
-  };
+  // const openSuitePath = (path = '') => {
+  //   const suiteUrl =
+  //     process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
+  //   const token = localStorage.getItem('accessToken');
+  //   const url = token
+  //     ? `${suiteUrl}${path}?sso_token=${token}`
+  //     : `${suiteUrl}${path}`;
+  //   window.open(url, '_blank', 'noopener,noreferrer');
+  //   setUserMenuOpen(false);
+  //   setOrgDropdownOpen(false);
+  //   setBranchDropdownOpen(false);
+  // };
 
   // ---------- status derivation ----------
   const getSyncStatusColor = () => {
@@ -671,7 +671,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
               <button
                 className={styles.menuItem}
                 role="menuitem"
-                onClick={() => openSuitePath('/help')}
+                onClick={() => navigateAndClose('/support')}
               >
                 <HelpCircle size={15} />
                 Help &amp; Support

@@ -29,6 +29,7 @@ import CustomerDetail from './pages/Customers/CustomerDetail';
 import KxTillStaff from './pages/KxTillStaff/KxTillStaff';
 import Branches from './pages/Branches/Branches';
 import Account from './pages/Account/Account';
+import Support from './pages/Support/Support';
 import Billing from './pages/Billing/Billing';
 import { KXTILL, PLATFORM } from './constants/permissions';
 import { initDb } from './db/sqlite';
@@ -437,6 +438,7 @@ function App() {
                     />
                     <Route path="account" element={<Account />} />
                     <Route path="billing" element={<Billing />} />
+                    <Route path="support" element={<Support />} />
                   </Route>
 
                   {/* ==================== CATCH-ALL ==================== */}
