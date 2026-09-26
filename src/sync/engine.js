@@ -56,7 +56,7 @@ export const setOnlineStatus = (value) => {
 // IN-FLIGHT GUARDS
 // ============================================================
 
-let syncInFlight = false;
+let syncInFlight = null; // null | { branchId, startedAt }
 let queueInFlight = false;
 
 // ============================================================
@@ -121,22 +121,29 @@ if (typeof window !== 'undefined') {
 // ============================================================
 
 export const sync = async (branchId) => {
-  if (syncInFlight) {
+  // Branch-aware guard: if a sync for the SAME branch is running, bail.
+  // If it's for a DIFFERENT branch, signal the old one's completion
+  // and start fresh so switching branches always triggers a real pull.
+  if (syncInFlight && syncInFlight.branchId === branchId) {
     return { success: false, reason: 'in-flight' };
   }
-  syncInFlight = true;
 
-  // NEW: announce start so the UI can reflect engine-initiated
-  // syncs (window 'online', auto-interval, branch switch, etc.)
-  // immediately — not just TopBar-triggered ones.
+  if (syncInFlight && typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('kxtill:sync-complete', {
+        detail: { success: false, reason: 'superseded', results: null },
+      })
+    );
+  }
+
+  syncInFlight = { branchId, startedAt: Date.now() };
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('kxtill:sync-start'));
   }
 
   try {
     if (!isOnline) {
-      // NEW: short-circuit path still signals completion so the
-      // TopBar's "Syncing..." state never gets stuck.
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('kxtill:sync-complete', {
@@ -198,11 +205,14 @@ export const sync = async (branchId) => {
       results.errors.push(`Product pull fatal: ${describeError(err)}`);
     }
 
-    try {
-      await pullBranchProductUpdates(results, branchId);
-    } catch (err) {
-      results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
-    }
+    // NOTE: pullBranchProductUpdates is intentionally NOT called.
+    // /sync/products now returns every active product for the branch,
+    // including synthetic stubs (stock 0) for products with no server
+    // branch row. The separate branch-products endpoint + its prune
+    // step were wiping local orphans on every full pull.
+    //
+    // If you later want to re-enable it, remove the prune block inside
+    // pullBranchProductUpdates first.
 
     try {
       await new Promise((r) => setTimeout(r, 1500));
@@ -211,9 +221,6 @@ export const sync = async (branchId) => {
       results.errors.push(`Receipt fetch fatal: ${describeError(err)}`);
     }
 
-    // Completion event — keeps the existing shape (raw results).
-    // The TopBar treats non-empty `errors` as failure, which is
-    // correct: any per-domain fatal lands in `errors`.
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('kxtill:sync-complete', { detail: results })
@@ -222,9 +229,6 @@ export const sync = async (branchId) => {
 
     return { success: true, results };
   } catch (fatalErr) {
-    // NEW: if anything throws outside the per-domain try/catch
-    // blocks (e.g. a bug in results bookkeeping), still fire
-    // completion so the UI doesn't hang on "Syncing...".
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('kxtill:sync-complete', {
@@ -238,7 +242,11 @@ export const sync = async (branchId) => {
     }
     throw fatalErr;
   } finally {
-    syncInFlight = false;
+    // Only clear if this run is still the current one. A newer sync
+    // may have replaced it while we were awaiting.
+    if (syncInFlight && syncInFlight.branchId === branchId) {
+      syncInFlight = null;
+    }
   }
 };
 
@@ -580,14 +588,18 @@ const pullProductUpdates = async (results, branchId) => {
         }
       }
 
-      if (product.id && product.branchId) {
+      // The sync response carries branch-product data on every item,
+      // even when the branch row doesn't exist server-side. `product.id`
+      // is the branch-product id (real or synthetic `bp:<pid>:<bid>`),
+      // `product.productId` is the global product id.
+      if (product.id && product.productId && product.branchId) {
         await upsertBranchProduct({
           id: product.id,
           productId: product.productId,
           branchId: product.branchId,
           stock: parseFloat(product.stock) || 0,
           minStock: parseFloat(product.minStock) || 0,
-          isAvailable: product.isAvailable ? 1 : 0,
+          isAvailable: product.isAvailable === false ? 0 : 1,
           updatedAt: product.updatedAt,
         });
       }
@@ -600,99 +612,6 @@ const pullProductUpdates = async (results, branchId) => {
     }
   } catch (error) {
     results.errors.push(`Product sync: ${describeError(error)}`);
-  }
-};
-
-const pullBranchProductUpdates = async (results, branchId) => {
-  try {
-    const lastSync = await getLastBranchSync();
-    const organizationId = getOrgId();
-
-    if (!organizationId) {
-      results.errors.push('No organization ID found');
-      return;
-    }
-
-    if (!branchId) {
-      results.errors.push('No branch ID provided');
-      return;
-    }
-
-    const lastFullPull = await getSyncMetadata('last_branch_full_pull');
-    const shouldFullPull =
-      !lastFullPull ||
-      Date.now() - new Date(lastFullPull).getTime() > FULL_PULL_INTERVAL_MS;
-
-    const params = {
-      branchId,
-      ...(lastSync && !shouldFullPull ? { since: lastSync } : {}),
-    };
-
-    const response = await axios.get(
-      `/organizations/${organizationId}/kxtill/sync/branch-products`,
-      { params, timeout: SYNC_HTTP_TIMEOUT_MS }
-    );
-
-    const data = response.data;
-    const branchProductsList = data.branchProducts || data.items || [];
-
-    for (const bp of branchProductsList) {
-      await upsertBranchProduct({
-        id: bp.id,
-        productId: bp.productId,
-        branchId: bp.branchId,
-        stock: parseFloat(bp.stock) || 0,
-        minStock: parseFloat(bp.minStock) || 0,
-        isAvailable: bp.isAvailable ? 1 : 0,
-        updatedAt: bp.updatedAt,
-      });
-
-      if (bp.product) {
-        await upsertProduct({
-          id: bp.product.id,
-          name: bp.product.name,
-          sku: bp.product.sku || null,
-          description: bp.product.description || null,
-          category: bp.product.category || null,
-          taxRate: parseFloat(bp.product.taxRate) || 0,
-          baseUnitId: bp.product.baseUnit?.id || null,
-          updatedAt: bp.updatedAt,
-        });
-
-        if (Array.isArray(bp.product.units)) {
-          for (const unit of bp.product.units) {
-            await upsertProductUnit({
-              id: unit.id,
-              productId: bp.product.id,
-              name: unit.name,
-              abbreviation: unit.abbreviation,
-              unitType: unit.unitType || 'unit',
-              conversionQty: parseFloat(unit.conversionQty) || 1,
-              price: parseFloat(unit.price) || 0,
-              isBaseUnit: unit.isBaseUnit ? 1 : 0,
-              barcode: unit.barcode || null,
-            });
-          }
-        }
-      }
-
-      results.branchProductsUpdated++;
-    }
-
-    if (shouldFullPull) {
-      const activeIds = branchProductsList.map((bp) => bp.id).filter(Boolean);
-      const removed = await deleteBranchProductsNotIn(branchId, activeIds);
-      if (removed > 0) {
-        console.log(`Pruned ${removed} branch product(s) removed server-side`);
-      }
-      await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
-    }
-
-    if (data.version) {
-      await setLastBranchSync(data.version);
-    }
-  } catch (error) {
-    results.errors.push(`Branch product sync: ${describeError(error)}`);
   }
 };
 
@@ -840,14 +759,14 @@ export const initialSync = async (branchId) => {
       }
     }
 
-    if (product.id && product.branchId) {
+    if (product.id && product.productId && product.branchId) {
       await upsertBranchProduct({
         id: product.id,
         productId: product.productId,
         branchId: product.branchId,
         stock: parseFloat(product.stock) || 0,
         minStock: parseFloat(product.minStock) || 0,
-        isAvailable: product.isAvailable ? 1 : 0,
+        isAvailable: product.isAvailable === false ? 0 : 1,
         updatedAt: product.updatedAt,
       });
     }
@@ -857,58 +776,10 @@ export const initialSync = async (branchId) => {
     await setLastProductSync(productsData.version);
   }
 
-  const branchResponse = await axios.get(
-    `/organizations/${organizationId}/kxtill/sync/branch-products`,
-    { params: { branchId }, timeout: SYNC_HTTP_TIMEOUT_MS }
-  );
-
-  const branchData = branchResponse.data || {};
-  const branchProductsList = branchData.branchProducts || branchData.items || [];
-
-  for (const bp of branchProductsList) {
-    await upsertBranchProduct({
-      id: bp.id,
-      productId: bp.productId,
-      branchId: bp.branchId,
-      stock: parseFloat(bp.stock) || 0,
-      minStock: parseFloat(bp.minStock) || 0,
-      isAvailable: bp.isAvailable ? 1 : 0,
-      updatedAt: bp.updatedAt,
-    });
-
-    if (bp.product) {
-      await upsertProduct({
-        id: bp.product.id,
-        name: bp.product.name,
-        sku: bp.product.sku || null,
-        description: bp.product.description || null,
-        category: bp.product.category || null,
-        taxRate: parseFloat(bp.product.taxRate) || 0,
-        baseUnitId: bp.product.baseUnit?.id || null,
-        updatedAt: bp.updatedAt,
-      });
-
-      if (Array.isArray(bp.product.units)) {
-        for (const unit of bp.product.units) {
-          await upsertProductUnit({
-            id: unit.id,
-            productId: bp.product.id,
-            name: unit.name,
-            abbreviation: unit.abbreviation,
-            unitType: unit.unitType || 'unit',
-            conversionQty: parseFloat(unit.conversionQty) || 1,
-            price: parseFloat(unit.price) || 0,
-            isBaseUnit: unit.isBaseUnit ? 1 : 0,
-            barcode: unit.barcode || null,
-          });
-        }
-      }
-    }
-  }
-
-  if (branchData.version) {
-    await setLastBranchSync(branchData.version);
-  }
+  // NOTE: the second /sync/branch-products fetch has been removed.
+  // /sync/products already returns the full branch picture (real rows
+  // + synthetic stubs). Calling the branch-products endpoint on top
+  // was redundant, and its prune step was deleting local orphans.
 
   await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
 
