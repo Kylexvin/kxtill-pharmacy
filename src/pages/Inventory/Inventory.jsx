@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { KXTILL } from '../../constants/permissions';
+import { sync } from '../../sync/engine';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -413,6 +414,11 @@ const Inventory = () => {
       toast.success(`Stock updated: ${payload.stock} ${selectedProduct.unit}`);
       closeStockModal();
       fetchProducts();
+
+      // Push the new stock down to the POS's local SQLite immediately,
+      // rather than waiting for the next 60s poll. Fire-and-forget —
+      // the TopBar reflects engine state via kxtill:sync-* events.
+      sync(branchId).catch(() => {});
     } catch (error) {
       console.error('Stock update failed:', error);
       toast.error(error.response?.data?.message || 'Failed to update stock');
