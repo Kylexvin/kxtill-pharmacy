@@ -9,7 +9,7 @@ import {
   getSyncedSalesMissingReceipt,
   getLastProductSync,
   setLastProductSync,
-  getLastBranchSync,
+  //getLastBranchSync,
   setLastBranchSync,
   getLastCustomerSync,
   setLastCustomerSync,
@@ -26,9 +26,10 @@ import {
   replaceCustomerIdInSales,
   getLocalSale,
   upsertServerCustomer,
-  deleteBranchProductsNotIn,
-  getSyncMetadata,
+  //deleteBranchProductsNotIn,
+  //getSyncMetadata,
   setSyncMetadata,
+  saveDashboardSnapshot,
 } from '../db/sqlite';
 
 // ============================================================
@@ -38,7 +39,7 @@ import {
 const RECEIPT_FETCH_TIMEOUT_MS = 5000;
 const SYNC_HTTP_TIMEOUT_MS = 15000;
 const MAX_QUEUE_ATTEMPTS = 5;
-const FULL_PULL_INTERVAL_MS = 5 * 60 * 1000;
+//const FULL_PULL_INTERVAL_MS = 5 * 60 * 1000;
 
 // ============================================================
 // ONLINE STATE
@@ -56,11 +57,7 @@ export const setOnlineStatus = (value) => {
 // IN-FLIGHT GUARDS
 // ============================================================
 
-// Branch-aware: { branchId, promise } | null
-// - Same branch → callers share the same promise, so their .then()
-//   runs AFTER the sync completes (fixes refresh race).
-// - Different branch → old run is marked superseded and a new one starts.
-let syncInFlight = null;
+let syncInFlight = null; // null | { branchId, promise }
 let queueInFlight = false;
 
 // ============================================================
@@ -125,13 +122,10 @@ if (typeof window !== 'undefined') {
 // ============================================================
 
 export const sync = async (branchId) => {
-  // Same branch already running → return the SAME promise so callers
-  // awaiting this sync actually wait for data to land.
   if (syncInFlight && syncInFlight.branchId === branchId) {
     return syncInFlight.promise;
   }
 
-  // Different branch running → announce its completion and start fresh.
   if (syncInFlight && typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('kxtill:sync-complete', {
@@ -209,9 +203,9 @@ export const sync = async (branchId) => {
       }
 
       try {
-        await pullBranchProductUpdates(results, branchId);
+        await pullDashboardSnapshots(results, branchId);
       } catch (err) {
-        results.errors.push(`Branch product pull fatal: ${describeError(err)}`);
+        results.errors.push(`Dashboard snapshot fatal: ${describeError(err)}`);
       }
 
       try {
@@ -566,16 +560,17 @@ const pullProductUpdates = async (results, branchId) => {
     for (const product of productsList) {
       const productId = product.productId || product.id;
 
-      await upsertProduct({
-        id: productId,
-        name: product.name,
-        sku: product.sku || null,
-        description: product.description || null,
-        category: product.category || null,
-        taxRate: parseFloat(product.taxRate) || 0,
-        baseUnitId: product.baseUnit?.id || null,
-        updatedAt: product.updatedAt,
-      });
+await upsertProduct({
+  id: productId,
+  name: product.name,
+  sku: product.sku || null,
+  description: product.description || null,
+  category: product.category || null,
+  taxRate: parseFloat(product.taxRate) || 0,
+  cost: parseFloat(product.cost) || 0,
+  baseUnitId: product.baseUnit?.id || null,
+  updatedAt: product.updatedAt,
+});
 
       if (Array.isArray(product.units)) {
         for (const unit of product.units) {
@@ -587,6 +582,7 @@ const pullProductUpdates = async (results, branchId) => {
             unitType: unit.unitType || 'unit',
             conversionQty: parseFloat(unit.conversionQty) || 1,
             price: parseFloat(unit.price) || 0,
+            cost: unit.cost != null ? parseFloat(unit.cost) : null,
             isBaseUnit: unit.isBaseUnit ? 1 : 0,
             barcode: unit.barcode || null,
           });
@@ -616,96 +612,36 @@ const pullProductUpdates = async (results, branchId) => {
   }
 };
 
-const pullBranchProductUpdates = async (results, branchId) => {
+// ============================================================
+// DASHBOARD SNAPSHOTS
+// ============================================================
+
+const pullDashboardSnapshots = async (results, branchId) => {
   try {
-    const lastSync = await getLastBranchSync();
     const organizationId = getOrgId();
+    if (!organizationId || !branchId) return;
 
-    if (!organizationId) {
-      results.errors.push('No organization ID found');
-      return;
-    }
+    const periods = ['today', 'week', 'month'];
+    const snapshotPayload = {};
 
-    if (!branchId) {
-      results.errors.push('No branch ID provided');
-      return;
-    }
-
-    const lastFullPull = await getSyncMetadata('last_branch_full_pull');
-    const shouldFullPull =
-      !lastFullPull ||
-      Date.now() - new Date(lastFullPull).getTime() > FULL_PULL_INTERVAL_MS;
-
-    const params = {
-      branchId,
-      ...(lastSync && !shouldFullPull ? { since: lastSync } : {}),
-    };
-
-    const response = await axios.get(
-      `/organizations/${organizationId}/kxtill/sync/branch-products`,
-      { params, timeout: SYNC_HTTP_TIMEOUT_MS }
-    );
-
-    const data = response.data;
-    const branchProductsList = data.branchProducts || data.items || [];
-
-    for (const bp of branchProductsList) {
-      await upsertBranchProduct({
-        id: bp.id,
-        productId: bp.productId,
-        branchId: bp.branchId,
-        stock: parseFloat(bp.stock) || 0,
-        minStock: parseFloat(bp.minStock) || 0,
-        isAvailable: bp.isAvailable ? 1 : 0,
-        updatedAt: bp.updatedAt,
-      });
-
-      if (bp.product) {
-        await upsertProduct({
-          id: bp.product.id,
-          name: bp.product.name,
-          sku: bp.product.sku || null,
-          description: bp.product.description || null,
-          category: bp.product.category || null,
-          taxRate: parseFloat(bp.product.taxRate) || 0,
-          baseUnitId: bp.product.baseUnit?.id || null,
-          updatedAt: bp.updatedAt,
-        });
-
-        if (Array.isArray(bp.product.units)) {
-          for (const unit of bp.product.units) {
-            await upsertProductUnit({
-              id: unit.id,
-              productId: bp.product.id,
-              name: unit.name,
-              abbreviation: unit.abbreviation,
-              unitType: unit.unitType || 'unit',
-              conversionQty: parseFloat(unit.conversionQty) || 1,
-              price: parseFloat(unit.price) || 0,
-              isBaseUnit: unit.isBaseUnit ? 1 : 0,
-              barcode: unit.barcode || null,
-            });
-          }
-        }
+    for (const period of periods) {
+      try {
+        const res = await axios.get(
+          `/organizations/${organizationId}/kxtill/sync/dashboard`,
+          { params: { branchId, period }, timeout: SYNC_HTTP_TIMEOUT_MS }
+        );
+        snapshotPayload[period] = res.data?.snapshot || null;
+      } catch (err) {
+        snapshotPayload[period] = null;
       }
-
-      results.branchProductsUpdated++;
     }
 
-    if (shouldFullPull) {
-      const activeIds = branchProductsList.map((bp) => bp.id).filter(Boolean);
-      const removed = await deleteBranchProductsNotIn(branchId, activeIds);
-      if (removed > 0) {
-        console.log(`Pruned ${removed} branch product(s) removed server-side`);
-      }
-      await setSyncMetadata('last_branch_full_pull', new Date().toISOString());
-    }
-
-    if (data.version) {
-      await setLastBranchSync(data.version);
+    const anyContent = periods.some((p) => snapshotPayload[p]);
+    if (anyContent) {
+      saveDashboardSnapshot(organizationId, branchId, snapshotPayload);
     }
   } catch (error) {
-    results.errors.push(`Branch product sync: ${describeError(error)}`);
+    results.errors.push(`Dashboard snapshot sync: ${describeError(error)}`);
   }
 };
 
@@ -833,8 +769,10 @@ export const initialSync = async (branchId) => {
       description: product.description || null,
       category: product.category || null,
       taxRate: parseFloat(product.taxRate) || 0,
+      cost: parseFloat(product.cost) || 0,
       baseUnitId: product.baseUnit?.id || null,
       updatedAt: product.updatedAt,
+      
     });
 
     if (Array.isArray(product.units)) {
@@ -847,6 +785,7 @@ export const initialSync = async (branchId) => {
           unitType: unit.unitType || 'unit',
           conversionQty: parseFloat(unit.conversionQty) || 1,
           price: parseFloat(unit.price) || 0,
+          cost: unit.cost != null ? parseFloat(unit.cost) : null,
           isBaseUnit: unit.isBaseUnit ? 1 : 0,
           barcode: unit.barcode || null,
         });
@@ -897,6 +836,7 @@ export const initialSync = async (branchId) => {
         description: bp.product.description || null,
         category: bp.product.category || null,
         taxRate: parseFloat(bp.product.taxRate) || 0,
+        cost: parseFloat(bp.product.cost) || 0,
         baseUnitId: bp.product.baseUnit?.id || null,
         updatedAt: bp.updatedAt,
       });
@@ -911,6 +851,7 @@ export const initialSync = async (branchId) => {
             unitType: unit.unitType || 'unit',
             conversionQty: parseFloat(unit.conversionQty) || 1,
             price: parseFloat(unit.price) || 0,
+            cost: unit.cost != null ? parseFloat(unit.cost) : null,
             isBaseUnit: unit.isBaseUnit ? 1 : 0,
             barcode: unit.barcode || null,
           });

@@ -214,6 +214,9 @@ const createTables = async () => {
     `ALTER TABLE cart ADD COLUMN customerId TEXT;`,
     `ALTER TABLE cart ADD COLUMN customerTempId TEXT;`,
     `ALTER TABLE cart ADD COLUMN customerPhone TEXT;`,
+    `ALTER TABLE local_sales ADD COLUMN costAmount REAL DEFAULT 0;`,
+    `ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0;`,
+    `ALTER TABLE product_units ADD COLUMN cost REAL;`,
   ];
 
   for (const q of queries) {

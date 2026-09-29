@@ -46,7 +46,7 @@ const POS = () => {
     formatCurrency,
     getCurrency,
     getDecimalPlaces,
-    getDefaultPaymentMethod,    
+    getDefaultPaymentMethod,
   } = useSettings();
 
   const [products, setProducts] = useState([]);
@@ -63,6 +63,7 @@ const POS = () => {
   const [checkingOut, setCheckingOut] = useState(false);
   const [dbReady, setDbReady] = useState(false);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
+  const [showZeroStockGuide, setShowZeroStockGuide] = useState(false);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [cartOpen, setCartOpen] = useState(false);
@@ -123,8 +124,6 @@ const POS = () => {
   }, []);
 
   // ---------- persist cart ----------
-  // Saves cart + customer to SQLite. Clears the row entirely when
-  // both cart and customer are gone.
   useEffect(() => {
     if (!dbReady || !branchId) return;
 
@@ -153,44 +152,44 @@ const POS = () => {
 
     persistCart();
   }, [cartItems, customer, branchId, dbReady]);
-// ---------- restore cart from SQLite on mount / branch change ----------
-useEffect(() => {
-  if (!dbReady || !branchId) return;
 
-  const restore = async () => {
-    try {
-      const saved = await getActiveCart(branchId);
-      if (!saved) return;
+  // ---------- restore cart from SQLite on mount / branch change ----------
+  useEffect(() => {
+    if (!dbReady || !branchId) return;
 
-      // Don't clobber an in-memory cart if POS is already mid-sale
-      setCartItems((current) => {
-        if (current.length > 0) return current;
-        try {
-          const parsed = JSON.parse(saved.items || '[]');
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      });
+    const restore = async () => {
+      try {
+        const saved = await getActiveCart(branchId);
+        if (!saved) return;
 
-      if (saved.customerName) {
-        setCustomer((current) => {
-          if (current) return current;
-          return {
-            id: saved.customerId || saved.customerTempId || null,
-            tempId: saved.customerTempId || null,
-            name: saved.customerName,
-            phone: saved.customerPhone || null,
-          };
+        setCartItems((current) => {
+          if (current.length > 0) return current;
+          try {
+            const parsed = JSON.parse(saved.items || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
         });
-      }
-    } catch (err) {
-      console.error('Failed to restore cart:', err);
-    }
-  };
 
-  restore();
-}, [dbReady, branchId]);
+        if (saved.customerName) {
+          setCustomer((current) => {
+            if (current) return current;
+            return {
+              id: saved.customerId || saved.customerTempId || null,
+              tempId: saved.customerTempId || null,
+              name: saved.customerName,
+              phone: saved.customerPhone || null,
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to restore cart:', err);
+      }
+    };
+
+    restore();
+  }, [dbReady, branchId]);
 
   // ---------- product fetch ----------
   const fetchProducts = useCallback(async () => {
@@ -199,13 +198,9 @@ useEffect(() => {
 
     try {
       const allProducts = await getAllProducts();
+
+      
       const branchProds = await getBranchProducts(branchId);
-console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
-  bpId: bp.id,
-  productId: bp.productId,
-  name: bp.name,
-  isAvailable: bp.isAvailable,
-}))); 
 
       const branchProductIds = new Set(branchProds.map((bp) => bp.productId));
       const filteredByBranch = allProducts.filter((p) =>
@@ -243,6 +238,15 @@ console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
       });
 
       setProducts(merged);
+
+      // Zero-stock guide: fires only when the branch has products but
+      // none of them have any stock yet. Clears itself as soon as any
+      // item is stocked (via Inventory + a subsequent sync).
+      const allZeroStock =
+        branchProds.length > 0 &&
+        branchProds.every((bp) => Number(bp.stock || 0) === 0);
+
+      setShowZeroStockGuide(allZeroStock);
     } catch (err) {
       console.error('Failed to fetch products:', err);
     } finally {
@@ -250,43 +254,42 @@ console.log('[POS] branch_products in local DB:', branchProds.map(bp => ({
     }
   }, [dbReady, branchId, shouldFetch, debouncedSearch, selectedCategory]);
 
-// ---------- initial sync + auto fetch ----------
-useEffect(() => {
-  if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
-    return;
-  }
-
-  const runInitialSync = async () => {
-    const done = localStorage.getItem(syncFlagKey);
-    if (done === 'true') {
-      setInitialSyncDone(true);
-      await fetchProducts(); // show cached data immediately
-      // catch up with the server quietly, then refresh again once it lands
-      sync(branchId)
-        .then(() => fetchProducts())
-        .catch(() => {});
+  // ---------- initial sync + auto fetch ----------
+  useEffect(() => {
+    if (!dbReady || !shouldFetch || !branchId || !orgId || !syncFlagKey) {
       return;
     }
 
-    setSyncing(true);
-    try {
-      toast.loading('Syncing products...', { id: 'initial-sync' });
-      await initialSync(branchId);
-      localStorage.setItem(syncFlagKey, 'true');
-      setInitialSyncDone(true);
-      toast.success('Products synced', { id: 'initial-sync' });
-      fetchProducts();
-    } catch (err) {
-      console.error('Initial sync failed:', err);
-      toast.error('Failed to sync products', { id: 'initial-sync' });
-      setInitialSyncDone(false);
-    } finally {
-      setSyncing(false);
-    }
-  };
+    const runInitialSync = async () => {
+      const done = localStorage.getItem(syncFlagKey);
+      if (done === 'true') {
+        setInitialSyncDone(true);
+        await fetchProducts();
+        sync(branchId)
+          .then(() => fetchProducts())
+          .catch(() => {});
+        return;
+      }
 
-  runInitialSync();
-}, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
+      setSyncing(true);
+      try {
+        toast.loading('Syncing products...', { id: 'initial-sync' });
+        await initialSync(branchId);
+        localStorage.setItem(syncFlagKey, 'true');
+        setInitialSyncDone(true);
+        toast.success('Products synced', { id: 'initial-sync' });
+        fetchProducts();
+      } catch (err) {
+        console.error('Initial sync failed:', err);
+        toast.error('Failed to sync products', { id: 'initial-sync' });
+        setInitialSyncDone(false);
+      } finally {
+        setSyncing(false);
+      }
+    };
+
+    runInitialSync();
+  }, [dbReady, shouldFetch, branchId, orgId, syncFlagKey, fetchProducts]);
 
   // ---------- categories ----------
   useEffect(() => {
@@ -306,34 +309,34 @@ useEffect(() => {
     loadCategories();
   }, [dbReady, shouldFetch, initialSyncDone]);
 
-// ---------- refetch on branch / sync change ----------
-useEffect(() => {
-  if (initialSyncDone && branchId) {
-    fetchProducts();
-    sync(branchId)
-      .then(() => fetchProducts())
-      .catch(() => {});
-  }
-}, [branchId, initialSyncDone, fetchProducts]);
-
-// ---------- refresh when tab/window regains focus ----------
-useEffect(() => {
-  if (!dbReady || !shouldFetch || !branchId || !initialSyncDone) return;
-
-  const refreshOnReturn = () => {
-    if (document.visibilityState === 'visible') {
+  // ---------- refetch on branch / sync change ----------
+  useEffect(() => {
+    if (initialSyncDone && branchId) {
       fetchProducts();
-      sync(branchId).then(() => fetchProducts()).catch(() => {});
+      sync(branchId)
+        .then(() => fetchProducts())
+        .catch(() => {});
     }
-  };
+  }, [branchId, initialSyncDone, fetchProducts]);
 
-  document.addEventListener('visibilitychange', refreshOnReturn);
-  window.addEventListener('focus', refreshOnReturn);
-  return () => {
-    document.removeEventListener('visibilitychange', refreshOnReturn);
-    window.removeEventListener('focus', refreshOnReturn);
-  };
-}, [dbReady, shouldFetch, branchId, initialSyncDone, fetchProducts]);
+  // ---------- refresh when tab/window regains focus ----------
+  useEffect(() => {
+    if (!dbReady || !shouldFetch || !branchId || !initialSyncDone) return;
+
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') {
+        fetchProducts();
+        sync(branchId).then(() => fetchProducts()).catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    window.addEventListener('focus', refreshOnReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+      window.removeEventListener('focus', refreshOnReturn);
+    };
+  }, [dbReady, shouldFetch, branchId, initialSyncDone, fetchProducts]);
 
   useEffect(() => {
     if (initialSyncDone) {
@@ -422,6 +425,8 @@ useEffect(() => {
           sku: foundProduct.sku,
           stock: bp.stock,
           branchProductId: bp.id,
+          cost: foundProduct.cost,
+          
         },
         foundUnit
       );
@@ -434,62 +439,64 @@ useEffect(() => {
     }
   };
 
-  // ---------- cart operations ----------
-  const addToCart = (product, unit) => {
-    const productId = product.productId || product.id;
-    const stock = Number(product.stock || 0);
+// ---------- cart operations ----------
+const addToCart = (product, unit) => {
+  const productId = product.productId || product.id;
+  const stock = Number(product.stock || 0);
 
-    if (stock <= 0) {
-      toast.error('This product is out of stock');
-      return;
+  if (stock <= 0) {
+    toast.error('This product is out of stock');
+    return;
+  }
+
+  const existing = cartItems.find(
+    (item) => item.productId === productId && item.unitId === unit.id
+  );
+  const currentQty = existing?.quantity || 0;
+  const newQty = currentQty + 1;
+
+  if (newQty > stock) {
+    toast.error(`Not enough stock. Available: ${stock}`);
+    return;
+  }
+
+  setCartItems((prev) => {
+    if (existing) {
+      return prev.map((item) =>
+        item.productId === productId && item.unitId === unit.id
+          ? {
+              ...item,
+              quantity: newQty,
+              total: newQty * item.unitPrice,
+              stock,
+            }
+          : item
+      );
     }
-
-    const existing = cartItems.find(
-      (item) => item.productId === productId && item.unitId === unit.id
-    );
-    const currentQty = existing?.quantity || 0;
-    const newQty = currentQty + 1;
-
-    if (newQty > stock) {
-      toast.error(`Not enough stock. Available: ${stock}`);
-      return;
-    }
-
-    setCartItems((prev) => {
-      if (existing) {
-        return prev.map((item) =>
-          item.productId === productId && item.unitId === unit.id
-            ? {
-                ...item,
-                quantity: newQty,
-                total: newQty * item.unitPrice,
-                stock,
-              }
-            : item
-        );
-      }
-return [
-  ...prev,
-  {
-    id: `${productId}-${unit.id}-${Date.now()}`,
-    productId,
-    productName: product.name,
-    unitId: unit.id,
-    unitName: unit.name || unit.abbreviation || '',
-    unitAbbrev: unit.abbreviation || unit.name || '',
-    unitType: unit.unitType || 'unit',
-    conversionQty: Number(unit.conversionQty || 1),
-    unitPrice: Number(unit.price || 0),
-    quantity: 1,
-    total: Number(unit.price || 0),
-    sku: product.sku,
-    stock,
-    branchProductId: product.branchProductId,
-  },
-];
-    });
-    toast.success(`${product.name} added to cart`);
-  };
+    return [
+      ...prev,
+      {
+        id: `${productId}-${unit.id}-${Date.now()}`,
+        productId,
+        productName: product.name,
+        unitId: unit.id,
+        unitName: unit.name || unit.abbreviation || '',
+        unitAbbrev: unit.abbreviation || unit.name || '',
+        unitType: unit.unitType || 'unit',
+        conversionQty: Number(unit.conversionQty || 1),
+        unitPrice: Number(unit.price || 0),
+        quantity: 1,
+        total: Number(unit.price || 0),
+        sku: product.sku,
+        stock,
+        branchProductId: product.branchProductId,
+        unitCost: unit.cost != null ? Number(unit.cost) : null,
+        productCost: Number(product.cost || 0),
+      },
+    ];
+  });
+  toast.success(`${product.name} added to cart`);
+};
 
   const handleUpdateQuantity = (itemId, newQuantity) => {
     if (newQuantity <= 0) {
@@ -540,154 +547,171 @@ return [
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   // ---------- checkout ----------
-const handleCheckout = guarded(() => {
-  if (cartItems.length === 0) {
-    toast.error('Cart is empty');
-    return;
-  }
-  if (!branchId) {
-    toast.error('No active branch selected');
-    return;
-  }
-  for (const item of cartItems) {
-    const stock = Number(item.stock || 0);
-    if (stock < item.quantity) {
-      toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
+  const handleCheckout = guarded(() => {
+    if (cartItems.length === 0) {
+      toast.error('Cart is empty');
       return;
     }
-  }
-  setCartOpen(false);
-  setShowPaymentModal(true);
-});
-
-  const handlePaymentComplete = guarded(async ({ method, reference }) => {
-    setCheckingOut(true);
-    try {
-      const clientSaleId = `sale_${Date.now()}_${Math.random()
-        .toString(36)
-        .substring(2, 8)}`;
-      const now = new Date().toISOString();
-
-      const saleItems = cartItems.map((item) => {
-        const quantity = Number(item.quantity || 0);
-        const unitPrice = Number(item.unitPrice || 0);
-        const lineTotal = Number(item.total) || unitPrice * quantity;
-
-        return {
-          productId: item.productId,
-          branchProductId: item.branchProductId,
-          unitId: item.unitId,
-
-          productName: item.productName || item.name || 'Unknown',
-          sku: item.sku || null,
-          unitName: item.unitName || '',
-          unitAbbrev: item.unitAbbrev || item.unitName || '',
-          unitType: item.unitType || 'unit',
-          conversionQty: Number(item.conversionQty || 1),
-
-          quantity,
-          unitPrice,
-          taxRate: Number(item.taxRate || 0),
-          taxAmount: Number(item.taxAmount || 0),
-          discount: Number(item.discount || 0),
-          total: lineTotal,
-        };
-      });
-
-      const payments = [
-        {
-          method,
-          amount: total,
-          reference: reference || `PAY_${Date.now()}`,
-        },
-      ];
-
-      const hasSyncedCustomer = customer && customer.id && !customer.tempId;
-      const hasTempCustomer = customer && customer.tempId;
-
-      const localSale = {
-        id: clientSaleId,
-        branchId,
-        customerName: customer?.name || null,
-        customerId: hasSyncedCustomer ? customer.id : null,
-        customerTempId: hasTempCustomer ? customer.tempId : null,
-        items: JSON.stringify(saleItems),
-        payments: JSON.stringify(payments),
-        subtotal,
-        taxAmount,
-        totalAmount: total,
-        status: 'PENDING',
-        syncedAt: null,
-        error: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      await createLocalSale(localSale);
-
-      // Optimistically decrement local stock so the UI reflects the sale
-      // immediately. Server-side decrement happens on sync; the next pull
-      // overwrites with the same value — no drift.
-      for (const item of cartItems) {
-        if (!item.branchProductId) continue;
-        const qty = Number(item.quantity || 0);
-        const conv = Number(item.conversionQty || 1);
-        const baseQty = qty * conv;
-        if (baseQty > 0) {
-          await decrementBranchProductStock(item.branchProductId, baseQty);
-        }
-      }
-      flushBranchProducts();
-
-      await enqueueSync('sale', clientSaleId, 'CREATE', {
-        clientSaleId,
-        branchId,
-        customerId: hasSyncedCustomer ? customer.id : null,
-        customerTempId: hasTempCustomer ? customer.tempId : null,
-        customerName: customer?.name || null,
-        items: saleItems,
-        paymentMethod: method,
-        paymentReference: reference,
-      });
-
-      sync(branchId).catch(() => {});
-
-      const receipt = {
-        sale: {
-          id: clientSaleId,
-          reference: clientSaleId,
-          createdAt: now,
-          customerName: customer?.name || null,
-        },
-        items: cartItems.map((item) => ({
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          total: item.unitPrice * item.quantity,
-        })),
-        subtotal,
-        taxAmount,
-        total,
-        payments,
-        branchName: activeBranch?.name,
-      };
-
-      setCartItems([]);
-      await clearCart(branchId);
-      setCustomer(null);
-      setShowPaymentModal(false);
-      setCartOpen(false);
-      setLastReceipt(receipt);
-      fetchProducts();
-
-      toast.success(`Sale completed — ${clientSaleId}`);
-    } catch (err) {
-      toast.error(err.message || 'Payment failed');
-      throw err;
-    } finally {
-      setCheckingOut(false);
+    if (!branchId) {
+      toast.error('No active branch selected');
+      return;
     }
+    for (const item of cartItems) {
+      const stock = Number(item.stock || 0);
+      if (stock < item.quantity) {
+        toast.error(`Not enough stock for ${item.productName}. Available: ${stock}`);
+        return;
+      }
+    }
+    setCartOpen(false);
+    setShowPaymentModal(true);
   });
+
+const handlePaymentComplete = guarded(async ({ method, reference }) => {
+  setCheckingOut(true);
+  try {
+    const clientSaleId = `sale_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 8)}`;
+    const now = new Date().toISOString();
+
+    const saleItems = cartItems.map((item) => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = Number(item.total) || unitPrice * quantity;
+
+      // Mirror backend cost logic:
+      // unit.cost if set, else product.cost * conversionQty.
+      const conversionQty = Number(item.conversionQty || 1);
+      const unitCost =
+        item.unitCost != null
+          ? Number(item.unitCost)
+          : Number(item.productCost || 0) * conversionQty;
+      const lineCost = unitCost * quantity;
+
+
+
+      return {
+        productId: item.productId,
+        branchProductId: item.branchProductId,
+        unitId: item.unitId,
+
+        productName: item.productName || item.name || 'Unknown',
+        sku: item.sku || null,
+        unitName: item.unitName || '',
+        unitAbbrev: item.unitAbbrev || item.unitName || '',
+        unitType: item.unitType || 'unit',
+        conversionQty,
+
+        quantity,
+        unitPrice,
+        unitCost,
+        costAmount: lineCost,
+        taxRate: Number(item.taxRate || 0),
+        taxAmount: Number(item.taxAmount || 0),
+        discount: Number(item.discount || 0),
+        total: lineTotal,
+      };
+    });
+
+    const costAmountTotal = saleItems.reduce(
+      (sum, item) => sum + Number(item.costAmount || 0),
+      0
+    );
+
+    const payments = [
+      {
+        method,
+        amount: total,
+        reference: reference || `PAY_${Date.now()}`,
+      },
+    ];
+
+    const hasSyncedCustomer = customer && customer.id && !customer.tempId;
+    const hasTempCustomer = customer && customer.tempId;
+
+    const localSale = {
+      id: clientSaleId,
+      branchId,
+      customerName: customer?.name || null,
+      customerId: hasSyncedCustomer ? customer.id : null,
+      customerTempId: hasTempCustomer ? customer.tempId : null,
+      items: JSON.stringify(saleItems),
+      payments: JSON.stringify(payments),
+      subtotal,
+      taxAmount,
+      totalAmount: total,
+      costAmount: costAmountTotal,
+      status: 'PENDING',
+      syncedAt: null,
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await createLocalSale(localSale);
+    
+
+    for (const item of cartItems) {
+      if (!item.branchProductId) continue;
+      const qty = Number(item.quantity || 0);
+      const conv = Number(item.conversionQty || 1);
+      const baseQty = qty * conv;
+      if (baseQty > 0) {
+        await decrementBranchProductStock(item.branchProductId, baseQty);
+      }
+    }
+    flushBranchProducts();
+
+    await enqueueSync('sale', clientSaleId, 'CREATE', {
+      clientSaleId,
+      branchId,
+      customerId: hasSyncedCustomer ? customer.id : null,
+      customerTempId: hasTempCustomer ? customer.tempId : null,
+      customerName: customer?.name || null,
+      items: saleItems,
+      paymentMethod: method,
+      paymentReference: reference,
+    });
+
+    sync(branchId).catch(() => {});
+
+    const receipt = {
+      sale: {
+        id: clientSaleId,
+        reference: clientSaleId,
+        createdAt: now,
+        customerName: customer?.name || null,
+      },
+      items: cartItems.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.unitPrice * item.quantity,
+      })),
+      subtotal,
+      taxAmount,
+      total,
+      payments,
+      branchName: activeBranch?.name,
+    };
+
+    setCartItems([]);
+    await clearCart(branchId);
+    setCustomer(null);
+    setShowPaymentModal(false);
+    setCartOpen(false);
+    setLastReceipt(receipt);
+    fetchProducts();
+
+    toast.success(`Sale completed — ${clientSaleId}`);
+  } catch (err) {
+    toast.error(err.message || 'Payment failed');
+    throw err;
+  } finally {
+    setCheckingOut(false);
+  }
+});
 
   // ---------- render helpers ----------
   const cartElement = (
@@ -851,6 +875,15 @@ const handleCheckout = guarded(() => {
           </button>
           {cartToggleButton}
         </div>
+
+        {showZeroStockGuide && (
+          <div className={styles.zeroStockGuide}>
+            <span>
+              This branch has no stock yet. Update stock in Inventory to start
+              selling.
+            </span>
+          </div>
+        )}
 
         <div className={styles.categories}>
           {categories.map((cat) => (

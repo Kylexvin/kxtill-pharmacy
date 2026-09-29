@@ -3,8 +3,9 @@ import { query, runNoSave } from './helpers.js';
 
 export const upsertProduct = async (product) => {
   const sql = `
-    INSERT OR REPLACE INTO products (id, name, sku, description, category, taxRate, baseUnitId, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO products (
+      id, name, sku, description, category, taxRate, cost, baseUnitId, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   runNoSave(sql, [
     product.id,
@@ -13,10 +14,12 @@ export const upsertProduct = async (product) => {
     product.description || null,
     product.category || null,
     product.taxRate || 0,
+    product.cost || 0,
     product.baseUnitId || null,
     product.updatedAt,
   ]);
 };
+
 
 export const getProduct = async (id) => {
   const results = query('SELECT * FROM products WHERE id = ?', [id]);
@@ -38,8 +41,10 @@ export const clearProducts = async () => {
 
 export const upsertProductUnit = async (unit) => {
   const sql = `
-    INSERT OR REPLACE INTO product_units (id, productId, name, abbreviation, unitType, conversionQty, price, isBaseUnit, barcode)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO product_units (
+      id, productId, name, abbreviation, unitType,
+      conversionQty, price, cost, isBaseUnit, barcode
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   runNoSave(sql, [
     unit.id,
@@ -49,6 +54,7 @@ export const upsertProductUnit = async (unit) => {
     unit.unitType,
     unit.conversionQty || 1,
     unit.price || 0,
+    unit.cost != null ? Number(unit.cost) : null,
     unit.isBaseUnit || 0,
     unit.barcode || null,
   ]);

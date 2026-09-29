@@ -1480,3 +1480,13 @@
     max-height: 40vh;
   }
 }
+.zeroStockGuide {
+  margin: 0 16px 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-size: 13px;
+  line-height: 1.4;
+}

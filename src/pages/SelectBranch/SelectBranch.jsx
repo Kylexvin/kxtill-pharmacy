@@ -149,8 +149,14 @@ export default function SelectBranchPage() {
     setBranches,
     isLoading, 
     logout,
-    isAuthenticated
+    isAuthenticated,
+    organizations, 
   } = useAuth();
+
+  const activeOrgRecord = organizations.find(o => o.id === activeOrganization?.id);
+  const canManageBranches =
+    activeOrgRecord?.permissions?.includes('*') ||
+    activeOrgRecord?.permissions?.includes('branches.manage');
 
   const [branchesState, setBranchesState] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -653,16 +659,18 @@ export default function SelectBranchPage() {
                   placeholder="Search branches..."
                 />
               </div>
-              <Tooltip content="Create a new branch">
-                <button
-                  className={styles.addIconBtn}
-                  onClick={() => setShowCreateForm(true)}
-                  title="New branch"
-                  type="button"
-                >
-                  <Plus size={18} />
-                </button>
-              </Tooltip>
+{canManageBranches && (
+  <Tooltip content="Create a new branch">
+    <button
+      className={styles.addIconBtn}
+      onClick={() => setShowCreateForm(true)}
+      title="New branch"
+      type="button"
+    >
+      <Plus size={18} />
+    </button>
+  </Tooltip>
+)}
             </div>
 
             <div className={styles.list}>
@@ -675,15 +683,21 @@ export default function SelectBranchPage() {
                       ? `No branches match "${query}"` 
                       : "You don't have access to any branches in this organization."}
                   </p>
-                  {branchesState.length === 0 && (
-                    <button 
-                      className={styles.createBranchBtn}
-                      onClick={() => setShowCreateForm(true)}
-                    >
-                      <Plus size={16} />
-                      Create your first branch
-                    </button>
-                  )}
+{branchesState.length === 0 && canManageBranches && (
+  <button 
+    className={styles.createBranchBtn}
+    onClick={() => setShowCreateForm(true)}
+  >
+    <Plus size={16} />
+    Create your first branch
+  </button>
+)}
+
+{branchesState.length === 0 && !canManageBranches && (
+  <p className={styles.subtitle} style={{ marginTop: 12 }}>
+    You don't have access to any branch yet. Ask the organization owner to add you to one.
+  </p>
+)}
                 </div>
               ) : (
                 filteredBranches.map((branch) => (

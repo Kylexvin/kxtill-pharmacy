@@ -6,9 +6,9 @@ export const createLocalSale = async (sale) => {
   const sql = `
     INSERT OR REPLACE INTO local_sales (
       id, branchId, customerName, customerId, customerTempId,
-      items, payments, subtotal, taxAmount, totalAmount,
+      items, payments, subtotal, taxAmount, totalAmount, costAmount,
       status, syncedAt, error, createdAt, updatedAt, serverSaleId, receiptText
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   run(sql, [
     sale.id,
@@ -21,6 +21,7 @@ export const createLocalSale = async (sale) => {
     sale.subtotal || 0,
     sale.taxAmount || 0,
     sale.totalAmount || 0,
+    sale.costAmount || 0,
     sale.status || 'PENDING',
     sale.syncedAt || null,
     sale.error || null,
@@ -90,6 +91,7 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
       subtotal,
       taxAmount,
       totalAmount,
+      costAmount,
       status,
       syncedAt,
       error,

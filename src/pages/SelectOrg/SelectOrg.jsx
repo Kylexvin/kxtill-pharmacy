@@ -375,18 +375,27 @@ export default function SelectOrganizationPage() {
     setError('');
     try {
       await axios.post('/invitations/accept', { token });
-      
+
       const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
       setPendingInvites(remainingInvites);
       setShowCreateForm(false);
-      
+
+      // Refresh orgs — the invitee just joined one
+      try {
+        const orgsRes = await axios.get('/organizations');
+        const freshOrgs = orgsRes.data.organizations || [];
+        freshOrgs.forEach((org) => addOrganization(org));
+      } catch (refreshErr) {
+        console.warn('Org refresh after invite failed:', refreshErr);
+      }
+
       showToast.success('Invitation accepted!');
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to accept invitation');
       showToast.error(message);
       console.error(err);
     }
-  }, [pendingInvites]);
+  }, [pendingInvites, addOrganization]);
 
   const handleRejectInvite = useCallback(async (token) => {
     showConfirmation({
