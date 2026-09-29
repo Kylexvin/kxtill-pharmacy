@@ -31,6 +31,7 @@ import Branches from './pages/Branches/Branches';
 import Account from './pages/Account/Account';
 import Support from './pages/Support/Support';
 import Billing from './pages/Billing/Billing';
+import SsoCallback from './pages/SsoCallback/SsoCallback';
 import { KXTILL, PLATFORM } from './constants/permissions';
 import { initDb } from './db/sqlite';
 import './App.css';
@@ -286,6 +287,7 @@ function App() {
                     path="/kx/kxtill/oauth/callback"
                     element={<OAuthCallback />}
                   />
+                  <Route path="/sso" element={<SsoCallback />} />
                   <Route path="/select-org" element={<SelectOrg />} />
                   <Route path="/select-branch" element={<SelectBranch />} />
 
