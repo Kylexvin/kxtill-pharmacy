@@ -473,7 +473,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
 
         <div className={styles.logo}>
           <img
-            src="/assets/logo4.png"
+            src="/assets/logo5.png"
             alt="KxTill Logo"
             className={styles.logoImage}
           />
