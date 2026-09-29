@@ -40,7 +40,7 @@ import './styles/globals.css';
 // AXIOS CONFIG
 // ============================================================
 axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1';
-// axios.defaults.baseURL = 'http://localhost:5000/api/v1';
+//axios.defaults.baseURL = 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
