@@ -3,20 +3,20 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { 
-  Building2, 
-  Check, 
-  X, 
-  Plus, 
-  Crown, 
-  Mail, 
-  Rocket, 
-  RefreshCw, 
-  LogOut, 
-  Search, 
+import {
+  Building2,
+  Check,
+  X,
+  Plus,
+  Crown,
+  Mail,
+  Rocket,
+  RefreshCw,
+  LogOut,
+  Search,
   ChevronRight,
   AlertCircle,
-  Bell
+  Bell,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { showToast } from '../../components/Common/Toast';
@@ -24,7 +24,28 @@ import { initializeKxTill } from '../../initializer';
 import styles from './SelectOrg.module.css';
 
 // Logo URL
-const LOGO_URL = 'https://res.cloudinary.com/dkahrnjrn/image/upload/v1788695499/logo.png';
+const LOGO_URL =
+  'https://res.cloudinary.com/dkahrnjrn/image/upload/v1788695499/logo.png';
+
+// ============================================================
+// COUNTRIES — single source of truth for select + dial code
+// Keep in sync with backend getCountryDefaults()
+// ============================================================
+const COUNTRIES = [
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', dial: '+254' },
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', dial: '+256' },
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', dial: '+255' },
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', dial: '+250' },
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', dial: '+234' },
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', dial: '+27' },
+];
+
+const DEFAULT_COUNTRY = 'KE';
+
+const getCountry = (code) =>
+  COUNTRIES.find((c) => c.code === code) || COUNTRIES[0];
+
+const digitsOnly = (v) => (v || '').replace(/\D/g, '');
 
 // API error helper
 function getErrorMessage(error, fallback) {
@@ -45,53 +66,59 @@ function getErrorMessage(error, fallback) {
 // ============================================================
 const Tooltip = ({ children, content, position = 'top' }) => {
   const [show, setShow] = useState(false);
-  
+
   return (
-    <div 
-      className={styles.tooltipWrapper} 
-      onMouseEnter={() => setShow(true)} 
+    <div
+      className={styles.tooltipWrapper}
+      onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
     >
       {children}
       {show && (
-        <div className={`${styles.tooltip} ${styles[position]}`}>
-          {content}
-        </div>
+        <div className={`${styles.tooltip} ${styles[position]}`}>{content}</div>
       )}
     </div>
   );
 };
 
 // ============================================================
-// CONFIRMATION DIALOG COMPONENT (Sweet Alert Style)
+// CONFIRMATION DIALOG
 // ============================================================
-const ConfirmationDialog = ({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  title, 
-  message, 
-  confirmText = 'Confirm', 
+const ConfirmationDialog = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmText = 'Confirm',
   cancelText = 'Cancel',
-  type = 'warning' // 'warning', 'danger', 'info'
+  type = 'warning',
 }) => {
   if (!isOpen) return null;
 
   const getIconColor = () => {
-    switch(type) {
-      case 'danger': return '#ef5350';
-      case 'warning': return '#d9a84e';
-      case 'info': return '#4caf82';
-      default: return '#d9a84e';
+    switch (type) {
+      case 'danger':
+        return '#ef5350';
+      case 'warning':
+        return '#d9a84e';
+      case 'info':
+        return '#4caf82';
+      default:
+        return '#d9a84e';
     }
   };
 
   const getIconBg = () => {
-    switch(type) {
-      case 'danger': return 'rgba(239, 83, 80, 0.15)';
-      case 'warning': return 'rgba(217, 168, 78, 0.15)';
-      case 'info': return 'rgba(76, 175, 130, 0.15)';
-      default: return 'rgba(217, 168, 78, 0.15)';
+    switch (type) {
+      case 'danger':
+        return 'rgba(239, 83, 80, 0.15)';
+      case 'warning':
+        return 'rgba(217, 168, 78, 0.15)';
+      case 'info':
+        return 'rgba(76, 175, 130, 0.15)';
+      default:
+        return 'rgba(217, 168, 78, 0.15)';
     }
   };
 
@@ -104,13 +131,10 @@ const ConfirmationDialog = ({
         <h3 className={styles.dialogTitle}>{title}</h3>
         <p className={styles.dialogMessage}>{message}</p>
         <div className={styles.dialogActions}>
-          <button 
-            className={styles.dialogCancel} 
-            onClick={onClose}
-          >
+          <button className={styles.dialogCancel} onClick={onClose}>
             {cancelText}
           </button>
-          <button 
+          <button
             className={`${styles.dialogConfirm} ${styles[type]}`}
             onClick={() => {
               onConfirm();
@@ -126,7 +150,7 @@ const ConfirmationDialog = ({
 };
 
 // ============================================================
-// SKELETON LOADER COMPONENTS
+// SKELETONS
 // ============================================================
 const SkeletonOrganizationCard = () => (
   <div className={styles.orgCardNeo} style={{ pointerEvents: 'none' }}>
@@ -143,7 +167,10 @@ const SkeletonOrganizationCard = () => (
 const SkeletonInviteCard = () => (
   <div className={styles.inviteCard} style={{ pointerEvents: 'none' }}>
     <div className={styles.inviteTop}>
-      <div className={styles.skeletonAvatar} style={{ width: '30px', height: '30px' }} />
+      <div
+        className={styles.skeletonAvatar}
+        style={{ width: '30px', height: '30px' }}
+      />
       <div className={styles.inviteInfo}>
         <div className={styles.skeletonText} style={{ width: '60%' }} />
         <div className={styles.skeletonText} style={{ width: '40%' }} />
@@ -177,12 +204,18 @@ export default function SelectOrganizationPage() {
   const [error, setError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [formData, setFormData] = useState({ name: '', country: 'KE' });
+
+  // ---- form state: country drives the dial prefix ----
+  const [formData, setFormData] = useState({
+    name: '',
+    country: DEFAULT_COUNTRY,
+    phoneLocal: '', // digits only, no dial code
+  });
+
   const [redirecting, setRedirecting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  
-  // Confirmation dialog state
+
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: '',
@@ -190,17 +223,21 @@ export default function SelectOrganizationPage() {
     confirmText: 'Confirm',
     cancelText: 'Cancel',
     type: 'warning',
-    onConfirm: null
+    onConfirm: null,
   });
 
   const hasLoaded = useRef(false);
   const redirectingRef = useRef(false);
 
+  const selectedCountry = useMemo(
+    () => getCountry(formData.country),
+    [formData.country]
+  );
+
   // ============================================================
-  // AUTH CHECK — redirect to login if not authenticated
+  // AUTH CHECK
   // ============================================================
   useEffect(() => {
-    // If not authenticated and not loading, redirect to login
     if (!isAuthenticated && !isLoading) {
       console.log('User not authenticated, redirecting to login');
       navigate('/login', { replace: true });
@@ -208,7 +245,7 @@ export default function SelectOrganizationPage() {
   }, [isAuthenticated, isLoading, navigate]);
 
   // ============================================================
-  // LOAD DATA — ONLY ONCE, but ALWAYS resolve `loading`
+  // LOAD DATA
   // ============================================================
   useEffect(() => {
     let mounted = true;
@@ -216,8 +253,6 @@ export default function SelectOrganizationPage() {
     const loadData = async () => {
       if (!user) return;
 
-      // Already loaded once — skip the fetch but resolve loading so the
-      // auto-redirect effect below can run.
       if (hasLoaded.current) {
         setLoading(false);
         return;
@@ -225,7 +260,7 @@ export default function SelectOrganizationPage() {
 
       try {
         setLoading(true);
-        
+
         const [orgsRes, invitesRes, archivedRes] = await Promise.all([
           axios.get('/organizations').catch(() => ({ data: { organizations: [] } })),
           axios.get('/invitations/my').catch(() => ({ data: { invitations: [] } })),
@@ -237,13 +272,12 @@ export default function SelectOrganizationPage() {
         const freshInvites = (invitesRes.data.invitations || []).filter(
           (inv) => inv.status === 'PENDING'
         );
-        
+
         setPendingInvites(freshInvites);
         setArchivedOrgs(archivedRes.data.organizations || []);
 
-        // Check if organizations array exists from response
         const orgs = orgsRes.data.organizations || [];
-        
+
         if (orgs.length === 0 && freshInvites.length === 0) {
           setShowCreateForm(true);
         }
@@ -252,13 +286,12 @@ export default function SelectOrganizationPage() {
         hasLoaded.current = true;
       } catch (err) {
         console.error('Failed to load data:', err);
-        
-        // If it's a 401, AuthContext should handle it, but just in case
+
         if (err.response?.status === 401) {
           navigate('/login', { replace: true });
           return;
         }
-        
+
         showToast.error('Could not load your organizations');
         setShowCreateForm(true);
         setLoading(false);
@@ -273,17 +306,21 @@ export default function SelectOrganizationPage() {
   }, [user, navigate]);
 
   // ============================================================
-  // AUTO-REDIRECT — when only one organization and no other items
+  // AUTO-REDIRECT
   // ============================================================
   useEffect(() => {
     if (redirectingRef.current || loading) return;
     if (!user) return;
-    
-    if (organizations.length === 1 && pendingInvites.length === 0 && archivedOrgs.length === 0) {
+
+    if (
+      organizations.length === 1 &&
+      pendingInvites.length === 0 &&
+      archivedOrgs.length === 0
+    ) {
       const org = organizations[0];
       redirectingRef.current = true;
       setRedirecting(true);
-      
+
       setActiveOrganization(org.id)
         .then(async () => {
           await initializeKxTill(org.id);
@@ -296,71 +333,86 @@ export default function SelectOrganizationPage() {
           showToast.error('Failed to load organization');
         });
     }
-  }, [organizations, pendingInvites, archivedOrgs, loading, user, setActiveOrganization, navigate]);
+  }, [
+    organizations,
+    pendingInvites,
+    archivedOrgs,
+    loading,
+    user,
+    setActiveOrganization,
+    navigate,
+  ]);
 
   // ============================================================
   // HANDLERS
   // ============================================================
 
-  const showConfirmation = useCallback(({ title, message, confirmText, cancelText, type, onConfirm }) => {
-    setConfirmDialog({
-      isOpen: true,
-      title,
-      message,
-      confirmText: confirmText || 'Confirm',
-      cancelText: cancelText || 'Cancel',
-      type: type || 'warning',
-      onConfirm: onConfirm || (() => {})
-    });
-  }, []);
+  const showConfirmation = useCallback(
+    ({ title, message, confirmText, cancelText, type, onConfirm }) => {
+      setConfirmDialog({
+        isOpen: true,
+        title,
+        message,
+        confirmText: confirmText || 'Confirm',
+        cancelText: cancelText || 'Cancel',
+        type: type || 'warning',
+        onConfirm: onConfirm || (() => {}),
+      });
+    },
+    []
+  );
 
   const closeConfirmation = useCallback(() => {
-    setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+    setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
   }, []);
 
   const handleLogout = useCallback(() => {
     showConfirmation({
       title: 'Logout Confirmation',
-      message: 'Are you sure you want to logout? You will need to login again to access your organizations.',
+      message:
+        'Are you sure you want to logout? You will need to login again to access your organizations.',
       confirmText: 'Logout',
       cancelText: 'Stay',
       type: 'danger',
       onConfirm: () => {
         logout();
         navigate('/login', { replace: true });
-      }
+      },
     });
   }, [logout, navigate, showConfirmation]);
 
-  const handleSelect = useCallback(async (orgId) => {
-    setError('');
-    setRedirecting(true);
-    try {
-      const org = organizations.find((o) => o.id === orgId);
-      if (!org) {
-        showToast.error('Organization not found');
-        setRedirecting(false);
-        return;
-      }
+  const handleSelect = useCallback(
+    async (orgId) => {
+      setError('');
+      setRedirecting(true);
+      try {
+        const org = organizations.find((o) => o.id === orgId);
+        if (!org) {
+          showToast.error('Organization not found');
+          setRedirecting(false);
+          return;
+        }
 
-      await setActiveOrganization(orgId);
-      await initializeKxTill(orgId);
-      navigate('/select-branch');
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to select organization');
-      showToast.error(message);
-      console.error(err);
-      setRedirecting(false);
-    }
-  }, [organizations, setActiveOrganization, navigate]);
+        await setActiveOrganization(orgId);
+        await initializeKxTill(orgId);
+        navigate('/select-branch');
+      } catch (err) {
+        const message = getErrorMessage(err, 'Failed to select organization');
+        showToast.error(message);
+        console.error(err);
+        setRedirecting(false);
+      }
+    },
+    [organizations, setActiveOrganization, navigate]
+  );
 
   const handleRestoreOrganization = useCallback(async (orgId) => {
     setRestoring(orgId);
     try {
       await axios.patch(`/organizations/${orgId}/restore`);
-      
+
       setArchivedOrgs((prev) => prev.filter((org) => org.id !== orgId));
-      
+
       showToast.success('Organization restored successfully!');
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to restore organization');
@@ -371,96 +423,137 @@ export default function SelectOrganizationPage() {
     }
   }, []);
 
-  const handleAcceptInvite = useCallback(async (token) => {
-    setError('');
-    try {
-      await axios.post('/invitations/accept', { token });
-
-      const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
-      setPendingInvites(remainingInvites);
-      setShowCreateForm(false);
-
-      // Refresh orgs — the invitee just joined one
+  const handleAcceptInvite = useCallback(
+    async (token) => {
+      setError('');
       try {
-        const orgsRes = await axios.get('/organizations');
-        const freshOrgs = orgsRes.data.organizations || [];
-        freshOrgs.forEach((org) => addOrganization(org));
-      } catch (refreshErr) {
-        console.warn('Org refresh after invite failed:', refreshErr);
-      }
+        await axios.post('/invitations/accept', { token });
 
-      showToast.success('Invitation accepted!');
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to accept invitation');
-      showToast.error(message);
-      console.error(err);
-    }
-  }, [pendingInvites, addOrganization]);
+        const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
+        setPendingInvites(remainingInvites);
+        setShowCreateForm(false);
 
-  const handleRejectInvite = useCallback(async (token) => {
-    showConfirmation({
-      title: 'Decline Invitation',
-      message: 'Are you sure you want to decline this organization invitation? This action cannot be undone.',
-      confirmText: 'Decline',
-      cancelText: 'Keep Invitation',
-      type: 'warning',
-      onConfirm: async () => {
         try {
-          await axios.post('/invitations/reject', { token });
-          const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
-          setPendingInvites(remainingInvites);
-          
-          if (organizations.length === 0 && remainingInvites.length === 0) {
-            setShowCreateForm(true);
-          }
-          
-          showToast.info('Invitation declined');
-        } catch (err) {
-          const message = getErrorMessage(err, 'Failed to reject invitation');
-          showToast.error(message);
-          console.error(err);
+          const orgsRes = await axios.get('/organizations');
+          const freshOrgs = orgsRes.data.organizations || [];
+          freshOrgs.forEach((org) => addOrganization(org));
+        } catch (refreshErr) {
+          console.warn('Org refresh after invite failed:', refreshErr);
         }
+
+        showToast.success('Invitation accepted!');
+      } catch (err) {
+        const message = getErrorMessage(err, 'Failed to accept invitation');
+        showToast.error(message);
+        console.error(err);
       }
-    });
-  }, [pendingInvites, organizations, showConfirmation]);
+    },
+    [pendingInvites, addOrganization]
+  );
 
-  const handleCreateChange = useCallback((e) => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  }, []);
+  const handleRejectInvite = useCallback(
+    async (token) => {
+      showConfirmation({
+        title: 'Decline Invitation',
+        message:
+          'Are you sure you want to decline this organization invitation? This action cannot be undone.',
+        confirmText: 'Decline',
+        cancelText: 'Keep Invitation',
+        type: 'warning',
+        onConfirm: async () => {
+          try {
+            await axios.post('/invitations/reject', { token });
+            const remainingInvites = pendingInvites.filter((inv) => inv.token !== token);
+            setPendingInvites(remainingInvites);
 
-  const handleCreateSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    setError('');
-    setCreating(true);
+            if (organizations.length === 0 && remainingInvites.length === 0) {
+              setShowCreateForm(true);
+            }
 
-    try {
-      const response = await axios.post('/organizations', {
-        name: formData.name,
-        country: formData.country,
+            showToast.info('Invitation declined');
+          } catch (err) {
+            const message = getErrorMessage(err, 'Failed to reject invitation');
+            showToast.error(message);
+            console.error(err);
+          }
+        },
       });
+    },
+    [pendingInvites, organizations, showConfirmation]
+  );
 
-      const { organization } = response.data;
+  // ---------- form change ----------
+  const handleCreateChange = useCallback((e) => {
+    const { name, value } = e.target;
 
-      // Keep local org list in sync so SelectOrg reflects the new org
-      addOrganization(organization);
-
-      showToast.success(`"${organization.name}" created successfully!`);
-
-      setRedirecting(true);
-      await setActiveOrganization(organization.id);
-      await initializeKxTill(organization.id);
-      navigate('/select-branch');
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to create organization');
-      showToast.error(message);
-      setCreating(false);
-      setRedirecting(false); // reset so we don't stay on the spinner
+    if (name === 'phoneLocal') {
+      setFormData((prev) => ({
+        ...prev,
+        phoneLocal: digitsOnly(value).slice(0, 14),
+      }));
+      return;
     }
-  }, [formData, setActiveOrganization, addOrganization, navigate]);
 
-  const getOrgRole = useCallback((org) => {
-    return org.role || 'MEMBER';
+    setFormData((prev) => ({ ...prev, [name]: value }));
   }, []);
+
+  // ---------- submit ----------
+  const handleCreateSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      setError('');
+
+      const trimmedName = formData.name.trim();
+      const localDigits = formData.phoneLocal;
+
+      // Client-side pre-flight (server validates again)
+      if (trimmedName.length < 2) {
+        showToast.error('Organization name must be at least 2 characters.');
+        return;
+      }
+      if (localDigits.length < 6 || localDigits.length > 12) {
+        showToast.error('Enter a valid phone number.');
+        return;
+      }
+
+      const fullPhone = `${selectedCountry.dial}${localDigits}`;
+
+      setCreating(true);
+
+      try {
+        const response = await axios.post('/organizations', {
+          name: trimmedName,
+          country: formData.country,
+          phone: fullPhone,
+        });
+
+        const { organization } = response.data;
+
+        addOrganization(organization);
+
+        showToast.success(`"${organization.name}" created successfully!`);
+
+        setRedirecting(true);
+        await setActiveOrganization(organization.id);
+        await initializeKxTill(organization.id);
+        navigate('/select-branch');
+      } catch (err) {
+        const message = getErrorMessage(err, 'Failed to create organization');
+        showToast.error(message);
+        setCreating(false);
+        setRedirecting(false);
+      }
+    },
+    [
+      formData,
+      selectedCountry,
+      setActiveOrganization,
+      addOrganization,
+      navigate,
+    ]
+  );
+
+  const getOrgRole = useCallback((org) => org.role || 'MEMBER', []);
 
   const filteredOrganizations = useMemo(() => {
     if (!query.trim()) return organizations;
@@ -469,7 +562,7 @@ export default function SelectOrganizationPage() {
   }, [organizations, query]);
 
   // ============================================================
-  // LOADING / SKELETON STATES
+  // LOADING STATES
   // ============================================================
 
   if (isLoading || loading) {
@@ -480,32 +573,56 @@ export default function SelectOrganizationPage() {
         <div className={styles.glassCard}>
           <div className={styles.cardTopRow}>
             <div className={styles.brand}>
-              <div className={styles.skeletonAvatar} style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
+              <div
+                className={styles.skeletonAvatar}
+                style={{ width: '32px', height: '32px', borderRadius: '8px' }}
+              />
               <div className={styles.skeletonText} style={{ width: '60px' }} />
             </div>
             <div className={styles.userChip}>
-              <div className={styles.skeletonAvatar} style={{ width: '22px', height: '22px' }} />
+              <div
+                className={styles.skeletonAvatar}
+                style={{ width: '22px', height: '22px' }}
+              />
               <div className={styles.skeletonText} style={{ width: '60px' }} />
             </div>
           </div>
 
           <div className={styles.heroText}>
-            <div className={styles.skeletonText} style={{ width: '200px', height: '24px', marginBottom: '8px' }} />
-            <div className={styles.skeletonText} style={{ width: '300px', height: '16px' }} />
+            <div
+              className={styles.skeletonText}
+              style={{ width: '200px', height: '24px', marginBottom: '8px' }}
+            />
+            <div
+              className={styles.skeletonText}
+              style={{ width: '300px', height: '16px' }}
+            />
           </div>
 
           <div className={styles.searchRow}>
-            <div className={styles.searchBar} style={{ border: 'none', background: 'var(--bg)' }}>
-              <div className={styles.skeletonText} style={{ width: '100%', height: '20px' }} />
+            <div
+              className={styles.searchBar}
+              style={{ border: 'none', background: 'var(--bg)' }}
+            >
+              <div
+                className={styles.skeletonText}
+                style={{ width: '100%', height: '20px' }}
+              />
             </div>
-            <div className={styles.skeletonAvatar} style={{ width: '40px', height: '40px', borderRadius: '13px' }} />
+            <div
+              className={styles.skeletonAvatar}
+              style={{ width: '40px', height: '40px', borderRadius: '13px' }}
+            />
           </div>
 
           <div className={styles.scrollArea}>
             <div className={styles.mainCol}>
               <section className={styles.section}>
                 <div className={styles.sectionLabel}>
-                  <div className={styles.skeletonText} style={{ width: '120px', height: '12px' }} />
+                  <div
+                    className={styles.skeletonText}
+                    style={{ width: '120px', height: '12px' }}
+                  />
                 </div>
                 <div className={styles.orgList}>
                   {[1, 2, 3, 4].map((i) => (
@@ -517,7 +634,10 @@ export default function SelectOrganizationPage() {
             <div className={styles.sideCol}>
               <section className={styles.section}>
                 <div className={styles.sectionLabel}>
-                  <div className={styles.skeletonText} style={{ width: '100px', height: '12px' }} />
+                  <div
+                    className={styles.skeletonText}
+                    style={{ width: '100px', height: '12px' }}
+                  />
                 </div>
                 {[1, 2].map((i) => (
                   <SkeletonInviteCard key={i} />
@@ -526,14 +646,17 @@ export default function SelectOrganizationPage() {
             </div>
           </div>
 
-          <div className={styles.skeletonAvatar} style={{ 
-            position: 'absolute', 
-            right: '20px', 
-            bottom: '18px',
-            width: '34px', 
-            height: '34px', 
-            borderRadius: '11px' 
-          }} />
+          <div
+            className={styles.skeletonAvatar}
+            style={{
+              position: 'absolute',
+              right: '20px',
+              bottom: '18px',
+              width: '34px',
+              height: '34px',
+              borderRadius: '11px',
+            }}
+          />
         </div>
       </div>
     );
@@ -559,7 +682,10 @@ export default function SelectOrganizationPage() {
   const hasOrgs = organizations.length > 0;
   const hasInvites = pendingInvites.length > 0;
   const hasArchived = archivedOrgs.length > 0;
-  const initial = user?.firstName?.charAt(0).toUpperCase() || user?.name?.charAt(0).toUpperCase() || '?';
+  const initial =
+    user?.firstName?.charAt(0).toUpperCase() ||
+    user?.name?.charAt(0).toUpperCase() ||
+    '?';
   const totalNotifications = pendingInvites.length;
 
   // ============================================================
@@ -585,9 +711,9 @@ export default function SelectOrganizationPage() {
       <div className={styles.glassCard}>
         <div className={styles.cardTopRow}>
           <div className={styles.brand}>
-            <img 
-              src={LOGO_URL} 
-              alt="KXBYTE Logo" 
+            <img
+              src={LOGO_URL}
+              alt="KXBYTE Logo"
               className={styles.logoImage}
               onError={(e) => {
                 e.target.style.display = 'none';
@@ -595,10 +721,16 @@ export default function SelectOrganizationPage() {
                 if (fallback) fallback.style.display = 'flex';
               }}
             />
-            <span className={styles.logoFallback} style={{ display: 'none' }}>K</span>
+            <span className={styles.logoFallback} style={{ display: 'none' }}>
+              K
+            </span>
             <span className={styles.brandName}>KXBYTE</span>
             {totalNotifications > 0 && (
-              <Tooltip content={`${totalNotifications} pending invitation${totalNotifications > 1 ? 's' : ''}`}>
+              <Tooltip
+                content={`${totalNotifications} pending invitation${
+                  totalNotifications > 1 ? 's' : ''
+                }`}
+              >
                 <div className={styles.notificationBadge}>
                   <Bell size={12} />
                   <span className={styles.badgeCount}>{totalNotifications}</span>
@@ -630,21 +762,8 @@ export default function SelectOrganizationPage() {
               {error && <div className={styles.error}>{error}</div>}
 
               <form onSubmit={handleCreateSubmit} className={styles.form}>
+                {/* Row 1: Country + Phone (dial code matched to country) */}
                 <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="name">Organization name</label>
-                    <input
-                      id="name"
-                      name="name"
-                      type="text"
-                      value={formData.name}
-                      onChange={handleCreateChange}
-                      placeholder="e.g. Kamau Supermarket"
-                      required
-                      disabled={creating}
-                    />
-                  </div>
-
                   <div className={styles.formGroup}>
                     <label htmlFor="country">Country</label>
                     <select
@@ -654,17 +773,60 @@ export default function SelectOrganizationPage() {
                       onChange={handleCreateChange}
                       disabled={creating}
                     >
-                      <option value="KE">🇰🇪 Kenya</option>
-                      <option value="UG">🇺🇬 Uganda</option>
-                      <option value="TZ">🇹🇿 Tanzania</option>
-                      <option value="RW">🇷🇼 Rwanda</option>
-                      <option value="NG">🇳🇬 Nigeria</option>
-                      <option value="ZA">🇿🇦 South Africa</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name}
+                        </option>
+                      ))}
                     </select>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label htmlFor="phoneLocal">Phone number</label>
+                    <div className={styles.phoneInput}>
+                      <span className={styles.phonePrefix}>
+                        {selectedCountry.flag} {selectedCountry.dial}
+                      </span>
+                      <input
+                        id="phoneLocal"
+                        name="phoneLocal"
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel-national"
+                        value={formData.phoneLocal}
+                        onChange={handleCreateChange}
+                        placeholder="712 345 678"
+                        required
+                        disabled={creating}
+                        maxLength={14}
+                      />
+                    </div>
+                    <span className={styles.fieldHint}>
+                      We&apos;ll only use this to reach you about your account.
+                    </span>
                   </div>
                 </div>
 
-                <button type="submit" className={styles.submitBtn} disabled={creating}>
+                {/* Row 2: Organization name (full width) */}
+                <div className={styles.formGroup}>
+                  <label htmlFor="name">Organization name</label>
+                  <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    value={formData.name}
+                    onChange={handleCreateChange}
+                    placeholder="e.g. Kamau Supermarket"
+                    required
+                    disabled={creating}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className={styles.submitBtn}
+                  disabled={creating}
+                >
                   {creating ? (
                     <>
                       <span className={styles.spinnerSmall} />
@@ -694,7 +856,9 @@ export default function SelectOrganizationPage() {
           <>
             <div className={styles.heroText}>
               <h1 className={styles.title}>Select a workspace</h1>
-              <p className={styles.subtitle}>Pick an organization to continue, or start a new one.</p>
+              <p className={styles.subtitle}>
+                Pick an organization to continue, or start a new one.
+              </p>
             </div>
 
             {error && <div className={styles.error}>{error}</div>}
@@ -728,7 +892,9 @@ export default function SelectOrganizationPage() {
                     <Building2 size={12} />
                     Your Organizations
                     {organizations.length > 0 && (
-                      <span className={styles.countBadge}>{organizations.length}</span>
+                      <span className={styles.countBadge}>
+                        {organizations.length}
+                      </span>
                     )}
                   </div>
 
@@ -738,8 +904,8 @@ export default function SelectOrganizationPage() {
                       const isOwner = role === 'Owner' || role === 'OWNER';
 
                       return (
-                        <Tooltip 
-                          key={org.id} 
+                        <Tooltip
+                          key={org.id}
                           content={`${isOwner ? 'Owner' : 'Member'} • Click to access`}
                         >
                           <button
@@ -747,7 +913,9 @@ export default function SelectOrganizationPage() {
                             onClick={() => handleSelect(org.id)}
                             disabled={isLoading || redirecting}
                           >
-                            <div className={styles.orgIcon}>{org.name.charAt(0).toUpperCase()}</div>
+                            <div className={styles.orgIcon}>
+                              {org.name.charAt(0).toUpperCase()}
+                            </div>
                             <div className={styles.orgMeta}>
                               <span className={styles.orgName}>{org.name}</span>
                             </div>
@@ -767,12 +935,17 @@ export default function SelectOrganizationPage() {
 
                     {filteredOrganizations.length === 0 && (
                       <div className={styles.emptyNote}>
-                        {query ? `No organizations match "${query}"` : 'No organizations yet'}
+                        {query
+                          ? `No organizations match "${query}"`
+                          : 'No organizations yet'}
                       </div>
                     )}
 
                     <Tooltip content="Start a new organization">
-                      <button className={styles.addOrgCard} onClick={() => setShowCreateForm(true)}>
+                      <button
+                        className={styles.addOrgCard}
+                        onClick={() => setShowCreateForm(true)}
+                      >
                         <Plus size={15} />
                         <span>New organization</span>
                       </button>
@@ -788,26 +961,33 @@ export default function SelectOrganizationPage() {
                       <div className={styles.sectionLabel}>
                         <Mail size={12} />
                         Pending Invitations
-                        <span className={styles.countBadge}>{pendingInvites.length}</span>
+                        <span className={styles.countBadge}>
+                          {pendingInvites.length}
+                        </span>
                       </div>
                       <div className={styles.inviteList}>
                         {pendingInvites.map((invite) => (
                           <div key={invite.id} className={styles.inviteCard}>
                             <div className={styles.inviteTop}>
                               <div className={styles.inviteIcon}>
-                                {invite.organization.name.charAt(0).toUpperCase()}
+                                {invite.organization.name
+                                  .charAt(0)
+                                  .toUpperCase()}
                               </div>
                               <div className={styles.inviteInfo}>
-                                <span className={styles.inviteName}>{invite.organization.name}</span>
+                                <span className={styles.inviteName}>
+                                  {invite.organization.name}
+                                </span>
                                 <span className={styles.inviteBy}>
-                                  Invited by {invite.invitedBy.firstName} {invite.invitedBy.lastName}
+                                  Invited by {invite.invitedBy.firstName}{' '}
+                                  {invite.invitedBy.lastName}
                                 </span>
                               </div>
                             </div>
                             <div className={styles.inviteActions}>
                               <Tooltip content="Accept this invitation and join the organization">
-                                <button 
-                                  className={styles.acceptBtn} 
+                                <button
+                                  className={styles.acceptBtn}
                                   onClick={() => handleAcceptInvite(invite.token)}
                                 >
                                   <Check size={13} />
@@ -815,8 +995,8 @@ export default function SelectOrganizationPage() {
                                 </button>
                               </Tooltip>
                               <Tooltip content="Decline this invitation">
-                                <button 
-                                  className={styles.rejectBtn} 
+                                <button
+                                  className={styles.rejectBtn}
                                   onClick={() => handleRejectInvite(invite.token)}
                                 >
                                   <X size={13} />
@@ -838,19 +1018,30 @@ export default function SelectOrganizationPage() {
                       </div>
                       <div className={styles.inviteList}>
                         {archivedOrgs.map((org) => (
-                          <div key={org.id} className={`${styles.inviteCard} ${styles.archivedCard}`}>
+                          <div
+                            key={org.id}
+                            className={`${styles.inviteCard} ${styles.archivedCard}`}
+                          >
                             <div className={styles.inviteTop}>
-                              <div className={styles.inviteIcon}>{org.name.charAt(0).toUpperCase()}</div>
+                              <div className={styles.inviteIcon}>
+                                {org.name.charAt(0).toUpperCase()}
+                              </div>
                               <div className={styles.inviteInfo}>
-                                <span className={styles.inviteName}>{org.name}</span>
-                                <span className={styles.inviteBy}>Restore to regain access</span>
+                                <span className={styles.inviteName}>
+                                  {org.name}
+                                </span>
+                                <span className={styles.inviteBy}>
+                                  Restore to regain access
+                                </span>
                               </div>
                             </div>
                             <div className={styles.inviteActions}>
                               <Tooltip content="Restore this organization to regain access">
                                 <button
                                   className={styles.restoreBtn}
-                                  onClick={() => handleRestoreOrganization(org.id)}
+                                  onClick={() =>
+                                    handleRestoreOrganization(org.id)
+                                  }
                                   disabled={restoring === org.id}
                                 >
                                   {restoring === org.id ? (
@@ -874,7 +1065,12 @@ export default function SelectOrganizationPage() {
         )}
 
         <Tooltip content="Logout">
-          <button className={styles.logoutCorner} onClick={handleLogout} title="Log out" type="button">
+          <button
+            className={styles.logoutCorner}
+            onClick={handleLogout}
+            title="Log out"
+            type="button"
+          >
             <LogOut size={15} />
           </button>
         </Tooltip>

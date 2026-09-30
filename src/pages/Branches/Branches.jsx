@@ -25,6 +25,8 @@ import {
   MapPin,
   Phone,
   Mail,
+  Plus,
+  ExternalLink,
 } from 'lucide-react';
 import {
   BarChart,
@@ -37,6 +39,12 @@ import {
   Cell,
 } from 'recharts';
 import styles from './Branches.module.css';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const SUITE_URL = 'https://suite.kxbyte.co.ke';
 
 // ============================================================
 // HELPERS
@@ -107,12 +115,12 @@ const ChartTooltip = ({ active, payload, label, currency }) => {
 // ============================================================
 
 const Branches = () => {
- 
   const { activeOrganization } = useAuth();
   const { can, isOwner } = usePermissions();
   const { formatDateTime } = useSettings();
 
   const canView = isOwner || can('branches.view') || can('branches.manage');
+  const canManage = isOwner || can('branches.manage');
 
   const orgId = activeOrganization?.id;
   const currency = activeOrganization?.currency || 'KES';
@@ -132,6 +140,7 @@ const Branches = () => {
   const [error, setError] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openingSuite, setOpeningSuite] = useState(false);
 
   // ---------- drill-down state ----------
   const [selectedBranchId, setSelectedBranchId] = useState(null);
@@ -293,6 +302,21 @@ const Branches = () => {
     setSelectedBranchId(null);
     setOverview(null);
     setOverviewError(null);
+  };
+
+  const handleOpenSuiteBranches = async () => {
+    if (openingSuite) return;
+    setOpeningSuite(true);
+    try {
+      const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
+      const ssoUrl = `${SUITE_URL}/sso?code=${encodeURIComponent(data.code)}`;
+      window.open(ssoUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Failed to open Suite:', err);
+      toast.error('Failed to open Suite. Please try again.');
+    } finally {
+      if (isMountedRef.current) setOpeningSuite(false);
+    }
   };
 
   // ============================================================
@@ -669,6 +693,25 @@ const Branches = () => {
           </div>
         </div>
         <div className={styles.headerRight}>
+          {canManage && (
+            <button
+              className={styles.primaryBtn}
+              onClick={handleOpenSuiteBranches}
+              disabled={openingSuite}
+              type="button"
+              title="Branches are managed in KXBYTE Suite"
+            >
+              {openingSuite ? (
+                <RefreshCw size={14} className={styles.spinning} />
+              ) : (
+                <Plus size={14} />
+              )}
+              {openingSuite ? 'Opening…' : 'Add branch'}
+              {!openingSuite && (
+                <ExternalLink size={12} className={styles.btnTrailing} />
+              )}
+            </button>
+          )}
           <button
             className={styles.refreshBtn}
             onClick={handleRefresh}
@@ -797,12 +840,34 @@ const Branches = () => {
       {filteredBranches.length === 0 ? (
         <div className={styles.emptyState}>
           <Building2 size={48} className={styles.emptyIcon} />
-          <h3>No branches found</h3>
+          <h3>
+            {searchQuery ? 'No branches match' : 'No branches yet'}
+          </h3>
           <p>
             {searchQuery
               ? 'Try adjusting your search'
+              : canManage
+              ? 'Branches are created in KXBYTE Suite. Click below to open it.'
               : 'No branches have been created yet.'}
           </p>
+          {!searchQuery && canManage && (
+            <button
+              className={styles.primaryBtn}
+              onClick={handleOpenSuiteBranches}
+              disabled={openingSuite}
+              type="button"
+            >
+              {openingSuite ? (
+                <RefreshCw size={14} className={styles.spinning} />
+              ) : (
+                <Plus size={14} />
+              )}
+              {openingSuite ? 'Opening…' : 'Create a branch in Suite'}
+              {!openingSuite && (
+                <ExternalLink size={12} className={styles.btnTrailing} />
+              )}
+            </button>
+          )}
         </div>
       ) : (
         <div className={styles.branchGrid}>
