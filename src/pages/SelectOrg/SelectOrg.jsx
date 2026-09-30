@@ -29,7 +29,7 @@ const LOGO_URL =
 
 // ============================================================
 // COUNTRIES — single source of truth for select + dial code
-// Keep in sync with backend getCountryDefaults()
+// Must match backend getCountryDefaults()
 // ============================================================
 const COUNTRIES = [
   { code: 'KE', name: 'Kenya', flag: '🇰🇪', dial: '+254' },
@@ -62,7 +62,7 @@ function getErrorMessage(error, fallback) {
 }
 
 // ============================================================
-// TOOLTIP COMPONENT
+// TOOLTIP
 // ============================================================
 const Tooltip = ({ children, content, position = 'top' }) => {
   const [show, setShow] = useState(false);
@@ -184,7 +184,7 @@ const SkeletonInviteCard = () => (
 );
 
 // ============================================================
-// MAIN COMPONENT
+// MAIN
 // ============================================================
 export default function SelectOrganizationPage() {
   const navigate = useNavigate();
@@ -205,11 +205,11 @@ export default function SelectOrganizationPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  // ---- form state: country drives the dial prefix ----
+  // Country drives the phone dial prefix
   const [formData, setFormData] = useState({
     name: '',
     country: DEFAULT_COUNTRY,
-    phoneLocal: '', // digits only, no dial code
+    phoneLocal: '',
   });
 
   const [redirecting, setRedirecting] = useState(false);
@@ -239,7 +239,6 @@ export default function SelectOrganizationPage() {
   // ============================================================
   useEffect(() => {
     if (!isAuthenticated && !isLoading) {
-      console.log('User not authenticated, redirecting to login');
       navigate('/login', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate]);
@@ -506,7 +505,6 @@ export default function SelectOrganizationPage() {
       const trimmedName = formData.name.trim();
       const localDigits = formData.phoneLocal;
 
-      // Client-side pre-flight (server validates again)
       if (trimmedName.length < 2) {
         showToast.error('Organization name must be at least 2 characters.');
         return;
@@ -562,7 +560,7 @@ export default function SelectOrganizationPage() {
   }, [organizations, query]);
 
   // ============================================================
-  // LOADING STATES
+  // LOADING
   // ============================================================
 
   if (isLoading || loading) {
