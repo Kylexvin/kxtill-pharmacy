@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { PermissionsProvider } from './contexts/PermissionsContext';
 import { SubscriptionProvider } from "./contexts/SubscriptionContext";
 import { SettingsProvider } from './contexts/SettingsContext';
+import { ShiftProvider } from './contexts/ShiftContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import RequireAuth from './components/Auth/RequireAuth';
 import RequirePermission from './components/Auth/RequirePermission';
@@ -31,6 +32,7 @@ import Branches from './pages/Branches/Branches';
 import Account from './pages/Account/Account';
 import Support from './pages/Support/Support';
 import Billing from './pages/Billing/Billing';
+import Shifts from './pages/Shifts/Shifts';
 import SsoCallback from './pages/SsoCallback/SsoCallback';
 import { KXTILL, PLATFORM } from './constants/permissions';
 import { initDb } from './db/sqlite';
@@ -41,7 +43,7 @@ import './styles/globals.css';
 // AXIOS CONFIG
 // ============================================================
 axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1';
-//axios.defaults.baseURL = 'http://localhost:5000/api/v1';
+// axios.defaults.baseURL = 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
@@ -277,6 +279,7 @@ function App() {
           <SubscriptionProvider>
             <PermissionsProvider>
               <SettingsProvider>
+                <ShiftProvider>
                 <Toaster />
                 <Routes>
                   {/* ==================== PUBLIC ==================== */}
@@ -347,7 +350,8 @@ function App() {
                         </RequirePermission>
                       }
                     />
-
+                    {/* ---------- Shifts ---------- */}
+                   <Route path="shifts" element={<Shifts />} />
                     {/* ---------- Customers ---------- */}
                     <Route
                       path="customers"
@@ -446,6 +450,7 @@ function App() {
                   {/* ==================== CATCH-ALL ==================== */}
                   <Route path="*" element={<Navigate to="/pos" replace />} />
                 </Routes>
+                </ShiftProvider>
               </SettingsProvider>
             </PermissionsProvider>
           </SubscriptionProvider>

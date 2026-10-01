@@ -5,6 +5,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import SubscriptionBanner from '../Common/SubscriptionBanner';
+import ShiftBanner from '../Common/ShiftBanner';
 import styles from './Layout.module.css';
 
 const Layout = () => {
@@ -41,6 +42,7 @@ const Layout = () => {
 
       <div className={styles.contentWrap}>
         <SubscriptionBanner />
+        <ShiftBanner />
         <main className={styles.content}>
           <Outlet />
         </main>

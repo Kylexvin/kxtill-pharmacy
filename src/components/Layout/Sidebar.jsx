@@ -4,7 +4,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Receipt, Undo2, Package, BarChart3, Settings,
   LogOut, ChevronDown, ShoppingCart, Users, Building2,
-  Globe, ExternalLink, UserCog,
+  Globe, ExternalLink, UserCog, Clock,
 } from 'lucide-react';
 import axios from 'axios';
 import { showToast } from '../Common/Toast';
@@ -25,12 +25,10 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
   const showRefunds       = can(KXTILL.SALES.REFUND);
   const showCustomers     = can(PLATFORM.CUSTOMERS.VIEW);
 
-  // Owner-only for now (per decision Q1A — no kxtill.staff.* in DB)
-  // Placeholder: gate by members.view; App.jsx route enforces owner too.
   const showKxTillStaff   = can(PLATFORM.MEMBERS.VIEW);
 
   const showProducts      = can(KXTILL.INVENTORY.VIEW);
-  const showGlobalInv = can(KXTILL.INVENTORY.GLOBAL_VIEW);
+  const showGlobalInv     = can(KXTILL.INVENTORY.GLOBAL_VIEW);
   const showTransfers     = canAny([
     KXTILL.INVENTORY.TRANSFERS.CREATE,
     KXTILL.INVENTORY.TRANSFERS.APPROVE,
@@ -77,17 +75,17 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
     if (isMobile && onClose) onClose();
   };
 
-const handleVisitSuite = async () => {
-  const suiteUrl = 'https://suite.kxbyte.co.ke';
-  try {
-    const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
-    const ssoUrl = `${suiteUrl}/sso?code=${encodeURIComponent(data.code)}`;
-    window.open(ssoUrl, '_blank', 'noopener,noreferrer');
-  } catch (err) {
-    console.error('Failed to open Suite:', err);
-    showToast.error('Failed to open Suite. Please try again.');
-  }
-};
+  const handleVisitSuite = async () => {
+    const suiteUrl = 'https://suite.kxbyte.co.ke';
+    try {
+      const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
+      const ssoUrl = `${suiteUrl}/sso?code=${encodeURIComponent(data.code)}`;
+      window.open(ssoUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Failed to open Suite:', err);
+      showToast.error('Failed to open Suite. Please try again.');
+    }
+  };
 
   // ---------- link class helpers ----------
   const navLinkClass = ({ isActive }) =>
@@ -115,6 +113,11 @@ const handleVisitSuite = async () => {
             <span className={styles.navLabel}>POS</span>
           </NavLink>
         )}
+
+        <NavLink to="/shifts" className={navLinkClass} onClick={handleNavClick}>
+          <Clock size={16} className={styles.navIcon} />
+          <span className={styles.navLabel}>Shifts</span>
+        </NavLink>
 
         {showSales && (
           <NavLink to="/sales" className={navLinkClass} onClick={handleNavClick}>
@@ -252,4 +255,4 @@ const handleVisitSuite = async () => {
   );
 };
 
-export default Sidebar; 
+export default Sidebar;

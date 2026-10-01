@@ -7,8 +7,9 @@ export const createLocalSale = async (sale) => {
     INSERT OR REPLACE INTO local_sales (
       id, branchId, customerName, customerId, customerTempId,
       items, payments, subtotal, taxAmount, totalAmount, costAmount,
+      shiftId,
       status, syncedAt, error, createdAt, updatedAt, serverSaleId, receiptText
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   run(sql, [
     sale.id,
@@ -22,6 +23,7 @@ export const createLocalSale = async (sale) => {
     sale.taxAmount || 0,
     sale.totalAmount || 0,
     sale.costAmount || 0,
+    sale.shiftId || null,
     sale.status || 'PENDING',
     sale.syncedAt || null,
     sale.error || null,
@@ -92,6 +94,7 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
       taxAmount,
       totalAmount,
       costAmount,
+      shiftId,
       status,
       syncedAt,
       error,
@@ -147,6 +150,7 @@ export const getAllLocalSalesForBranch = async (branchId, options = {}) => {
       taxAmount: sale.taxAmount || 0,
       discount: 0,
       totalAmount: sale.totalAmount || 0,
+      shiftId: sale.shiftId || null,
       status: isLocalOnly ? 'PENDING' : 'COMPLETED',
       paymentStatus: isLocalOnly ? 'PENDING' : 'PAID',
       paymentMethod: payments.length > 0 ? payments[0].method : null,
@@ -190,6 +194,7 @@ export const getLocalSaleFormatted = async (saleId) => {
     taxAmount: localSale.taxAmount || 0,
     discount: 0,
     totalAmount: localSale.totalAmount || 0,
+    shiftId: localSale.shiftId || null,
     status: localSale.status === 'PENDING' ? 'PENDING' : 'COMPLETED',
     paymentStatus: localSale.status === 'PENDING' ? 'PENDING' : 'PAID',
     items,
@@ -225,6 +230,7 @@ export const getLocalSaleByServerId = async (serverSaleId) => {
     taxAmount: localSale.taxAmount || 0,
     discount: 0,
     totalAmount: localSale.totalAmount || 0,
+    shiftId: localSale.shiftId || null,
     status: 'COMPLETED',
     paymentStatus: 'PAID',
     items,
@@ -266,6 +272,7 @@ export const retryLocalSale = async (saleId) => {
       items,
       paymentMethod: payments[0]?.method || 'CASH',
       paymentReference: payments[0]?.reference || null,
+      shiftId: sale.shiftId || null,
     });
   }
 

@@ -15,7 +15,13 @@ export const KXTILL = {
     CREATE: 'kxtill.sales.create',
     VIEW:   'kxtill.sales.view',
     REFUND: 'kxtill.sales.refund',
-    DELETE: 'kxtill.sales.delete', // reserved — immutable sales policy: not used
+    DELETE: 'kxtill.sales.delete', 
+  },
+  SHIFT: {
+    FORCE_CLOSE:      'kxtill.shift.force_close',
+    RESOLVE_HANDOVER: 'kxtill.shift.resolve_handover',
+    RESOLVE_VARIANCE: 'kxtill.shift.resolve_variance',
+    SETTINGS:         'kxtill.shift.settings',
   },
   INVENTORY: {
     VIEW:   'kxtill.inventory.view',

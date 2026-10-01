@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useShift } from '../../contexts/ShiftContext';
 import { useGuardedWrite } from "../../hooks/useGuardedWrite";
 import toast from 'react-hot-toast';
 import { ScanLine, Store, RefreshCw, ShoppingCart } from 'lucide-react';
@@ -67,6 +68,8 @@ const POS = () => {
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [cartOpen, setCartOpen] = useState(false);
+
+  const { shiftsEnabled, hasOpenShift, currentShift } = useShift();
 
   const barcodeInputRef = useRef(null);
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
@@ -548,6 +551,12 @@ const addToCart = (product, unit) => {
 
   // ---------- checkout ----------
   const handleCheckout = guarded(() => {
+
+    if (shiftsEnabled && !hasOpenShift) {
+      toast.error('Open a shift first');
+      return;
+    }
+
     if (cartItems.length === 0) {
       toast.error('Cart is empty');
       return;
@@ -633,6 +642,7 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
     const localSale = {
       id: clientSaleId,
       branchId,
+      shiftId: currentShift?.id || null,
       customerName: customer?.name || null,
       customerId: hasSyncedCustomer ? customer.id : null,
       customerTempId: hasTempCustomer ? customer.tempId : null,
@@ -666,6 +676,7 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
     await enqueueSync('sale', clientSaleId, 'CREATE', {
       clientSaleId,
       branchId,
+      shiftId: currentShift?.id || null,
       customerId: hasSyncedCustomer ? customer.id : null,
       customerTempId: hasTempCustomer ? customer.tempId : null,
       customerName: customer?.name || null,

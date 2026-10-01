@@ -417,6 +417,7 @@ const pushPendingSales = async (results) => {
         clientSaleId: sale.id,
         branchId: sale.branchId,
         customerId: customerId || undefined,
+        shiftId: sale.shiftId || undefined,
         customerName: sale.customerName || undefined,
         items: items.map((item) => ({
           productId: item.productId,

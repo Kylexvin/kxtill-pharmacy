@@ -1275,6 +1275,14 @@ const Sales = () => {
                         {showDetail.customerName || 'Walk-in Customer'}
                       </span>
                     </div>
+                    {(showDetail.shiftId || showDetail.refundShiftId) && (
+  <div className={styles.detailMetaItem}>
+    <Clock size={14} />
+    <span>
+      Shift: {String(showDetail.shiftId || showDetail.refundShiftId).slice(0, 8)}
+    </span>
+  </div>
+)}
                     {isLocalOnly(showDetail) &&
                       showDetail.localStatus === 'FAILED' && (
                         <div className={styles.detailMetaItem}>
