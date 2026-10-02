@@ -72,8 +72,8 @@
 /* Active state - STRONG GLOW (main nav items) */
 .navLinkActive {
   color: var(--accent-glow) !important;
-  border-color: var(--accent-border, rgba(255, 107, 43, 0.121));
-  background: linear-gradient(90deg, transparent 0%, transparent 38%, var(--accent-glow-strong) 100%), var(--bg-raised);
+  border-color: rgba(255, 107, 43, 0.121);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 38%, rgba(255, 106, 43, 0.55) 100%), var(--bg-raised);
   overflow: visible;
 }
 
@@ -89,7 +89,7 @@
   top: 0;
   bottom: 0;
   width: 40%;
-  background: linear-gradient(90deg, transparent 0%, var(--accent-glow) 100%);
+  background: linear-gradient(90deg, rgba(255, 106, 43, 0) 0%, rgba(255, 140, 66, 0.9) 100%);
   filter: blur(6px);
   opacity: 0.5;
   pointer-events: none;
@@ -154,8 +154,8 @@
 /* Active state for expandable button - SUBTLE GLOW (contained) */
 .navLinkExpandable.navLinkActive {
   color: var(--accent-glow) !important;
-  border-color: var(--accent-border, rgba(255, 107, 43, 0.121));
-  background: linear-gradient(90deg, transparent 0%, transparent 38%, var(--accent-glow-subtle) 100%), var(--bg-raised);
+  border-color: rgba(255, 107, 43, 0.121);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 38%, rgba(255, 106, 43, 0.3) 100%), var(--bg-raised);
   overflow: visible;
 }
 
@@ -166,7 +166,7 @@
   top: 0;
   bottom: 0;
   width: 30%;
-  background: linear-gradient(90deg, transparent 0%, var(--accent-glow-subtle) 100%);
+  background: linear-gradient(90deg, rgba(255, 106, 43, 0) 0%, rgba(255, 140, 66, 0.5) 100%);
   filter: blur(4px);
   opacity: 0.3;
   pointer-events: none;
@@ -243,11 +243,11 @@
   font-size: 13px;
   transition: background 0.15s, color 0.15s;
   color: var(--accent-glow);
-  background: var(--accent-glow-bg, rgba(255, 106, 43, 0.1));
+  background: rgba(255, 106, 43, 0.1);
 }
 
 .subLinkActive:hover {
-  background: var(--accent-glow-bg-hover, rgba(255, 106, 43, 0.16));
+  background: rgba(255, 106, 43, 0.16);
 }
 
 /* NO GLOW on sub-items */
@@ -301,11 +301,11 @@
   min-width: 28px;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--accent-contrast, #17181d);
+  color: #17181d;
   font-weight: 600;
   font-size: 12px;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px var(--accent-shadow, rgba(255, 106, 43, 0.25));
+  box-shadow: 0 2px 8px rgba(255, 106, 43, 0.25);
   transition: background 0.3s ease;
 }
 
@@ -343,8 +343,8 @@
 }
 
 .logoutRow:hover {
-  background: var(--danger-bg, rgba(239, 83, 80, 0.08));
-  border-color: var(--danger-border, rgba(239, 83, 80, 0.3));
+  background: rgba(239, 83, 80, 0.08);
+  border-color: rgba(239, 83, 80, 0.3);
 }
 
 .logoutRow svg {
@@ -614,8 +614,8 @@
 }
 
 .suiteRow:hover {
-  background: var(--accent-glow-bg, rgba(255, 106, 43, 0.08));
-  border-color: var(--accent-border, rgba(255, 107, 43, 0.3));
+  background: rgba(255, 106, 43, 0.08);
+  border-color: rgba(255, 107, 43, 0.3);
 }
 
 .suiteRow svg {

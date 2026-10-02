@@ -416,8 +416,8 @@ const pushPendingSales = async (results) => {
       const payload = {
         clientSaleId: sale.id,
         branchId: sale.branchId,
-        customerId: customerId || undefined,
         shiftId: sale.shiftId || undefined,
+        customerId: customerId || undefined,
         customerName: sale.customerName || undefined,
         items: items.map((item) => ({
           productId: item.productId,
@@ -426,6 +426,14 @@ const pushPendingSales = async (results) => {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         })),
+        payments: Array.isArray(payments) && payments.length > 0
+          ? payments.map((p) => ({
+              method: p.method,
+              amount: Number(p.amount),
+              reference: p.reference || null,
+            }))
+          : undefined,
+        // Legacy fallback if payments is missing:
         paymentMethod: payments[0]?.method || 'CASH',
         paymentReference: payments[0]?.reference || undefined,
       };

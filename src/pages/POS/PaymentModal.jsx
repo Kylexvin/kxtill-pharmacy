@@ -1,5 +1,5 @@
 // src/pages/POS/PaymentModal.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   CreditCard,
@@ -8,29 +8,33 @@ import {
   Landmark,
   Check,
   AlertCircle,
+  Plus,
+  Trash2,
+  ChevronDown,
 } from 'lucide-react';
 import styles from './PaymentModal.module.css';
 
-// ============================================================
-// CONSTANTS (module scope — not re-created per render)
-// ============================================================
 const PAYMENT_METHODS = [
   { id: 'CASH', label: 'Cash', icon: Wallet },
   { id: 'CARD', label: 'Card', icon: CreditCard },
   { id: 'MPESA', label: 'M-Pesa', icon: Smartphone },
-  { id: 'BANK', label: 'Bank Transfer', icon: Landmark },
+  { id: 'BANK', label: 'Bank', icon: Landmark },
 ];
 
-const REFERENCE_LABELS = {
-  CASH: null,
-  CARD: 'Card last 4 digits',
-  MPESA: 'M-Pesa transaction code',
-  BANK: 'Bank reference / transaction ID',
+const REFERENCE_HINTS = {
+  CARD: 'Last 4 digits (optional)',
+  MPESA: 'M-Pesa code',
+  BANK: 'Bank reference',
 };
 
-// ============================================================
-// COMPONENT
-// ============================================================
+let rowSeq = 0;
+const newRow = (method, amount = '') => ({
+  key: `row-${++rowSeq}`,
+  method,
+  amount,
+  reference: '',
+});
+
 const PaymentModal = ({
   isOpen,
   onClose,
@@ -44,35 +48,12 @@ const PaymentModal = ({
   decimalPlaces = 2,
   formatCurrency,
 }) => {
-  const [selectedMethod, setSelectedMethod] = useState(defaultPaymentMethod);
-  const [tendered, setTendered] = useState('');
-  const [paymentReference, setPaymentReference] = useState('');
-  const [mpesaPhone, setMpesaPhone] = useState('');
+  const [rows, setRows] = useState([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset state each time the modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedMethod(defaultPaymentMethod || 'CASH');
-      setTendered(String(total ?? ''));
-      setPaymentReference('');
-      setMpesaPhone('');
-      setError('');
-      setSubmitting(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
-  const isCash = selectedMethod === 'CASH';
-  const isBank = selectedMethod === 'BANK';
-  const isMpesa = selectedMethod === 'MPESA';
-  const tenderedNum = Number(tendered) || 0;
-  const change = isCash ? Math.max(0, tenderedNum - total) : 0;
-  const shortfall = isCash ? Math.max(0, total - tenderedNum) : 0;
-  const referenceLabel = REFERENCE_LABELS[selectedMethod];
-
   const busy = submitting || isProcessing;
+  const totalNum = Number(total) || 0;
 
   const fmt = (n) => {
     const value = Number(n || 0);
@@ -80,39 +61,88 @@ const PaymentModal = ({
     return `${currency} ${value.toFixed(decimalPlaces)}`;
   };
 
-  const handleMethodSelect = (methodId) => {
-    if (busy) return;
-    setSelectedMethod(methodId);
-    setPaymentReference('');
+  useEffect(() => {
+    if (isOpen) {
+      setRows([newRow(defaultPaymentMethod || 'CASH', String(totalNum || ''))]);
+      setError('');
+      setSubmitting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const { remaining, cashTendered, changeDue } = useMemo(() => {
+    let paid = 0;
+    let cash = 0;
+    for (const r of rows) {
+      const amt = Number(r.amount) || 0;
+      paid += amt;
+      if (r.method === 'CASH') cash += amt;
+    }
+    return {
+      remaining: Math.max(0, totalNum - paid),
+      cashTendered: cash,
+      changeDue: Math.max(0, paid - totalNum),
+    };
+  }, [rows, totalNum]);
+
+  const setRow = (key, patch) => {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
     setError('');
   };
 
-  const handleTenderedChange = (value) => {
-    setTendered(value);
-    setError('');
+  const addRow = () => {
+    setRows((prev) => [...prev, newRow(defaultPaymentMethod || 'CASH', '')]);
+  };
+
+  const removeRow = (key) => {
+    setRows((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.key !== key)));
   };
 
   const handlePayment = async () => {
     setError('');
 
-    if (isCash) {
-      if (tendered === '' || tenderedNum <= 0) {
-        setError('Enter the amount tendered');
+    const cleaned = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const amt = Number(r.amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setError(`Payment ${i + 1}: enter a valid amount`);
         return;
       }
-      if (tenderedNum < total) {
-        setError('Amount tendered is less than the total due');
+      cleaned.push({
+        method: r.method,
+        amount: amt,
+        reference: r.reference?.trim() || null,
+      });
+    }
+
+    const paid = cleaned.reduce((s, p) => s + p.amount, 0);
+    const tolerance = 0.01;
+
+    if (paid < totalNum - tolerance) {
+      setError(`Remaining ${fmt(totalNum - paid)} still unpaid`);
+      return;
+    }
+    if (paid > totalNum + tolerance) {
+      const nonCashTotal = cleaned
+        .filter((p) => p.method !== 'CASH')
+        .reduce((s, p) => s + p.amount, 0);
+      if (nonCashTotal > totalNum + tolerance) {
+        setError(`Overpayment only allowed on cash rows`);
         return;
       }
     }
 
+    const capped = capCashOverpayment(cleaned, totalNum);
+
     setSubmitting(true);
     try {
       await onPaymentComplete({
-        method: selectedMethod,
-        reference: paymentReference.trim() || null,
-        tendered: isCash ? tenderedNum : total,
-        change: isCash ? change : 0,
+        payments: capped,
+        method: capped[0]?.method || 'CASH',
+        reference: capped[0]?.reference || null,
+        tendered: cashTendered,
+        change: changeDue,
       });
     } catch (err) {
       setError(err?.message || 'Payment failed');
@@ -123,10 +153,13 @@ const PaymentModal = ({
 
   if (!isOpen) return null;
 
+  const canSubmit = !busy && remaining <= 0.01;
+  const previewItems = cartItems.slice(0, 3);
+  const moreCount = cartItems.length - previewItems.length;
+
   return (
     <div className={styles.overlay}>
       <div className={styles.modal}>
-        {/* ---------- Header ---------- */}
         <div className={styles.modalHeader}>
           <h2>Complete Payment</h2>
           <button
@@ -140,157 +173,157 @@ const PaymentModal = ({
           </button>
         </div>
 
-        {/* ---------- Body ---------- */}
         <div className={styles.modalBody}>
-          {/* Order Summary */}
           <div className={styles.orderSummary}>
-            <h3>Order Summary</h3>
-            <div className={styles.summaryItems}>
-              {cartItems.slice(0, 5).map((item, i) => (
-                <div key={item.id ?? i} className={styles.summaryItem}>
-                  <span>
-                    {item.quantity}× {item.productName}
-                  </span>
-                  <span>{fmt(item.total)}</span>
-                </div>
-              ))}
-              {cartItems.length > 5 && (
-                <div className={styles.moreItems}>
-                  +{cartItems.length - 5} more item
-                  {cartItems.length - 5 !== 1 ? 's' : ''}
-                </div>
-              )}
+            <div className={styles.summaryRow}>
+              <span className={styles.summaryLabel}>Items</span>
+              <span className={styles.summaryValue}>
+                {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
+                {previewItems.length > 0 &&
+                  ` — ${previewItems.map((i) => `${i.quantity}× ${i.productName}`).join(', ')}${moreCount > 0 ? `, +${moreCount} more` : ''}`}
+              </span>
             </div>
-            <div className={styles.summaryTotal}>
-              <span>Total</span>
-              <span className={styles.totalAmount}>{fmt(total)}</span>
-            </div>
-            {customer && (
-              <div className={styles.customerInfo}>
-                <span>Customer: {customer.name}</span>
-                {customer.phone && <span>{customer.phone}</span>}
+            {customer?.name && (
+              <div className={styles.summaryRow}>
+                <span className={styles.summaryLabel}>Customer</span>
+                <span className={styles.summaryValue}>{customer.name}</span>
               </div>
             )}
+            <div className={`${styles.summaryRow} ${styles.summaryTotalRow}`}>
+              <span className={styles.summaryLabel}>Total</span>
+              <span className={styles.summaryTotal}>{fmt(totalNum)}</span>
+            </div>
+            <div className={`${styles.summaryRow} ${styles.summaryRemainingRow}`}>
+              <span className={styles.summaryLabel}>Remaining</span>
+              <span
+                className={`${styles.summaryRemaining} ${
+                  remaining <= 0.01 ? styles.remainingZero : ''
+                }`}
+              >
+                {fmt(remaining)}
+              </span>
+            </div>
           </div>
 
-          {/* Payment Methods */}
-          <div className={styles.paymentMethods}>
-            <h3>Payment Method</h3>
-            <div className={styles.methodsGrid}>
-              {PAYMENT_METHODS.map((method) => {
-                const Icon = method.icon;
-                const selected = selectedMethod === method.id;
+          <div className={styles.paymentSection}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionLabel}>Payments</span>
+            </div>
+
+            <div className={styles.rows}>
+              {rows.map((row, idx) => {
+                const refHint = REFERENCE_HINTS[row.method];
+                const MethodIcon =
+                  PAYMENT_METHODS.find((m) => m.id === row.method)?.icon || Wallet;
                 return (
-                  <button
-                    key={method.id}
-                    type="button"
-                    className={`${styles.methodBtn} ${
-                      selected ? styles.active : ''
-                    }`}
-                    onClick={() => handleMethodSelect(method.id)}
-                    disabled={busy}
-                  >
-                    <Icon size={20} />
-                    <span>{method.label}</span>
-                    {selected && (
-                      <Check size={16} className={styles.checkMark} />
+                  <div key={row.key} className={styles.payRow}>
+                    <div className={styles.payRowMain}>
+                      <div className={styles.methodSelectWrap}>
+                        <MethodIcon size={14} className={styles.methodSelectIcon} />
+                        <select
+                          className={styles.methodSelect}
+                          value={row.method}
+                          onChange={(e) =>
+                            setRow(row.key, { method: e.target.value, reference: '' })
+                          }
+                          disabled={busy}
+                        >
+                          {PAYMENT_METHODS.map((m) => (
+                            <option key={m.id} value={m.id}>{m.label}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={14} className={styles.methodSelectChevron} />
+                      </div>
+
+                      <div className={styles.amountField}>
+                        <span className={styles.currency}>{currency}</span>
+                        <input
+                          type="number"
+                          className={styles.amountInputField}
+                          value={row.amount}
+                          onChange={(e) => setRow(row.key, { amount: e.target.value })}
+                          min="0"
+                          step={decimalPlaces === 0 ? '1' : '0.01'}
+                          disabled={busy}
+                          placeholder="0"
+                          autoFocus={idx === rows.length - 1}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        className={`${styles.rowDeleteBtn} ${
+                          rows.length <= 1 ? styles.rowDeleteBtnHidden : ''
+                        }`}
+                        onClick={() => removeRow(row.key)}
+                        disabled={busy || rows.length <= 1}
+                        aria-label="Remove payment"
+                        tabIndex={rows.length <= 1 ? -1 : 0}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    {refHint && (
+                      <input
+                        type="text"
+                        className={styles.rowReference}
+                        placeholder={refHint}
+                        value={row.reference}
+                        onChange={(e) => setRow(row.key, { reference: e.target.value })}
+                        disabled={busy}
+                      />
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
+
+            <button
+              type="button"
+              className={styles.addRowBtn}
+              onClick={addRow}
+              disabled={busy}
+            >
+              <Plus size={14} />
+              Add payment
+            </button>
           </div>
 
-          {/* Payment Details */}
-          <div className={styles.paymentDetails}>
-            {isCash ? (
-              <div className={styles.amountInput}>
-                <label htmlFor="tendered">Amount tendered</label>
-                <div className={styles.amountField}>
-                  <span className={styles.currency}>{currency}</span>
-                  <input
-                    id="tendered"
-                    type="number"
-                    value={tendered}
-                    onChange={(e) => handleTenderedChange(e.target.value)}
-                    min="0"
-                    step={decimalPlaces === 0 ? '1' : '0.01'}
-                    className={styles.amountInputField}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </div>
-                {tenderedNum > total && (
-                  <div className={styles.changeDue}>
-                    Change due: {fmt(change)}
-                  </div>
-                )}
-                {shortfall > 0 && tenderedNum > 0 && (
-                  <div className={styles.shortfall}>
-                    Shortfall: {fmt(shortfall)}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className={styles.chargeNotice}>
-                {isBank
-                  ? `Exact total will be charged — ${fmt(total)}`
-                  : `Charging exact total — ${fmt(total)}`}
-              </div>
-            )}
+          {changeDue > 0 && (
+            <div className={styles.changeBanner}>
+              <span>Change due</span>
+              <span className={styles.changeAmount}>{fmt(changeDue)}</span>
+            </div>
+          )}
 
-            {referenceLabel && (
-              <div className={styles.referenceInput}>
-                <label htmlFor="paymentRef">{referenceLabel}</label>
-                <input
-                  id="paymentRef"
-                  type="text"
-                  placeholder="Optional but recommended"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  className={styles.referenceField}
-                  disabled={busy}
-                />
-              </div>
-            )}
-
-            {error && (
-              <div className={styles.errorMessage}>
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-          </div>
+          {error && (
+            <div className={styles.errorMessage}>
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
         </div>
 
-        {/* ---------- Sticky Footer ---------- */}
         <div className={styles.modalFooter}>
-          {isMpesa && (
+          {rows.some((r) => r.method === 'MPESA') && (
             <div className={styles.mpesaPromptBar}>
               <div className={styles.mpesaPromptBarLeft}>
                 <Smartphone size={14} className={styles.mpesaPromptBarIcon} />
                 <span className={styles.mpesaPromptBarLabel}>STK Push</span>
                 <span className={styles.comingSoonBadge}>Coming Soon</span>
               </div>
-
               <div className={styles.mpesaPhoneWrap}>
                 <span className={styles.mpesaPhonePrefix}>+254</span>
                 <input
                   type="tel"
                   className={styles.mpesaPhoneInput}
                   placeholder="7XX XXX XXX"
-                  value={mpesaPhone}
-                  onChange={(e) => setMpesaPhone(e.target.value)}
                   disabled
                 />
               </div>
-
-              <button
-                type="button"
-                className={styles.mpesaPushBtn}
-                disabled
-              >
-                Send Prompt
+              <button type="button" className={styles.mpesaPushBtn} disabled>
+                Send
               </button>
             </div>
           )}
@@ -307,7 +340,7 @@ const PaymentModal = ({
             <button
               className={styles.payBtn}
               onClick={handlePayment}
-              disabled={busy}
+              disabled={!canSubmit}
               type="button"
             >
               {busy ? (
@@ -318,7 +351,7 @@ const PaymentModal = ({
               ) : (
                 <>
                   <Check size={18} />
-                  Pay {fmt(total)}
+                  {remaining > 0.01 ? `Pay ${fmt(totalNum)}` : `Complete Sale`}
                 </>
               )}
             </button>
@@ -328,5 +361,22 @@ const PaymentModal = ({
     </div>
   );
 };
+
+function capCashOverpayment(payments, total) {
+  const sum = payments.reduce((s, p) => s + p.amount, 0);
+  if (sum <= total + 0.01) return payments;
+
+  let excess = sum - total;
+  const result = payments.map((p) => ({ ...p }));
+
+  for (let i = result.length - 1; i >= 0 && excess > 0; i--) {
+    if (result[i].method !== 'CASH') continue;
+    const take = Math.min(excess, result[i].amount);
+    result[i].amount = Number((result[i].amount - take).toFixed(2));
+    excess -= take;
+  }
+
+  return result.filter((p) => p.amount > 0);
+}
 
 export default PaymentModal;

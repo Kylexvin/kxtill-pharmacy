@@ -20,7 +20,7 @@
    ============================================================ */
 .modal {
   width: 100%;
-  max-width: 440px;
+  max-width: 460px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -76,16 +76,7 @@
   padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-}
-
-.modalBody h3 {
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin: 0 0 10px;
+  gap: 16px;
 }
 
 /* ============================================================
@@ -98,74 +89,236 @@
   border: 1px solid var(--border);
 }
 
-.summaryItems {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.summaryItem {
+.summaryRow {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  gap: 12px;
+  font-size: 12.5px;
+  padding: 4px 0;
   color: var(--text-secondary);
 }
 
-.moreItems {
-  font-size: 12px;
-  color: var(--text-faint);
+.summaryLabel {
+  color: var(--text-muted);
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
-.summaryTotal {
-  display: flex;
-  justify-content: space-between;
-  padding-top: 10px;
+.summaryValue {
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.summaryTotalRow {
   border-top: 1px solid var(--border);
-  font-size: 14px;
+  margin-top: 6px;
+  padding-top: 10px;
+  font-size: 13.5px;
   font-weight: 650;
   color: var(--text-primary);
 }
 
-.totalAmount {
+.summaryTotal {
   color: var(--accent-glow);
+  font-weight: 700;
 }
 
-.customerInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-muted);
+.summaryRemainingRow {
+  padding-top: 4px;
+}
+
+.summaryRemaining {
+  font-weight: 700;
+  color: var(--warning, #ff9500);
+}
+
+.remainingZero {
+  color: var(--success, #34c759);
 }
 
 /* ============================================================
-   PAYMENT METHODS
+   PAYMENTS
    ============================================================ */
-.paymentMethods {
+.paymentSection {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
-.methodsGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sectionLabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.methodBtn {
-  position: relative;
+.payRow {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 6px;
-  padding: 14px 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
-  border-radius: 12px;
+  border-radius: 10px;
+}
+
+.payRowMain {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Method selector — select spans the full wrap so any click opens it */
+.methodSelectWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+
+.methodSelectWrap:focus-within {
+  border-color: var(--accent);
+}
+
+.methodSelect {
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  padding: 0 32px 0 32px;
+}
+
+.methodSelect:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.methodSelectIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.methodSelectChevron {
+  position: absolute;
+  right: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.amountField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 8px;
+}
+
+.currency {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-faint);
+}
+
+.amountInputField {
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.rowDeleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rowDeleteBtn:hover:not(:disabled) {
+  border-color: rgba(239, 83, 80, 0.4);
+  color: var(--danger, #ef5350);
+  background: rgba(239, 83, 80, 0.06);
+}
+
+.rowDeleteBtnHidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.rowDeleteBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rowReference {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.rowReference:focus {
+  border-color: var(--accent);
+}
+
+.addRowBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px dashed var(--border-strong, var(--border));
+  background: transparent;
+  border-radius: 8px;
   color: var(--text-muted);
   font-size: 12.5px;
   font-weight: 600;
@@ -173,111 +326,40 @@
   transition: all 0.15s ease;
 }
 
-.methodBtn:hover {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.methodBtn.active {
+.addRowBtn:hover:not(:disabled) {
   border-color: var(--accent);
-  background: rgba(255, 106, 43, 0.08);
-  color: var(--accent-glow);
-}
-
-.methodBtn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.checkMark {
-  position: absolute;
-  top: 6px;
-  right: 6px;
   color: var(--accent);
 }
 
+.addRowBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ============================================================
-   PAYMENT DETAILS
+   CHANGE BANNER
    ============================================================ */
-.paymentDetails {
+.changeBanner {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.amountInput label,
-.referenceInput label {
-  display: block;
-  font-size: 11.5px;
-  font-weight: 650;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.amountField {
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
+  padding: 10px 14px;
   border-radius: 10px;
-}
-
-.currency {
-  font-size: 12.5px;
-  font-weight: 650;
-  color: var(--text-faint);
-}
-
-.amountInputField {
-  flex: 1;
-  padding: 10px 0;
-  border: none;
-  background: none;
-  outline: none;
-  color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.changeDue {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
   background: rgba(76, 175, 130, 0.1);
   border: 1px solid rgba(76, 175, 130, 0.25);
-  color: var(--success);
+  color: var(--success, #34c759);
   font-size: 13px;
   font-weight: 650;
 }
 
-.chargeNotice {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 13px;
+.changeAmount {
+  font-size: 15px;
+  font-weight: 700;
 }
 
-.referenceField {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  border-radius: 10px;
-  color: var(--text-primary);
-  font-size: 13.5px;
-  outline: none;
-  box-sizing: border-box;
-  transition: border-color 0.15s ease;
-}
-
-.referenceField:focus {
-  border-color: var(--accent);
-}
-
+/* ============================================================
+   ERROR
+   ============================================================ */
 .errorMessage {
   display: flex;
   align-items: center;
@@ -501,4 +583,8 @@
   .mpesaPushBtn {
     width: 100%;
   }
+}
+.methodSelect option {
+  background: var(--bg-raised);
+  color: var(--text-primary);
 }

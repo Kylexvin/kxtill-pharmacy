@@ -576,7 +576,7 @@ const addToCart = (product, unit) => {
     setShowPaymentModal(true);
   });
 
-const handlePaymentComplete = guarded(async ({ method, reference }) => {
+const handlePaymentComplete = guarded(async ({ method, reference, payments }) => {
   setCheckingOut(true);
   try {
     const clientSaleId = `sale_${Date.now()}_${Math.random()
@@ -589,16 +589,12 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
       const unitPrice = Number(item.unitPrice || 0);
       const lineTotal = Number(item.total) || unitPrice * quantity;
 
-      // Mirror backend cost logic:
-      // unit.cost if set, else product.cost * conversionQty.
       const conversionQty = Number(item.conversionQty || 1);
       const unitCost =
         item.unitCost != null
           ? Number(item.unitCost)
           : Number(item.productCost || 0) * conversionQty;
       const lineCost = unitCost * quantity;
-
-
 
       return {
         productId: item.productId,
@@ -628,13 +624,21 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
       0
     );
 
-    const payments = [
-      {
-        method,
-        amount: total,
-        reference: reference || `PAY_${Date.now()}`,
-      },
-    ];
+    // Prefer the split-payment array from the modal; fall back to legacy single.
+    const normalizedPayments =
+      Array.isArray(payments) && payments.length > 0
+        ? payments.map((p) => ({
+            method: p.method,
+            amount: Number(p.amount),
+            reference: p.reference || null,
+          }))
+        : [
+            {
+              method,
+              amount: total,
+              reference: reference || `PAY_${Date.now()}`,
+            },
+          ];
 
     const hasSyncedCustomer = customer && customer.id && !customer.tempId;
     const hasTempCustomer = customer && customer.tempId;
@@ -647,7 +651,7 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
       customerId: hasSyncedCustomer ? customer.id : null,
       customerTempId: hasTempCustomer ? customer.tempId : null,
       items: JSON.stringify(saleItems),
-      payments: JSON.stringify(payments),
+      payments: JSON.stringify(normalizedPayments),
       subtotal,
       taxAmount,
       totalAmount: total,
@@ -660,7 +664,6 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
     };
 
     await createLocalSale(localSale);
-    
 
     for (const item of cartItems) {
       if (!item.branchProductId) continue;
@@ -681,8 +684,7 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
       customerTempId: hasTempCustomer ? customer.tempId : null,
       customerName: customer?.name || null,
       items: saleItems,
-      paymentMethod: method,
-      paymentReference: reference,
+      payments: normalizedPayments,
     });
 
     sync(branchId).catch(() => {});
@@ -703,7 +705,7 @@ const handlePaymentComplete = guarded(async ({ method, reference }) => {
       subtotal,
       taxAmount,
       total,
-      payments,
+      payments: normalizedPayments,
       branchName: activeBranch?.name,
     };
 
