@@ -7,6 +7,45 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useShift } from '../../../contexts/ShiftContext';
 import styles from './SettingsTab.module.css';
 
+/* ---------- Skeleton ---------- */
+const SkeletonLine = ({ width = '100%', height = 14, radius = 6 }) => (
+  <span
+    className={styles.skeleton}
+    style={{ width, height, borderRadius: radius, display: 'block' }}
+  />
+);
+
+const SettingsSkeleton = () => (
+  <div className={styles.table}>
+    <div className={styles.tableHead}>
+      <span>Branch</span>
+      <span className={styles.colToggle}>Shifts enabled</span>
+      <span className={styles.colThreshold}>Variance threshold</span>
+      <span className={styles.colAction} />
+    </div>
+    {Array.from({ length: 3 }).map((_, i) => (
+      <div key={i} className={styles.tableRow}>
+        <div className={styles.branchCell}>
+          <SkeletonLine width="14px" height="14px" radius={4} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+            <SkeletonLine width="140px" height={13} />
+            <SkeletonLine width="60px" height={10} />
+          </div>
+        </div>
+        <div className={styles.colToggle}>
+          <SkeletonLine width="36px" height="20px" radius={999} />
+        </div>
+        <div className={styles.colThreshold}>
+          <SkeletonLine width="80px" height={30} radius={8} />
+        </div>
+        <div className={styles.colAction}>
+          <SkeletonLine width="80px" height={32} radius={8} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const SettingsTab = () => {
   const { activeOrganization } = useAuth();
   const { refresh: refreshShiftContext } = useShift();
@@ -109,14 +148,6 @@ const SettingsTab = () => {
     );
   }
 
-  if (loading) {
-    return (
-      <div className={styles.loaderWrapper}>
-        <div className={styles.loader} />
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className={styles.errorState}>
@@ -132,88 +163,93 @@ const SettingsTab = () => {
   return (
     <div className={styles.wrap}>
       <div className={styles.infoBanner}>
-        <Shield size={16} />
+        <Shield size={16} className={styles.infoIcon} />
         <div>
           <strong>Shifts are opt-in per branch.</strong> Turning shifts on for a
           branch requires cashiers to open a shift before ringing sales.
         </div>
       </div>
 
-      <div className={styles.table}>
-        <div className={styles.tableHead}>
-          <span>Branch</span>
-          <span className={styles.colToggle}>Shifts enabled</span>
-          <span className={styles.colThreshold}>Variance threshold</span>
-          <span className={styles.colAction} />
-        </div>
+      {loading ? (
+        <SettingsSkeleton />
+      ) : (
+        <div className={styles.table}>
+          <div className={styles.tableHead}>
+            <span>Branch</span>
+            <span className={styles.colToggle}>Shifts enabled</span>
+            <span className={styles.colThreshold}>Variance threshold</span>
+            <span className={styles.colAction} />
+          </div>
 
-        {branches.map((branch) => {
-          const draft = drafts[branch.id] || {
-            shiftsEnabled: false,
-            varianceThreshold: 50,
-          };
-          const saving = savingId === branch.id;
+          {branches.map((branch) => {
+            const draft = drafts[branch.id] || {
+              shiftsEnabled: false,
+              varianceThreshold: 50,
+            };
+            const saving = savingId === branch.id;
 
-          return (
-            <div key={branch.id} className={styles.tableRow}>
-              <div className={styles.branchCell}>
-                <Building2 size={14} />
-                <div>
-                  <div className={styles.branchName}>{branch.name}</div>
-                  <div className={styles.branchCode}>{branch.code}</div>
+            return (
+              <div key={branch.id} className={styles.tableRow}>
+                <div className={styles.branchCell} data-label="Branch">
+                  <Building2 size={14} className={styles.branchIcon} />
+                  <div className={styles.branchText}>
+                    <div className={styles.branchName}>{branch.name}</div>
+                    <div className={styles.branchCode}>{branch.code}</div>
+                  </div>
+                </div>
+
+                <div className={styles.colToggle} data-label="Shifts enabled">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!draft.shiftsEnabled}
+                    aria-label={`Toggle shifts for ${branch.name}`}
+                    className={`${styles.toggle} ${
+                      draft.shiftsEnabled ? styles.toggleOn : ''
+                    }`}
+                    onClick={() =>
+                      setField(branch.id, 'shiftsEnabled', !draft.shiftsEnabled)
+                    }
+                    disabled={saving}
+                  >
+                    <span className={styles.toggleKnob} />
+                  </button>
+                </div>
+
+                <div className={styles.colThreshold} data-label="Variance threshold">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={styles.input}
+                    value={draft.varianceThreshold}
+                    onChange={(e) =>
+                      setField(branch.id, 'varianceThreshold', e.target.value)
+                    }
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className={styles.colAction}>
+                  <button
+                    type="button"
+                    className={styles.saveBtn}
+                    onClick={() => handleSave(branch.id)}
+                    disabled={saving}
+                  >
+                    <Save size={13} />
+                    <span>{saving ? 'Saving…' : 'Save'}</span>
+                  </button>
                 </div>
               </div>
+            );
+          })}
 
-              <div className={styles.colToggle}>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!draft.shiftsEnabled}
-                  className={`${styles.toggle} ${
-                    draft.shiftsEnabled ? styles.toggleOn : ''
-                  }`}
-                  onClick={() =>
-                    setField(branch.id, 'shiftsEnabled', !draft.shiftsEnabled)
-                  }
-                  disabled={saving}
-                >
-                  <span className={styles.toggleKnob} />
-                </button>
-              </div>
-
-              <div className={styles.colThreshold}>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  className={styles.input}
-                  value={draft.varianceThreshold}
-                  onChange={(e) =>
-                    setField(branch.id, 'varianceThreshold', e.target.value)
-                  }
-                  disabled={saving}
-                />
-              </div>
-
-              <div className={styles.colAction}>
-                <button
-                  type="button"
-                  className={styles.saveBtn}
-                  onClick={() => handleSave(branch.id)}
-                  disabled={saving}
-                >
-                  <Save size={13} />
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-
-        {branches.length === 0 && (
-          <div className={styles.emptyRow}>No branches in this organization.</div>
-        )}
-      </div>
+          {branches.length === 0 && (
+            <div className={styles.emptyRow}>No branches in this organization.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

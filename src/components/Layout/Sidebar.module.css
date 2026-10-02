@@ -11,8 +11,8 @@
   padding: 14px 12px;
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), 
-              min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1), 
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
               padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
               background 0.3s ease,
               border-color 0.3s ease;
@@ -56,9 +56,9 @@
   font-weight: 500;
   overflow: hidden;
   box-shadow: var(--shadow);
-  transition: color 0.15s, 
-              border-color 0.15s, 
-              box-shadow 0.15s, 
+  transition: color 0.15s,
+              border-color 0.15s,
+              box-shadow 0.15s,
               background 0.15s,
               opacity 0.15s ease,
               width 0.15s ease;
@@ -72,8 +72,8 @@
 /* Active state - STRONG GLOW (main nav items) */
 .navLinkActive {
   color: var(--accent-glow) !important;
-  border-color: rgba(255, 107, 43, 0.121);
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 38%, rgba(255, 106, 43, 0.55) 100%), var(--bg-raised);
+  border-color: var(--accent-border, rgba(255, 107, 43, 0.121));
+  background: linear-gradient(90deg, transparent 0%, transparent 38%, var(--accent-glow-strong) 100%), var(--bg-raised);
   overflow: visible;
 }
 
@@ -89,7 +89,7 @@
   top: 0;
   bottom: 0;
   width: 40%;
-  background: linear-gradient(90deg, rgba(255, 106, 43, 0) 0%, rgba(255, 140, 66, 0.9) 100%);
+  background: linear-gradient(90deg, transparent 0%, var(--accent-glow) 100%);
   filter: blur(6px);
   opacity: 0.5;
   pointer-events: none;
@@ -140,8 +140,8 @@
   text-align: left;
   box-shadow: var(--shadow);
   overflow: visible;
-  transition: color 0.15s, 
-              border-color 0.15s, 
+  transition: color 0.15s,
+              border-color 0.15s,
               background 0.15s,
               box-shadow 0.15s;
 }
@@ -154,8 +154,8 @@
 /* Active state for expandable button - SUBTLE GLOW (contained) */
 .navLinkExpandable.navLinkActive {
   color: var(--accent-glow) !important;
-  border-color: rgba(255, 107, 43, 0.121);
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 38%, rgba(255, 106, 43, 0.3) 100%), var(--bg-raised);
+  border-color: var(--accent-border, rgba(255, 107, 43, 0.121));
+  background: linear-gradient(90deg, transparent 0%, transparent 38%, var(--accent-glow-subtle) 100%), var(--bg-raised);
   overflow: visible;
 }
 
@@ -166,7 +166,7 @@
   top: 0;
   bottom: 0;
   width: 30%;
-  background: linear-gradient(90deg, rgba(255, 106, 43, 0) 0%, rgba(255, 140, 66, 0.5) 100%);
+  background: linear-gradient(90deg, transparent 0%, var(--accent-glow-subtle) 100%);
   filter: blur(4px);
   opacity: 0.3;
   pointer-events: none;
@@ -201,11 +201,11 @@
   gap: 0;
 }
 
-/* Sub Navigation - EXACT NEXT.JS STYLE */
+/* Sub Navigation */
 .subNav {
   margin-left: 14px;
   padding-left: 10px;
-  border-left: 2px solid #ef5350;
+  border-left: 2px solid var(--accent);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -222,8 +222,8 @@
   border-radius: 8px;
   margin-top: 10px;
   border: 1px solid var(--border);
-  color: rgb(231, 228, 228);
-  background: linear-gradient(90deg, rgba(255, 106, 43, 0) 0%, rgba(25, 24, 24, 0.9) 0%);
+  color: var(--text-primary);
+  background: transparent;
   text-decoration: none;
   font-size: 13px;
   transition: background 0.15s, color 0.15s;
@@ -243,11 +243,11 @@
   font-size: 13px;
   transition: background 0.15s, color 0.15s;
   color: var(--accent-glow);
-  background: rgba(255, 106, 43, 0.1);
+  background: var(--accent-glow-bg, rgba(255, 106, 43, 0.1));
 }
 
 .subLinkActive:hover {
-  background: rgba(255, 106, 43, 0.16);
+  background: var(--accent-glow-bg-hover, rgba(255, 106, 43, 0.16));
 }
 
 /* NO GLOW on sub-items */
@@ -274,7 +274,7 @@
   font-weight: 500;
   margin-bottom: 4px;
   box-shadow: var(--shadow);
-  transition: background 0.15s, 
+  transition: background 0.15s,
               border-color 0.15s,
               color 0.15s,
               box-shadow 0.15s;
@@ -301,11 +301,11 @@
   min-width: 28px;
   border-radius: 50%;
   background: var(--accent);
-  color: #17181d;
+  color: var(--accent-contrast, #17181d);
   font-weight: 600;
   font-size: 12px;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(255, 106, 43, 0.25);
+  box-shadow: 0 2px 8px var(--accent-shadow, rgba(255, 106, 43, 0.25));
   transition: background 0.3s ease;
 }
 
@@ -337,14 +337,14 @@
   font-weight: 500;
   margin-top: 4px;
   box-shadow: var(--shadow);
-  transition: background 0.15s, 
+  transition: background 0.15s,
               border-color 0.15s,
               box-shadow 0.15s;
 }
 
 .logoutRow:hover {
-  background: rgba(239, 83, 80, 0.08);
-  border-color: rgba(239, 83, 80, 0.3);
+  background: var(--danger-bg, rgba(239, 83, 80, 0.08));
+  border-color: var(--danger-border, rgba(239, 83, 80, 0.3));
 }
 
 .logoutRow svg {
@@ -593,6 +593,7 @@
     width: auto;
   }
 }
+
 /* Suite Button */
 .suiteRow {
   display: flex;
@@ -613,8 +614,8 @@
 }
 
 .suiteRow:hover {
-  background: rgba(255, 106, 43, 0.08);
-  border-color: rgba(255, 107, 43, 0.3);
+  background: var(--accent-glow-bg, rgba(255, 106, 43, 0.08));
+  border-color: var(--accent-border, rgba(255, 107, 43, 0.3));
 }
 
 .suiteRow svg {
@@ -640,6 +641,7 @@
 .collapsed .externalIcon {
   display: none;
 }
+
 /* Resize Handle - re-resizable */
 .resizeHandle {
   background: transparent;

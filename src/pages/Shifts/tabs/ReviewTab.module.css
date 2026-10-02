@@ -19,6 +19,7 @@
   background: var(--bg-raised);
   border-radius: 12px;
   flex-wrap: wrap;
+  box-shadow: var(--shadow);
 }
 
 .headerLeft {
@@ -35,9 +36,13 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: rgba(255, 149, 0, 0.12);
-  color: #ff9500;
+  background: var(--warning-bg, rgba(255, 149, 0, 0.12));
+  color: var(--warning, #ff9500);
   flex-shrink: 0;
+}
+
+.headerText {
+  min-width: 0;
 }
 
 .headerTitle {
@@ -66,7 +71,7 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
 .refreshBtn:hover:not(:disabled) {
@@ -101,7 +106,8 @@
   background: var(--bg-raised);
   border-radius: 12px;
   overflow: hidden;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow);
 }
 
 .card:hover {
@@ -124,6 +130,7 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex: 1;
 }
 
 .avatar {
@@ -133,15 +140,17 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(255, 149, 0, 0.14);
-  color: #ff9500;
+  background: var(--warning-bg, rgba(255, 149, 0, 0.14));
+  color: var(--warning, #ff9500);
   font-weight: 700;
   font-size: 15px;
   flex-shrink: 0;
+  border: 1px solid var(--warning-border, rgba(255, 149, 0, 0.22));
 }
 
 .whoText {
   min-width: 0;
+  flex: 1;
 }
 
 .whoName {
@@ -149,6 +158,9 @@
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .whoMeta {
@@ -172,12 +184,14 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px var(--accent-shadow, rgba(255, 106, 43, 0.2));
 }
 
 .reviewBtn:hover {
   background: var(--accent-glow);
+  box-shadow: 0 4px 12px var(--accent-shadow, rgba(255, 106, 43, 0.3));
 }
 
 /* -------- Meta strip -------- */
@@ -197,6 +211,23 @@
   gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
+  min-width: 0;
+}
+
+.metaIcon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.metaValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metaCompact {
+  display: none;
 }
 
 /* -------- Cash row -------- */
@@ -212,22 +243,27 @@
   gap: 4px;
   padding: 14px 16px;
   border-right: 1px solid var(--border);
+  min-width: 0;
 }
 
 .cashCell:last-child {
   border-right: none;
 }
 
-.cashCellVariance {
-  background: rgba(255, 149, 0, 0.05);
-}
-
 .cashLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.cashIcon {
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
 .cashValue {
@@ -236,48 +272,21 @@
   color: var(--text-primary);
 }
 
+.cashCellVariance {
+  background: var(--warning-bg, rgba(255, 149, 0, 0.05));
+}
+
 .varianceOver {
-  color: #ff9500;
+  color: var(--warning, #ff9500);
 }
 
 .varianceShort {
-  color: #ef5350;
-}
-
-@media (max-width: 600px) {
-  .cashRow {
-    grid-template-columns: 1fr;
-  }
-
-  .cashCell {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .cashCell:last-child {
-    border-bottom: none;
-  }
+  color: var(--danger, #ef5350);
 }
 
 /* ============================================================
    STATES
    ============================================================ */
-.loaderWrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 80px 20px;
-}
-
-.loader {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
 .errorState,
 .emptyState,
 .empty {
@@ -298,8 +307,8 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: rgba(52, 199, 89, 0.12);
-  color: #34c759;
+  background: var(--success-bg, rgba(52, 199, 89, 0.12));
+  color: var(--success, #34c759);
   margin-bottom: 6px;
 }
 
@@ -327,6 +336,39 @@
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.retryBtn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   SKELETON
+   ============================================================ */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-panel) 0%,
+    var(--bg-raised-hi, var(--border)) 50%,
+    var(--bg-panel) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  display: block;
+}
+
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--bg-panel);
+  }
 }
 
 /* ============================================================
@@ -361,5 +403,196 @@
 
 .textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 106, 43, 0.08);
+  box-shadow: 0 0 0 3px var(--accent-glow-bg, rgba(255, 106, 43, 0.08));
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .headerCard {
+    padding: 12px 14px;
+  }
+
+  .headerIcon {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+  }
+
+  .headerTitle {
+    font-size: 14px;
+  }
+
+  .cardHeader {
+    padding: 12px 14px;
+  }
+
+  .avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .whoName {
+    font-size: 13px;
+  }
+
+  .metaStrip {
+    gap: 14px;
+    padding: 10px 14px;
+  }
+
+  .cashCell {
+    padding: 12px 14px;
+  }
+
+  .cashValue {
+    font-size: 14px;
+  }
+}
+
+/* ============================================================
+   MOBILE — rich distributed card
+   ============================================================ */
+@media (max-width: 600px) {
+  /* ---- Header ---- */
+  .headerCard {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .refreshLabel {
+    display: none;
+  }
+
+  .refreshBtn {
+    padding: 8px 10px;
+    flex-shrink: 0;
+  }
+
+  /* ---- Card: distributed zones ---- */
+  .card {
+    border-radius: 14px;
+  }
+
+  .cardHeader {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "who review";
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .who {
+    grid-area: who;
+  }
+
+  .reviewBtn {
+    grid-area: review;
+    align-self: start;
+    padding: 8px 12px;
+  }
+
+  /* ---- Meta strip becomes a 2-col label grid ---- */
+  .metaStrip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    padding: 0;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metaItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 10px 14px;
+    background: var(--bg-panel);
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .metaItem::before {
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .metaIcon {
+    display: none;
+  }
+
+  .metaValue {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .metaFull {
+    display: none;
+  }
+
+  .metaCompact {
+    display: inline;
+  }
+
+  /* ---- Cash row becomes distributed 3-col grid ---- */
+  .cashRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  .cashCell {
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 10px;
+    border-right: none;
+    background: var(--bg-raised);
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .cashCell:last-child {
+    border-right: none;
+  }
+
+  .cashCellVariance {
+    background: var(--warning-bg, rgba(255, 149, 0, 0.06));
+  }
+
+  .cashLabel {
+    font-size: 9px;
+    letter-spacing: 0.05em;
+    gap: 3px;
+  }
+
+  .cashIcon {
+    display: none;
+  }
+
+  .cashValue {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .cashRow {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cashCell:nth-child(3) {
+    grid-column: span 2;
+  }
 }

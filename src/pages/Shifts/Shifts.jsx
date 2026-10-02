@@ -7,7 +7,7 @@ import { useShift } from '../../contexts/ShiftContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import {
   Clock, AlertCircle, Shield, Play, Square, Settings2,
-  History, AlertTriangle, ArrowRightLeft, Check, X,
+  History, AlertTriangle, ArrowRightLeft, Check, X, User, Calendar, Wallet, Percent,
 } from 'lucide-react';
 import { KXTILL } from '../../constants/permissions';
 import ShiftModal from './components/ShiftModal';
@@ -15,6 +15,34 @@ import SettingsTab from './tabs/SettingsTab';
 import HistoryTab from './tabs/HistoryTab';
 import ReviewTab from './tabs/ReviewTab';
 import styles from './Shifts.module.css';
+
+/* ---------- Skeleton primitives ---------- */
+const SkeletonLine = ({ width = '100%', height = 14 }) => (
+  <span
+    className={styles.skeleton}
+    style={{ width, height, borderRadius: 6, display: 'block' }}
+  />
+);
+
+const ShiftSkeleton = () => (
+  <div className={styles.card}>
+    <div className={styles.cardHeader}>
+      <SkeletonLine width="140px" height={16} />
+      <SkeletonLine width="60px" height={20} />
+    </div>
+    <div className={styles.kvGrid}>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div className={styles.kv} key={i}>
+          <SkeletonLine width="70px" height={10} />
+          <SkeletonLine width="120px" height={16} />
+        </div>
+      ))}
+    </div>
+    <div className={styles.cardActions}>
+      <SkeletonLine width="120px" height={34} />
+    </div>
+  </div>
+);
 
 const Shifts = () => {
   const { activeOrganization, activeBranch, user } = useAuth();
@@ -182,54 +210,60 @@ const Shifts = () => {
 
   return (
     <div className={styles.page}>
-      <div className={styles.headerCard}>
+      {/* ---------- HEADER ---------- */}
+      <header className={styles.headerCard}>
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}>
             <Clock size={20} />
           </div>
-          <div>
+          <div className={styles.headerText}>
             <h1 className={styles.title}>Shifts</h1>
             <p className={styles.subtitle}>
               {activeOrganization.name}
               {activeBranch?.name && (
                 <>
-                  <span> · </span>
+                  <span className={styles.dot}>·</span>
                   <span>{activeBranch.name}</span>
                 </>
               )}
             </p>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className={styles.tabs}>
+      {/* ---------- TABS ---------- */}
+      <nav className={styles.tabs} role="tablist">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const disabled = tab.id === 'home' && !shiftsEnabled;
+          const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               type="button"
-              className={`${styles.tab} ${
-                activeTab === tab.id ? styles.tabActive : ''
-              } ${disabled ? styles.tabDisabled : ''}`}
+              role="tab"
+              aria-selected={active}
+              className={`${styles.tab} ${active ? styles.tabActive : ''} ${
+                disabled ? styles.tabDisabled : ''
+              }`}
               onClick={() => !disabled && setActiveTab(tab.id)}
               disabled={disabled}
             >
               <Icon size={14} />
-              {tab.label}
+              <span>{tab.label}</span>
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* ---------- HOME ---------- */}
       {activeTab === 'home' && (
         <>
           {loading && !currentShift ? (
-            <div className={styles.loaderWrapper}>
-              <div className={styles.loader} />
-            </div>
+            <>
+              <ShiftSkeleton />
+              <ShiftSkeleton />
+            </>
           ) : error ? (
             <div className={styles.errorState}>
               <AlertCircle size={32} />
@@ -237,7 +271,9 @@ const Shifts = () => {
             </div>
           ) : !shiftsEnabled ? (
             <div className={styles.notice}>
-              <Shield size={20} />
+              <div className={styles.noticeIcon}>
+                <Shield size={20} />
+              </div>
               <div>
                 <h3>Shifts are not enabled for this branch</h3>
                 <p>Enable shifts in branch settings to start tracking cash drawers.</p>
@@ -251,36 +287,44 @@ const Shifts = () => {
                     <Play size={14} />
                     {isMyShift ? 'My Shift' : 'Current Shift'}
                   </h2>
-                  <span className={styles.badgeOpen}>OPEN</span>
+                  <span className={styles.badgeOpen}>Open</span>
                 </div>
+
                 <div className={styles.kvGrid}>
                   <div className={styles.kv}>
-                    <span className={styles.kvLabel}>Opened by</span>
+                    <span className={styles.kvLabel}>
+                      <User size={11} /> Opened by
+                    </span>
                     <span className={styles.kvValue}>
                       {currentShift.user?.firstName} {currentShift.user?.lastName}
-                      {isMyShift && ' (you)'}
+                      {isMyShift && <em className={styles.youTag}>(you)</em>}
                     </span>
                   </div>
                   <div className={styles.kv}>
-                    <span className={styles.kvLabel}>Opened at</span>
+                    <span className={styles.kvLabel}>
+                      <Calendar size={11} /> Opened at
+                    </span>
                     <span className={styles.kvValue}>
                       {formatDateTime?.(currentShift.openedAt) ||
                         new Date(currentShift.openedAt).toLocaleString()}
                     </span>
                   </div>
                   <div className={styles.kv}>
-                    <span className={styles.kvLabel}>Opening float</span>
+                    <span className={styles.kvLabel}>
+                      <Wallet size={11} /> Opening float
+                    </span>
                     <span className={styles.kvValue}>
                       {Number(currentShift.openingFloat).toLocaleString()}
                     </span>
                   </div>
                   <div className={styles.kv}>
-                    <span className={styles.kvLabel}>Variance threshold</span>
+                    <span className={styles.kvLabel}>
+                      <Percent size={11} /> Variance threshold
+                    </span>
                     <span className={styles.kvValue}>{varianceThreshold}</span>
                   </div>
                 </div>
 
-                {/* Action row */}
                 <div className={styles.cardActions}>
                   {isMyShift && !handoverPending && (
                     <button
@@ -335,11 +379,12 @@ const Shifts = () => {
                 </div>
               </div>
 
-              {/* Handover pending banner */}
               {handoverPending && (
                 <div className={styles.handoverBanner}>
-                  <ArrowRightLeft size={16} />
-                  <div>
+                  <div className={styles.handoverIcon}>
+                    <ArrowRightLeft size={16} />
+                  </div>
+                  <div className={styles.handoverBody}>
                     <div className={styles.handoverTitle}>
                       Handover requested by{' '}
                       {handoverRequester?.firstName} {handoverRequester?.lastName}

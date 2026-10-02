@@ -21,6 +21,7 @@ import {
   Building2,
   UserCog,
 } from 'lucide-react';
+import { showToast } from '../../components/Common/Toast';
 import styles from './KxTillStaff.module.css';
 import EditBranchesModal from './components/EditBranchesModal';
 import ChangeRoleModal from './components/ChangeRoleModal';
@@ -228,14 +229,16 @@ const KxTillStaff = () => {
   };
 
   // Open Suite Members & Roles page with SSO
-  const openSuiteMembers = () => {
-    const suiteUrl =
-      process.env.REACT_APP_SUITE_URL || 'https://suite.kxbyte.com';
-    const token = localStorage.getItem('accessToken');
-    const url = token
-      ? `${suiteUrl}/members?sso_token=${token}`
-      : `${suiteUrl}/members`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const openSuiteMembers = async () => {
+    const suiteUrl = 'https://suite.kxbyte.co.ke';
+    try {
+      const { data } = await axios.post('/auth/sso/mint', { target: 'suite' });
+      const ssoUrl = `${suiteUrl}/sso?code=${encodeURIComponent(data.code)}`;
+      window.open(ssoUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Failed to open Suite:', err);
+      showToast.error('Failed to open Suite. Please try again.');
+    }
   };
 
   const filteredStaff = staff.filter((member) => {

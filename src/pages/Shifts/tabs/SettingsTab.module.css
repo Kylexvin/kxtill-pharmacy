@@ -1,31 +1,41 @@
+/* src/pages/Shifts/tabs/SettingsTab.module.css */
+
 .wrap {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
+/* ============================================================
+   INFO BANNER
+   ============================================================ */
 .infoBanner {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--surface-alt, #1c1c20);
-  border: 1px solid var(--border, #2a2a2e);
-  color: var(--text-muted, #8b8d98);
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
   font-size: 13px;
   line-height: 1.5;
+  box-shadow: var(--shadow);
 }
 
 .infoBanner strong {
-  color: var(--text, #fff);
+  color: var(--text-primary);
 }
 
+/* ============================================================
+   TABLE
+   ============================================================ */
 .table {
-  background: var(--surface, #17171b);
-  border: 1px solid var(--border, #2a2a2e);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 
 .tableHead,
@@ -38,44 +48,59 @@
 }
 
 .tableHead {
-  background: var(--surface-alt, #1c1c20);
-  border-bottom: 1px solid var(--border, #2a2a2e);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted, #8b8d98);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .tableRow {
-  border-bottom: 1px solid var(--border, #2a2a2e);
+  border-bottom: 1px solid var(--border);
   font-size: 13px;
-  color: var(--text, #fff);
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.tableRow:hover {
+  background: var(--bg-panel);
 }
 
 .tableRow:last-child {
   border-bottom: none;
 }
 
+/* ============================================================
+   BRANCH CELL
+   ============================================================ */
 .branchCell {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--text-muted, #8b8d98);
+  color: var(--text-muted);
+  min-width: 0;
 }
 
 .branchName {
-  color: var(--text, #fff);
+  color: var(--text-primary);
   font-weight: 500;
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .branchCode {
   font-size: 11px;
-  color: var(--text-faint, #5a5c66);
+  color: var(--text-faint);
   margin-top: 2px;
 }
 
+/* ============================================================
+   COLUMNS
+   ============================================================ */
 .colToggle,
 .colThreshold,
 .colAction {
@@ -87,20 +112,24 @@
   justify-content: flex-end;
 }
 
+/* ============================================================
+   TOGGLE
+   ============================================================ */
 .toggle {
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: var(--border, #2a2a2e);
+  background: var(--border-strong, var(--border));
   border: none;
   cursor: pointer;
   position: relative;
   transition: background 0.15s ease;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .toggleOn {
-  background: var(--accent, #ff6b2b);
+  background: var(--accent);
 }
 
 .toggleKnob {
@@ -112,6 +141,7 @@
   border-radius: 50%;
   background: #fff;
   transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .toggleOn .toggleKnob {
@@ -123,45 +153,66 @@
   cursor: not-allowed;
 }
 
+/* ============================================================
+   INPUT
+   ============================================================ */
 .input {
-  background: var(--surface-alt, #1c1c20);
-  border: 1px solid var(--border, #2a2a2e);
-  border-radius: 6px;
-  padding: 6px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
   font-size: 13px;
-  color: var(--text, #fff);
+  color: var(--text-primary);
   width: 100%;
   max-width: 120px;
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
 }
 
 .input:focus {
-  border-color: var(--accent, #ff6b2b);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow-bg, rgba(255, 106, 43, 0.08));
 }
 
+/* ============================================================
+   SAVE BUTTON
+   ============================================================ */
 .saveBtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--accent, #ff6b2b);
+  background: var(--accent);
   color: #fff;
   border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 8px var(--accent-shadow, rgba(255, 106, 43, 0.2));
+  white-space: nowrap;
+}
+
+.saveBtn:hover:not(:disabled) {
+  background: var(--accent-glow);
+  box-shadow: 0 4px 12px var(--accent-shadow, rgba(255, 106, 43, 0.3));
 }
 
 .saveBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
+/* ============================================================
+   EMPTY / LOADER / ERROR
+   ============================================================ */
 .emptyRow {
   padding: 32px 16px;
   text-align: center;
-  color: var(--text-muted, #8b8d98);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -175,8 +226,8 @@
 .loader {
   width: 28px;
   height: 28px;
-  border: 3px solid var(--border, #2a2a2e);
-  border-top-color: var(--accent, #ff6b2b);
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -192,7 +243,8 @@
   align-items: center;
   gap: 12px;
   padding: 40px 20px;
-  color: var(--text-muted, #8b8d98);
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .retryBtn {
@@ -200,10 +252,171 @@
   align-items: center;
   gap: 6px;
   background: transparent;
-  border: 1px solid var(--border, #2a2a2e);
-  color: var(--text-muted, #8b8d98);
-  padding: 6px 12px;
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 7px 14px;
+  border-radius: 8px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.retryBtn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .tableHead,
+  .tableRow {
+    grid-template-columns: 2fr 100px 120px 90px;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .tableHead {
+    font-size: 10px;
+  }
+
+  .input {
+    max-width: 100px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Convert table into stacked cards */
+  .table {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tableHead {
+    display: none;
+  }
+
+  .tableRow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .tableRow:hover {
+    background: var(--bg-raised);
+  }
+
+  .branchCell {
+    align-items: flex-start;
+  }
+
+  .branchName,
+  .branchCode {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .colToggle,
+  .colThreshold,
+  .colAction {
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  /* Add pseudo-labels so users know what each row is */
+  .colToggle::before {
+    content: "Shifts enabled";
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .colThreshold::before {
+    content: "Variance threshold";
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .input {
+    max-width: 120px;
+    text-align: right;
+  }
+
+  .colAction {
+    justify-content: stretch;
+  }
+
+  .saveBtn {
+    justify-content: center;
+    width: 100%;
+    padding: 10px 14px;
+  }
+}
+/* ============================================================
+   SKELETON
+   ============================================================ */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-panel) 0%,
+    var(--bg-raised-hi, var(--border)) 50%,
+    var(--bg-panel) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  display: block;
+}
+
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--bg-panel);
+  }
+}
+/* Icon + text wrapper inside branch cell */
+.branchIcon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.branchText {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Info banner icon */
+.infoIcon {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Save button — ensure label doesn't wrap */
+.saveBtn span {
+  white-space: nowrap;
 }

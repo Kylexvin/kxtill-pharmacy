@@ -1,8 +1,9 @@
 // src/pages/Shifts/tabs/HistoryTab.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import {
-  AlertCircle, RefreshCw, Clock, Search, ChevronDown,
+  AlertCircle, RefreshCw, Clock, Search, ChevronDown, X,
+ Calendar, Wallet, TrendingUp, TrendingDown, Minus,
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useSettings } from '../../../contexts/SettingsContext';
@@ -20,6 +21,19 @@ const formatDateTime = (value, fn) => {
   if (!value) return '—';
   if (fn) return fn(value);
   return new Date(value).toLocaleString();
+};
+
+/* Short date-only for mobile tiles — "01 Oct · 22:40" */
+const formatCompact = (value, fn) => {
+  if (!value) return '—';
+  if (fn) return fn(value);
+  const d = new Date(value);
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 };
 
 const statusClass = (status) => {
@@ -42,6 +56,72 @@ const statusLabel = (status) => {
   }
 };
 
+const initials = (user) => {
+  const f = user?.firstName?.[0] || '';
+  const l = user?.lastName?.[0] || '';
+  return (f + l).toUpperCase() || '?';
+};
+
+/* Variance direction → tone */
+const varianceTone = (v) => {
+  if (v == null) return 'neutral';
+  const n = Number(v);
+  if (n > 0) return 'over';
+  if (n < 0) return 'short';
+  return 'even';
+};
+
+/* ---------- Skeleton ---------- */
+const SkeletonLine = ({ width = '100%', height = 14, radius = 6 }) => (
+  <span
+    className={styles.skeleton}
+    style={{ width, height, borderRadius: radius, display: 'block' }}
+  />
+);
+
+const HistorySkeleton = () => (
+  <div className={styles.table}>
+    <div className={styles.tableHead}>
+      <span>Cashier</span>
+      <span>Branch</span>
+      <span>Opened</span>
+      <span>Closed</span>
+      <span>Float</span>
+      <span>Variance</span>
+      <span>Status</span>
+    </div>
+    {Array.from({ length: 5 }).map((_, i) => (
+      <div key={i} className={styles.tableRow}>
+        <div className={styles.cellMain}>
+          <SkeletonLine width="130px" height={13} />
+          <div style={{ height: 6 }} />
+          <SkeletonLine width="160px" height={10} />
+        </div>
+        <div className={styles.cellMain}>
+          <SkeletonLine width="100px" height={13} />
+          <div style={{ height: 6 }} />
+          <SkeletonLine width="50px" height={10} />
+        </div>
+        <div className={styles.cellText}>
+          <SkeletonLine width="90px" height={13} />
+        </div>
+        <div className={styles.cellText}>
+          <SkeletonLine width="90px" height={13} />
+        </div>
+        <div className={styles.cellText}>
+          <SkeletonLine width="60px" height={13} />
+        </div>
+        <div className={styles.cellText}>
+          <SkeletonLine width="60px" height={13} />
+        </div>
+        <div className={styles.cellText}>
+          <SkeletonLine width="70px" height={22} radius={999} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const HistoryTab = () => {
   const { activeOrganization } = useAuth();
   const { formatDateTime: formatDate } = useSettings();
@@ -54,8 +134,14 @@ const HistoryTab = () => {
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (!orgId) return;
@@ -86,16 +172,25 @@ const HistoryTab = () => {
 
   const handleRefresh = () => load(true);
 
-  const filtered = search.trim()
-    ? items.filter((s) => {
-        const q = search.toLowerCase();
-        return (
-          (s.user?.firstName || '').toLowerCase().includes(q) ||
-          (s.user?.lastName || '').toLowerCase().includes(q) ||
-          (s.branch?.name || '').toLowerCase().includes(q)
-        );
-      })
-    : items;
+  const filtered = useMemo(() => {
+    if (!debouncedSearch.trim()) return items;
+    const q = debouncedSearch.toLowerCase();
+    return items.filter((s) => (
+      (s.user?.firstName || '').toLowerCase().includes(q) ||
+      (s.user?.lastName || '').toLowerCase().includes(q) ||
+      (s.user?.email || '').toLowerCase().includes(q) ||
+      (s.branch?.name || '').toLowerCase().includes(q) ||
+      (s.branch?.code || '').toLowerCase().includes(q)
+    ));
+  }, [items, debouncedSearch]);
+
+  const hasFilters = !!(search || statusFilter);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setOffset(0);
+  };
 
   if (!orgId) {
     return (
@@ -108,6 +203,7 @@ const HistoryTab = () => {
 
   return (
     <div className={styles.wrap}>
+      {/* ---------- Filters ---------- */}
       <div className={styles.filtersBar}>
         <div className={styles.searchWrap}>
           <Search size={14} className={styles.searchIcon} />
@@ -118,6 +214,16 @@ const HistoryTab = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {search && (
+            <button
+              type="button"
+              className={styles.searchClear}
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
         <div className={styles.selectWrap}>
@@ -143,14 +249,25 @@ const HistoryTab = () => {
           disabled={refreshing}
         >
           <RefreshCw size={14} className={refreshing ? styles.spinning : ''} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
+          <span className={styles.refreshLabel}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </span>
         </button>
+
+        {hasFilters && (
+          <button
+            type="button"
+            className={styles.clearFiltersBtn}
+            onClick={clearFilters}
+          >
+            Clear
+          </button>
+        )}
       </div>
 
+      {/* ---------- Content ---------- */}
       {loading ? (
-        <div className={styles.loaderWrapper}>
-          <div className={styles.loader} />
-        </div>
+        <HistorySkeleton />
       ) : error ? (
         <div className={styles.errorState}>
           <AlertCircle size={32} />
@@ -164,13 +281,19 @@ const HistoryTab = () => {
           <Clock size={40} />
           <h3>No shifts found</h3>
           <p>
-            {search || statusFilter
-              ? 'Try adjusting filters.'
+            {hasFilters
+              ? 'Try adjusting or clearing your filters.'
               : 'Shifts will appear here once cashiers start opening them.'}
           </p>
+          {hasFilters && (
+            <button className={styles.retryBtn} onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
         </div>
       ) : (
         <div className={styles.table}>
+          {/* Desktop header only */}
           <div className={styles.tableHead}>
             <span>Cashier</span>
             <span>Branch</span>
@@ -181,42 +304,89 @@ const HistoryTab = () => {
             <span>Status</span>
           </div>
 
-          {filtered.map((shift) => (
-            <div key={shift.id} className={styles.tableRow}>
-              <div className={styles.cellMain}>
-                <div className={styles.cellTitle}>
-                  {shift.user?.firstName} {shift.user?.lastName}
+          {filtered.map((shift) => {
+            const tone = varianceTone(shift.variance);
+            const VarianceIcon =
+              tone === 'over' ? TrendingUp :
+              tone === 'short' ? TrendingDown :
+              Minus;
+
+            return (
+              <div key={shift.id} className={styles.tableRow}>
+                {/* ---- Who (mobile: card header) ---- */}
+                <div className={styles.cellMain}>
+                  <div className={styles.avatarSm}>
+                    {initials(shift.user)}
+                  </div>
+                  <div className={styles.whoText}>
+                    <div className={styles.cellTitle}>
+                      {shift.user?.firstName} {shift.user?.lastName}
+                    </div>
+                    <div className={styles.cellSub}>{shift.user?.email}</div>
+                  </div>
                 </div>
-                <div className={styles.cellSub}>{shift.user?.email}</div>
+
+                {/* ---- Branch ---- */}
+                <div className={styles.cellMain} data-label="Branch">
+                  <div className={styles.cellTitle}>
+                    {shift.branch?.name || '—'}
+                  </div>
+                  <div className={styles.cellSub}>{shift.branch?.code || ''}</div>
+                </div>
+
+                {/* ---- Meta wrapper ---- */}
+                <div className={styles.cardMeta}>
+                  <div className={styles.metaCell} data-label="Opened">
+                    <Calendar size={11} className={styles.metaIcon} />
+                    <span className={styles.metaFull}>
+                      {formatDateTime(shift.openedAt, formatDate)}
+                    </span>
+                    <span className={styles.metaCompact}>
+                      {formatCompact(shift.openedAt, formatDate)}
+                    </span>
+                  </div>
+
+                  <div className={styles.metaCell} data-label="Closed">
+                    <Calendar size={11} className={styles.metaIcon} />
+                    <span className={styles.metaFull}>
+                      {formatDateTime(shift.closedAt, formatDate)}
+                    </span>
+                    <span className={styles.metaCompact}>
+                      {formatCompact(shift.closedAt, formatDate)}
+                    </span>
+                  </div>
+
+                  <div className={styles.metaCell} data-label="Float">
+                    <Wallet size={11} className={styles.metaIcon} />
+                    <span>{Number(shift.openingFloat).toLocaleString()}</span>
+                  </div>
+
+                  <div
+                    className={`${styles.metaCell} ${styles.metaCellVariance} ${styles[`tone_${tone}`] || ''}`}
+                    data-label="Variance"
+                  >
+                    <VarianceIcon size={11} className={styles.metaIcon} />
+                    <span>
+                      {shift.variance != null
+                        ? Number(shift.variance).toLocaleString()
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ---- Status ---- */}
+                <div className={styles.cellText}>
+                  <span className={`${styles.badge} ${statusClass(shift.status)}`}>
+                    {statusLabel(shift.status)}
+                  </span>
+                </div>
               </div>
-              <div className={styles.cellMain}>
-                <div className={styles.cellTitle}>{shift.branch?.name || '—'}</div>
-                <div className={styles.cellSub}>{shift.branch?.code || ''}</div>
-              </div>
-              <div className={styles.cellText}>
-                {formatDateTime(shift.openedAt, formatDate)}
-              </div>
-              <div className={styles.cellText}>
-                {formatDateTime(shift.closedAt, formatDate)}
-              </div>
-              <div className={styles.cellText}>
-                {Number(shift.openingFloat).toLocaleString()}
-              </div>
-              <div className={styles.cellText}>
-                {shift.variance != null
-                  ? Number(shift.variance).toLocaleString()
-                  : '—'}
-              </div>
-              <div className={styles.cellText}>
-                <span className={`${styles.badge} ${statusClass(shift.status)}`}>
-                  {statusLabel(shift.status)}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
+      {/* ---------- Pagination ---------- */}
       {total > limit && (
         <div className={styles.pagination}>
           <button
