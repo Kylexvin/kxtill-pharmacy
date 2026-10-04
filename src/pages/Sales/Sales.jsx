@@ -11,7 +11,7 @@ import {
   Search, Filter, Eye, ChevronLeft, ChevronRight,
   FileText, Printer, RefreshCw, Clock, CheckCircle, XCircle,
   AlertCircle, Receipt, Copy, Check, User, Building2, CreditCard, X,
-  Banknote, Smartphone, CloudOff, RotateCw, WifiOff,
+  Banknote, Smartphone, CloudOff, RotateCw, WifiOff, Layers,
 } from 'lucide-react';
 import axios from 'axios';
 import {
@@ -44,10 +44,24 @@ const isLocalOnly = (sale) => {
   return sale.isLocal === true && sale.localStatus !== 'SYNCED';
 };
 
-const paymentMethodOf = (sale) => {
-  if (sale.paymentMethod) return sale.paymentMethod;
-  if (sale.payments && sale.payments.length > 0) return sale.payments[0].method;
-  return null;
+const paymentsOf = (sale) => {
+  if (Array.isArray(sale?.payments)) return sale.payments;
+  return [];
+};
+
+// Column display label for the payment cell
+const paymentSummary = (sale) => {
+  const payments = paymentsOf(sale);
+  if (payments.length === 0) return { kind: 'none', label: '—', methods: [] };
+  const uniqueMethods = Array.from(new Set(payments.map((p) => p.method)));
+  if (payments.length === 1) {
+    return { kind: 'single', label: uniqueMethods[0] || '—', methods: uniqueMethods };
+  }
+  return {
+    kind: 'split',
+    label: `Split (${payments.length})`,
+    methods: uniqueMethods,
+  };
 };
 
 const referenceOf = (sale) => {
@@ -76,10 +90,21 @@ const applyClientFilters = (items, { statusFilter, paymentFilter, searchTerm }) 
   }
 
   if (paymentFilter && paymentFilter !== 'all') {
-    const target = paymentFilter.toUpperCase();
-    result = result.filter(
-      (sale) => (paymentMethodOf(sale) || '').toUpperCase() === target
-    );
+    const target = paymentFilter.toLowerCase();
+    result = result.filter((sale) => {
+      const payments = paymentsOf(sale);
+      const methods = payments.map((p) => (p.method || '').toUpperCase());
+      const unique = new Set(methods);
+
+      if (target === 'split') return payments.length > 1;
+      if (target === 'single') return payments.length === 1;
+      if (target === 'credit') return unique.has('CREDIT');
+      if (target === 'cash') return unique.has('CASH');
+      if (target === 'mpesa') return unique.has('MPESA');
+      if (target === 'card') return unique.has('CARD');
+      if (target === 'bank') return unique.has('BANK');
+      return true;
+    });
   }
 
   if (searchTerm && searchTerm.trim()) {
@@ -100,7 +125,6 @@ const isAbortError = (error) =>
   error?.name === 'AbortError' ||
   axios.isCancel?.(error);
 
-// localStorage key for cached server totals (per org + branch scope)
 const totalsCacheKey = (orgId, branchId) =>
   `salesTotals:${orgId}:${branchId || 'all'}`;
 
@@ -311,7 +335,6 @@ const Sales = () => {
     };
   }, [dateRange]);
 
-  // ---------- hydrate cached server totals on mount / scope change ----------
   useEffect(() => {
     if (!orgId) return;
     try {
@@ -357,7 +380,6 @@ const Sales = () => {
 
           if (serverTotalsResult) {
             setServerTotals(serverTotalsResult);
-            // cache for offline use
             try {
               const key = totalsCacheKey(orgId, serverBranchId);
               localStorage.setItem(key, JSON.stringify(serverTotalsResult));
@@ -406,7 +428,6 @@ const Sales = () => {
           const localResult = await getAllLocalSalesForBranch(localBranchId, {});
           if (isMountedRef.current) {
             setRawSales(localResult.items || []);
-            // do NOT clear serverTotals — keep last cached value
             hasLoadedOnceRef.current = true;
           }
         }
@@ -442,7 +463,6 @@ const Sales = () => {
     return filteredSales.slice(start, start + limit);
   }, [filteredSales, currentPage, limit]);
 
-  // ---------- stats: server totals + local unsynced ----------
   const stats = useMemo(() => {
     const localOnly = filteredSales.filter(isLocalOnly);
     const localRevenue = localOnly.reduce(
@@ -519,7 +539,6 @@ const Sales = () => {
     setCurrentPage(1);
   }, [statusFilter, paymentFilter, searchTerm, branchFilter, dateRange]);
 
-  // ---------- user-triggered refresh ----------
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -532,7 +551,6 @@ const Sales = () => {
     }
   }, [fetchSales, isRefreshing]);
 
-  // ---------- background refresh (silent) ----------
   const refreshInBackground = useCallback(async () => {
     try {
       await fetchSales();
@@ -739,6 +757,7 @@ const Sales = () => {
       PAID: { label: 'Paid', className: styles.statusCompleted, icon: CheckCircle },
       PENDING: { label: 'Pending', className: styles.statusPending, icon: Clock },
       REFUNDED: { label: 'Refunded', className: styles.statusRefunded, icon: XCircle },
+      REFUNDED_PARTIAL: { label: 'Partially Refunded', className: styles.statusRefunded, icon: XCircle },
       VOIDED: { label: 'Voided', className: styles.statusVoided, icon: XCircle },
       CANCELLED: { label: 'Cancelled', className: styles.statusVoided, icon: XCircle },
     };
@@ -751,6 +770,7 @@ const Sales = () => {
       MPESA: { icon: Smartphone, label: 'M-PESA' },
       CARD: { icon: CreditCard, label: 'Card' },
       BANK: { icon: Building2, label: 'Bank Transfer' },
+      CREDIT: { icon: FileText, label: 'Credit' },
       MOBILE: { icon: Smartphone, label: 'Mobile Money' },
     };
     return methodMap[method] || { icon: CreditCard, label: method || 'N/A' };
@@ -872,6 +892,7 @@ const Sales = () => {
             <option value="completed">Completed</option>
             <option value="pending">Pending</option>
             <option value="refunded">Refunded</option>
+            <option value="refunded_partial">Partially Refunded</option>
             <option value="voided">Voided</option>
           </select>
 
@@ -885,6 +906,9 @@ const Sales = () => {
             <option value="mpesa">M-PESA</option>
             <option value="card">Card</option>
             <option value="bank">Bank</option>
+            <option value="credit">Credit (Deni)</option>
+            <option value="split">Split payments</option>
+            <option value="single">Single payment</option>
           </select>
 
           <select
@@ -1038,11 +1062,14 @@ const Sales = () => {
                 {paginatedSales.map((sale) => {
                   const status = getStatusBadgeWithLocal(sale);
                   const StatusIcon = status.icon;
-                  const payment = getPaymentMethod(paymentMethodOf(sale));
-                  const PaymentIcon = payment.icon;
+                  const pay = paymentSummary(sale);
                   const reference = referenceOf(sale);
                   const localOnly = isLocalOnly(sale);
                   const isRetrying = retryingIds.has(sale.id);
+                  const hasCredit =
+                    pay.methods.includes('CREDIT') ||
+                    sale.paymentStatus === 'CREDIT';
+                  const hasRefund = Number(sale.refundedAmount || 0) > 0;
 
                   return (
                     <tr
@@ -1099,12 +1126,38 @@ const Sales = () => {
                         <span className={styles.totalAmount}>
                           {formatCurrency(sale.totalAmount)}
                         </span>
+                        {hasRefund && (
+                          <span className={styles.refundedAmountSmall}>
+                            -{formatCurrency(sale.refundedAmount)}
+                          </span>
+                        )}
                       </td>
                       <td>
-                        <div className={styles.paymentMethod}>
-                          <PaymentIcon size={14} />
-                          <span>{payment.label}</span>
-                        </div>
+                        {pay.kind === 'split' ? (
+                          <div
+                            className={styles.paymentMethod}
+                            title={pay.methods.join(' · ')}
+                          >
+                            <Layers size={14} />
+                            <span>{pay.label}</span>
+                          </div>
+                        ) : pay.kind === 'single' ? (
+                          (() => {
+                            const p = getPaymentMethod(pay.methods[0]);
+                            const Icon = p.icon;
+                            return (
+                              <div className={styles.paymentMethod}>
+                                <Icon size={14} />
+                                <span>{p.label}</span>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <span className={styles.muted}>—</span>
+                        )}
+                        {hasCredit && (
+                          <span className={styles.creditChip}>Credit</span>
+                        )}
                       </td>
                       <td>
                         <span
@@ -1276,13 +1329,13 @@ const Sales = () => {
                       </span>
                     </div>
                     {(showDetail.shiftId || showDetail.refundShiftId) && (
-  <div className={styles.detailMetaItem}>
-    <Clock size={14} />
-    <span>
-      Shift: {String(showDetail.shiftId || showDetail.refundShiftId).slice(0, 8)}
-    </span>
-  </div>
-)}
+                      <div className={styles.detailMetaItem}>
+                        <Clock size={14} />
+                        <span>
+                          Shift: {String(showDetail.shiftId || showDetail.refundShiftId).slice(0, 8)}
+                        </span>
+                      </div>
+                    )}
                     {isLocalOnly(showDetail) &&
                       showDetail.localStatus === 'FAILED' && (
                         <div className={styles.detailMetaItem}>
@@ -1354,11 +1407,22 @@ const Sales = () => {
                       <span>Total</span>
                       <span>{formatCurrency(showDetail.totalAmount)}</span>
                     </div>
+                    {toNumber(showDetail.refundedAmount) > 0 && (
+                      <div className={`${styles.detailTotalRow} ${styles.detailRefundedRow}`}>
+                        <span>Refunded</span>
+                        <span>-{formatCurrency(showDetail.refundedAmount)}</span>
+                      </div>
+                    )}
                   </div>
 
                   {showDetail.payments && showDetail.payments.length > 0 && (
                     <div className={styles.detailPayments}>
-                      <h4>Payments</h4>
+                      <h4>
+                        Payments
+                        {showDetail.payments.length > 1 && (
+                          <span className={styles.splitIndicator}>· Split</span>
+                        )}
+                      </h4>
                       {showDetail.payments.map((payment, idx) => {
                         const pm = getPaymentMethod(payment.method);
                         const PmIcon = pm.icon;
@@ -1377,6 +1441,34 @@ const Sales = () => {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {showDetail.refunds && showDetail.refunds.length > 0 && (
+                    <div className={styles.detailRefunds}>
+                      <h4>Refunds ({showDetail.refunds.length})</h4>
+                      {showDetail.refunds.map((refund) => (
+                        <div key={refund.id} className={styles.detailRefundRow}>
+                          <div className={styles.detailRefundHeader}>
+                            <span className={styles.detailRefundRef}>{refund.reference}</span>
+                            <span className={styles.detailRefundAmount}>
+                              {formatCurrency(refund.totalAmount)}
+                            </span>
+                          </div>
+                          <div className={styles.detailRefundMeta}>
+                            {formatDateTime(refund.createdAt)}
+                            {Number(refund.cashAmount) > 0 && (
+                              <> · Cash {formatCurrency(refund.cashAmount)}</>
+                            )}
+                            {Number(refund.creditAmount) > 0 && (
+                              <> · Credit {formatCurrency(refund.creditAmount)}</>
+                            )}
+                            {Number(refund.otherAmount) > 0 && (
+                              <> · Other {formatCurrency(refund.otherAmount)}</>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
 

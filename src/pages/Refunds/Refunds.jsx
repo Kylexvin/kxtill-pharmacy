@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import ReceiptModal from '../POS/ReceiptModal';
+import RefundModal from './components/RefundModal';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import {
@@ -57,11 +58,6 @@ const Refunds = () => {
   // Refund Modal State
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [selectedSale, setSelectedSale] = useState(null);
-  const [refundProcessing, setRefundProcessing] = useState(false);
-  const [selectedItems, setSelectedItems] = useState([]);
-  const [refundReason, setRefundReason] = useState('');
-  const [refundMethod, setRefundMethod] = useState('ORIGINAL');
-  const [refundError, setRefundError] = useState('');
 
   const isMountedRef = useRef(true);
   const fetchControllerRef = useRef(null);
@@ -421,9 +417,6 @@ const Refunds = () => {
     setCurrentPage(newPage);
   };
 
-  // NOTE: `branch` filter is LOCAL to this page. It does NOT change the
-  // user's active branch globally. That's done from TopBar (gated by
-  // `allowBranchSwitch` setting).
   const handleFilterChange = (type, value) => {
     switch (type) {
       case 'status':
@@ -475,102 +468,15 @@ const Refunds = () => {
       toast.error('You do not have permission to process refunds');
       return;
     }
-
     setSelectedSale(sale);
-    setSelectedItems(sale.items?.map((item) => item.id) || []);
-    setRefundReason('');
-    setRefundMethod('ORIGINAL');
-    setRefundError('');
     setShowRefundModal(true);
   };
 
-  const handleToggleItem = (itemId) => {
-    setSelectedItems((prev) => {
-      if (prev.includes(itemId)) {
-        return prev.filter((id) => id !== itemId);
-      }
-      return [...prev, itemId];
-    });
-  };
-
-  const handleSelectAll = () => {
-    if (!selectedSale) return;
-    if (selectedItems.length === selectedSale.items?.length) {
-      setSelectedItems([]);
-    } else {
-      setSelectedItems(selectedSale.items.map((item) => item.id));
-    }
-  };
-
-  const handleProcessRefund = async () => {
-    if (!selectedSale || !orgId) {
-      toast.error('Invalid sale selection');
-      return;
-    }
-
-    if (selectedItems.length === 0) {
-      setRefundError('Please select at least one item to refund');
-      return;
-    }
-
-    if (selectedSale.status === 'REFUNDED') {
-      setRefundError('This sale has already been refunded');
-      return;
-    }
-
-    if (!canRefund) {
-      setRefundError('You do not have permission to process refunds');
-      return;
-    }
-
-    setRefundError('');
-    setRefundProcessing(true);
-
-    try {
-      const refundData = {
-        items: selectedItems,
-        reason: refundReason || 'Customer request',
-        refundMethod,
-      };
-
-      await axios.post(
-        `/organizations/${orgId}/kxtill/sales/${selectedSale.id}/refund`,
-        refundData
-      );
-
-      toast.success('Refund processed successfully!');
-
-      setShowRefundModal(false);
-      setSelectedSale(null);
-      setSelectedItems([]);
-      setRefundReason('');
-      setRefundMethod('ORIGINAL');
-      setRefundError('');
-
-      await Promise.all([fetchRefunds(), fetchSummary()]);
-
-      if (searchTerm.trim()) searchSales();
-    } catch (error) {
-      console.error('Refund error:', error);
-
-      if (error.response?.status === 403) {
-        setRefundError('You do not have permission to process refunds');
-      } else if (error.response?.status === 400) {
-        setRefundError(
-          error.response?.data?.message || 'Invalid refund request'
-        );
-      } else if (error.response?.status === 404) {
-        setRefundError('Sale not found or already refunded');
-      } else if (error.response?.status === 500) {
-        setRefundError('Server error processing refund. Please try again.');
-      } else {
-        setRefundError(
-          error.response?.data?.message || 'Failed to process refund'
-        );
-      }
-    } finally {
-      setRefundProcessing(false);
-    }
+  const handleRefundSuccess = () => {
+    setShowRefundModal(false);
+    setSelectedSale(null);
+    Promise.all([fetchRefunds(), fetchSummary()]);
+    if (searchTerm.trim()) searchSales();
   };
 
   const handleViewDetail = async (saleId) => {
@@ -1095,282 +1001,15 @@ const Refunds = () => {
       </div>
 
       {/* Refund Modal */}
-      {showRefundModal && selectedSale && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modal}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalTitle}>
-                <RotateCcw size={18} className={styles.refundIcon} />
-                <span>Process Refund</span>
-                {selectedItems.length < selectedSale.items?.length &&
-                  selectedItems.length > 0 && (
-                    <span className={styles.partialBadge}>Partial Refund</span>
-                  )}
-                {selectedSale.status === 'REFUNDED' && (
-                  <span className={styles.refundedBadge}>
-                    Already Refunded
-                  </span>
-                )}
-              </div>
-              <button
-                className={styles.closeBtn}
-                onClick={() => {
-                  setShowRefundModal(false);
-                  setSelectedSale(null);
-                  setRefundError('');
-                }}
-                disabled={refundProcessing}
-                type="button"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className={styles.modalBody}>
-              <div className={styles.saleInfo}>
-                <div className={styles.saleInfoRow}>
-                  <span className={styles.saleInfoLabel}>Reference</span>
-                  <span className={styles.saleInfoValue}>
-                    {referenceOf(selectedSale)}
-                  </span>
-                </div>
-                <div className={styles.saleInfoRow}>
-                  <span className={styles.saleInfoLabel}>Customer</span>
-                  <span className={styles.saleInfoValue}>
-                    {selectedSale.customerName || 'Walk-in Customer'}
-                  </span>
-                </div>
-                <div className={styles.saleInfoRow}>
-                  <span className={styles.saleInfoLabel}>Date</span>
-                  <span className={styles.saleInfoValue}>
-                    {formatDateTime(selectedSale.createdAt)}
-                  </span>
-                </div>
-                <div className={styles.saleInfoRow}>
-                  <span className={styles.saleInfoLabel}>Branch</span>
-                  <span className={styles.saleInfoValue}>
-                    {selectedSale.branch?.name || 'N/A'}
-                  </span>
-                </div>
-                <div className={styles.saleInfoRow}>
-                  <span className={styles.saleInfoLabel}>Original Total</span>
-                  <span className={styles.saleInfoValue}>
-                    {formatCurrency(selectedSale.totalAmount)}
-                  </span>
-                </div>
-                {selectedSale.status === 'REFUNDED' && (
-                  <div
-                    className={`${styles.saleInfoRow} ${styles.alreadyRefunded}`}
-                  >
-                    <span className={styles.saleInfoLabel}>Status</span>
-                    <span className={styles.saleInfoValue}>
-                      Already Refunded
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {selectedSale.status !== 'REFUNDED' && (
-                <>
-                  <div className={styles.itemsSection}>
-                    <div className={styles.itemsHeader}>
-                      <span className={styles.itemsTitle}>
-                        Select items to refund
-                      </span>
-                      <button
-                        className={styles.selectAllBtn}
-                        onClick={handleSelectAll}
-                        type="button"
-                      >
-                        {selectedItems.length === selectedSale.items?.length
-                          ? 'Deselect All'
-                          : 'Select All'}
-                      </button>
-                    </div>
-
-                    <div className={styles.itemsList}>
-                      {selectedSale.items?.map((item) => {
-                        const isSelected = selectedItems.includes(item.id);
-                        const itemTotal = parseFloat(item.total || 0);
-
-                        return (
-                          <div
-                            key={item.id}
-                            className={`${styles.itemRow} ${
-                              isSelected ? styles.selected : ''
-                            }`}
-                            onClick={() => handleToggleItem(item.id)}
-                          >
-                            <div className={styles.itemCheck}>
-                              <div
-                                className={`${styles.checkbox} ${
-                                  isSelected ? styles.checked : ''
-                                }`}
-                              >
-                                {isSelected && <Check size={12} />}
-                              </div>
-                            </div>
-                            <div className={styles.itemInfo}>
-                              <span className={styles.itemName}>
-                                {item.product?.name ||
-                                  item.productName ||
-                                  'Unknown'}
-                              </span>
-                              <span className={styles.itemDetails}>
-                                {item.quantity} ×{' '}
-                                {item.unitName || item.unitAbbrev}
-                              </span>
-                            </div>
-                            <span className={styles.itemPrice}>
-                              {formatCurrency(itemTotal)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className={styles.refundMethodSection}>
-                    <label className={styles.methodLabel}>Refund Method</label>
-                    <div className={styles.methodOptions}>
-                      <button
-                        className={`${styles.methodOption} ${
-                          refundMethod === 'ORIGINAL' ? styles.active : ''
-                        }`}
-                        onClick={() => setRefundMethod('ORIGINAL')}
-                        type="button"
-                      >
-                        Original Payment
-                      </button>
-                      <button
-                        className={`${styles.methodOption} ${
-                          refundMethod === 'CASH' ? styles.active : ''
-                        }`}
-                        onClick={() => setRefundMethod('CASH')}
-                        type="button"
-                      >
-                        Cash
-                      </button>
-                      <button
-                        className={`${styles.methodOption} ${
-                          refundMethod === 'MPESA' ? styles.active : ''
-                        }`}
-                        onClick={() => setRefundMethod('MPESA')}
-                        type="button"
-                      >
-                        M-PESA
-                      </button>
-                      <button
-                        className={`${styles.methodOption} ${
-                          refundMethod === 'CARD' ? styles.active : ''
-                        }`}
-                        onClick={() => setRefundMethod('CARD')}
-                        type="button"
-                      >
-                        Card
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className={styles.reasonSection}>
-                    <label className={styles.reasonLabel}>
-                      Reason for Refund (Optional)
-                    </label>
-                    <textarea
-                      className={styles.reasonInput}
-                      placeholder="e.g. Customer changed mind, Damaged product, etc."
-                      value={refundReason}
-                      onChange={(e) => setRefundReason(e.target.value)}
-                      rows={2}
-                    />
-                  </div>
-
-                  {refundError && (
-                    <div className={styles.errorMessage}>
-                      <AlertCircle size={16} />
-                      <span>{refundError}</span>
-                    </div>
-                  )}
-
-                  <div className={styles.summarySection}>
-                    <div className={styles.summaryRow}>
-                      <span>Total Refund Amount</span>
-                      <span className={styles.refundTotal}>
-                        {formatCurrency(
-                          selectedSale.items
-                            ?.filter((item) =>
-                              selectedItems.includes(item.id)
-                            )
-                            .reduce(
-                              (sum, item) =>
-                                sum + parseFloat(item.total || 0),
-                              0
-                            ) || 0
-                        )}
-                      </span>
-                    </div>
-                    {selectedItems.length < selectedSale.items?.length &&
-                      selectedItems.length > 0 && (
-                        <div className={styles.summaryRow}>
-                          <span className={styles.partialNote}>
-                            <AlertCircle size={14} />
-                            Partial refund - only selected items will be
-                            refunded
-                          </span>
-                        </div>
-                      )}
-                  </div>
-                </>
-              )}
-
-              {selectedSale.status === 'REFUNDED' && (
-                <div className={styles.alreadyRefundedMessage}>
-                  <AlertCircle size={24} />
-                  <p>This sale has already been refunded.</p>
-                  <span>
-                    Refunded on {formatDateTime(selectedSale.refundedAt)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className={styles.modalFooter}>
-              <button
-                className={styles.cancelBtn}
-                onClick={() => {
-                  setShowRefundModal(false);
-                  setSelectedSale(null);
-                  setRefundError('');
-                }}
-                disabled={refundProcessing}
-                type="button"
-              >
-                Cancel
-              </button>
-              {selectedSale.status !== 'REFUNDED' && (
-                <button
-                  className={styles.refundBtn}
-                  onClick={handleProcessRefund}
-                  disabled={refundProcessing || selectedItems.length === 0}
-                  type="button"
-                >
-                  {refundProcessing ? (
-                    <>
-                      <span className={styles.spinner} />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw size={16} />
-                      Process Refund
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <RefundModal
+        isOpen={showRefundModal}
+        saleId={selectedSale?.id}
+        onClose={() => {
+          setShowRefundModal(false);
+          setSelectedSale(null);
+        }}
+        onSuccess={handleRefundSuccess}
+      />
 
       {/* Detail Modal */}
       {showDetail && (
@@ -1553,7 +1192,7 @@ const Refunds = () => {
         </div>
       )}
 
-      {/* Receipt Modal — shared with POS/Sales */}
+      {/* Receipt Modal */}
       {showReceipt && (
         <ReceiptModal
           receipt={showReceipt}
