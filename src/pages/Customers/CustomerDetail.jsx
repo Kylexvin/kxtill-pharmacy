@@ -1,6 +1,7 @@
 // src/pages/Customers/CustomerDetail.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import CreditCard from './components/CreditCard';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -579,7 +580,11 @@ const CustomerDetail = () => {
               </div>
             </div>
           </div>
-
+          {/* NEW — Deni card */}
+          <CreditCard
+            customer={customer}
+            onCustomerUpdate={fetchCustomer}
+          />
           <div className={styles.card}>
             <div className={styles.cardHeader}>
               <Receipt size={15} />

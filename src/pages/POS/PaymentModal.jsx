@@ -11,6 +11,7 @@ import {
   Plus,
   Trash2,
   ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 import styles from './PaymentModal.module.css';
 
@@ -19,6 +20,7 @@ const PAYMENT_METHODS = [
   { id: 'CARD', label: 'Card', icon: CreditCard },
   { id: 'MPESA', label: 'M-Pesa', icon: Smartphone },
   { id: 'BANK', label: 'Bank', icon: Landmark },
+  { id: 'CREDIT', label: 'Credit', icon: BookOpen },
 ];
 
 const REFERENCE_HINTS = {
@@ -55,6 +57,19 @@ const PaymentModal = ({
   const busy = submitting || isProcessing;
   const totalNum = Number(total) || 0;
 
+  const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+  const hasCustomer = !!(customer && (customer.id || customer.tempId));
+  const creditAvailable = hasCustomer && isOnline;
+
+  const availableMethods = useMemo(
+    () =>
+      PAYMENT_METHODS.filter((m) => {
+        if (m.id !== 'CREDIT') return true;
+        return creditAvailable;
+      }),
+    [creditAvailable]
+  );
+
   const fmt = (n) => {
     const value = Number(n || 0);
     if (typeof formatCurrency === 'function') return formatCurrency(value);
@@ -69,6 +84,17 @@ const PaymentModal = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // If CREDIT becomes unavailable while selected, force the row back to CASH
+  useEffect(() => {
+    if (!isOpen) return;
+    if (creditAvailable) return;
+    setRows((prev) =>
+      prev.map((r) =>
+        r.method === 'CREDIT' ? { ...r, method: 'CASH', reference: '' } : r
+      )
+    );
+  }, [isOpen, creditAvailable]);
 
   const { remaining, cashTendered, changeDue } = useMemo(() => {
     let paid = 0;
@@ -114,6 +140,18 @@ const PaymentModal = ({
         amount: amt,
         reference: r.reference?.trim() || null,
       });
+    }
+
+    const hasCredit = cleaned.some((p) => p.method === 'CREDIT');
+    if (hasCredit) {
+      if (!hasCustomer) {
+        setError('Attach a customer to use credit');
+        return;
+      }
+      if (!isOnline) {
+        setError('Credit sales require an internet connection');
+        return;
+      }
     }
 
     const paid = cleaned.reduce((s, p) => s + p.amount, 0);
@@ -228,7 +266,7 @@ const PaymentModal = ({
                           }
                           disabled={busy}
                         >
-                          {PAYMENT_METHODS.map((m) => (
+                          {availableMethods.map((m) => (
                             <option key={m.id} value={m.id}>{m.label}</option>
                           ))}
                         </select>
