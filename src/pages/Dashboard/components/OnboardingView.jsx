@@ -18,7 +18,7 @@ const STEP_CONFIG = [
   {
     key: 'storeInfo',
     label: 'Add your shop details',
-    hint: 'Name, phone, tax number',
+    hint: 'Name, phone, address — any one is fine',
     cta: 'Open Settings',
     route: '/settings',
     icon: Store,
@@ -27,8 +27,8 @@ const STEP_CONFIG = [
     key: 'product',
     label: 'Add your first product',
     hint: "We'll help you set the stock too",
-    cta: 'Open Inventory',
-    route: '/inventory',
+    cta: 'Open Global Inventory',
+    route: '/global-inventory',
     icon: Package,
   },
   {
@@ -41,7 +41,13 @@ const STEP_CONFIG = [
   },
 ];
 
-const OnboardingView = ({ state, ownerName, shopName, onNavigate, onDismiss }) => {
+const OnboardingView = ({
+  state,
+  ownerName,
+  shopName,
+  onNavigate,
+  onDismiss,
+}) => {
   const [dismissing, setDismissing] = useState(false);
 
   const steps = state?.steps || {};
@@ -49,8 +55,8 @@ const OnboardingView = ({ state, ownerName, shopName, onNavigate, onDismiss }) =
   const totalCount = state?.totalCount ?? STEP_CONFIG.length;
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
-  // First non-complete step
-  const activeKey = STEP_CONFIG.find((s) => !steps[s.key]?.done)?.key || null;
+  const activeKey =
+    STEP_CONFIG.find((s) => !steps[s.key]?.done)?.key || null;
 
   const handleStep = (step) => {
     if (steps[step.key]?.done) return;
@@ -129,11 +135,7 @@ const OnboardingView = ({ state, ownerName, shopName, onNavigate, onDismiss }) =
                 disabled={done}
               >
                 <div className={styles.onboardingStepMarker}>
-                  {done ? (
-                    <Check size={14} />
-                  ) : (
-                    <Icon size={14} />
-                  )}
+                  {done ? <Check size={14} /> : <Icon size={14} />}
                 </div>
 
                 <div className={styles.onboardingStepBody}>
@@ -155,7 +157,9 @@ const OnboardingView = ({ state, ownerName, shopName, onNavigate, onDismiss }) =
         </div>
 
         <footer className={styles.onboardingFooter}>
-          <span>You can hide this checklist anytime — nothing is lost.</span>
+          <span>
+            You can hide this checklist anytime — nothing is lost.
+          </span>
         </footer>
       </div>
     </div>

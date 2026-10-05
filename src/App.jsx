@@ -303,7 +303,7 @@ function App() {
                       </RequireAuth>
                     }
                   >
-                    <Route index element={<Navigate to="/pos" replace />} />
+                    <Route index element={<Navigate to="/dashboard" replace />} />
 
                     {/* ---------- POS ---------- */}
                     <Route
@@ -448,7 +448,7 @@ function App() {
                   </Route>
 
                   {/* ==================== CATCH-ALL ==================== */}
-                  <Route path="*" element={<Navigate to="/pos" replace />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
                 </ShiftProvider>
               </SettingsProvider>

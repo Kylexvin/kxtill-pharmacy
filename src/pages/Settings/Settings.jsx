@@ -165,30 +165,33 @@ const Settings = () => {
   const setField = (key, value) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
-  const handleSave = async () => {
-    if (saving || !canManage || !isDraftDirty) return;
-    setSaving(true);
-    try {
-      const payload = {
-        ...draft,
-        sessionTimeout: Number(draft.sessionTimeout) || 30,
-        decimalPlaces:  Number(draft.decimalPlaces)  || 2,
-      };
-      await updateSettings(payload);
-      toast.success('Settings saved');
-    } catch (err) {
-      console.error('Failed to save settings:', err);
-      toast.error(
-        err.response?.data?.error ||
-          err.response?.data?.message ||
-          err.message ||
-          'Failed to save settings'
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
+const handleSave = async () => {
+  if (saving || !canManage || !isDraftDirty) return;
+  setSaving(true);
+  try {
+    // Coerce numeric fields — NumberInput can emit '' on clear
+    const payload = {
+      ...draft,
+      sessionTimeout:    Number(draft.sessionTimeout)    || 30,
+      decimalPlaces:     Number(draft.decimalPlaces)     || 2,
+    };
+    await updateSettings(payload);
+    toast.success('Settings saved');
 
+    // Notify listeners (Dashboard onboarding checklist, etc.)
+    window.dispatchEvent(new CustomEvent('kxtill:settings-saved'));
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+    toast.error(
+      err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to save settings'
+    );
+  } finally {
+    setSaving(false);
+  }
+};
   const handleDiscard = () => setDraft(settings ?? {});
 
   const handleResetToDefaults = async () => {

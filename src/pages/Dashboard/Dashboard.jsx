@@ -1,6 +1,6 @@
 // src/pages/Dashboard/Dashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
@@ -42,6 +42,7 @@ const formatFreshness = (iso) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     activeOrganization,
     activeBranch,
@@ -58,41 +59,66 @@ const Dashboard = () => {
 
   // Onboarding
   const [onboardingChecked, setOnboardingChecked] = useState(false);
-  const [onboardingState, setOnboardingState] = useState(false); // false = don't show
+  const [onboardingState, setOnboardingState] = useState(false);
 
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
   const canViewAllBranches = isOwner;
 
-  // ---------- onboarding check (owner-only, once per org) ----------
-  useEffect(() => {
+  // ---------- onboarding fetch ----------
+  const fetchOnboarding = useCallback(async () => {
     if (!orgId || !isOwner) {
       setOnboardingChecked(true);
       setOnboardingState(false);
       return;
     }
+    try {
+      const res = await axios.get(
+        `/organizations/${orgId}/kxtill/onboarding`
+      );
+      const data = res.data;
+      const shouldShow = !data?.isDismissed && !data?.isComplete;
+      setOnboardingState(shouldShow ? data : false);
+    } catch {
+      setOnboardingState(false);
+    } finally {
+      setOnboardingChecked(true);
+    }
+  }, [orgId, isOwner]);
 
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await axios.get(
-          `/organizations/${orgId}/kxtill/onboarding`
-        );
-        if (cancelled) return;
-        const data = res.data;
-        const shouldShow = !data?.isDismissed && !data?.isComplete;
-        setOnboardingState(shouldShow ? data : false);
-      } catch {
-        if (!cancelled) setOnboardingState(false);
-      } finally {
-        if (!cancelled) setOnboardingChecked(true);
-      }
-    })();
+  // Fetch on mount and whenever the org / owner changes
+  useEffect(() => {
+    fetchOnboarding();
+  }, [fetchOnboarding]);
+
+  // Refetch every time the route changes to /dashboard
+  useEffect(() => {
+    fetchOnboarding();
+  }, [location.pathname, fetchOnboarding]);
+
+  // Refetch when the tab regains focus
+  useEffect(() => {
+    const onFocus = () => fetchOnboarding();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [fetchOnboarding]);
+
+  // Refetch on cross-app events
+  useEffect(() => {
+    const refetch = () => fetchOnboarding();
+
+    window.addEventListener('kxtill:settings-saved', refetch);
+    window.addEventListener('kxtill:product-changed', refetch);
+    window.addEventListener('kxtill:sale-created', refetch);
+    window.addEventListener('kxtill:onboarding-changed', refetch);
 
     return () => {
-      cancelled = true;
+      window.removeEventListener('kxtill:settings-saved', refetch);
+      window.removeEventListener('kxtill:product-changed', refetch);
+      window.removeEventListener('kxtill:sale-created', refetch);
+      window.removeEventListener('kxtill:onboarding-changed', refetch);
     };
-  }, [orgId, isOwner]);
+  }, [fetchOnboarding]);
 
   const handleDismissOnboarding = useCallback(async () => {
     if (!orgId) return;
@@ -103,7 +129,6 @@ const Dashboard = () => {
       setOnboardingState(false);
     } catch (err) {
       console.error('Failed to dismiss onboarding:', err);
-      // Even on error, hide locally so the user isn't stuck
       setOnboardingState(false);
     }
   }, [orgId]);
@@ -221,7 +246,7 @@ const Dashboard = () => {
 
   const hasAnyData = !!snapshot;
 
-  // ---------- guards / branches ----------
+  // ---------- guards ----------
   if (!orgId) {
     return (
       <div className={styles.dashboard}>
@@ -234,7 +259,7 @@ const Dashboard = () => {
     );
   }
 
-  if (!onboardingChecked) {
+  if (!onboardingChecked && !onboardingState) {
     return <DashboardSkeleton />;
   }
 
