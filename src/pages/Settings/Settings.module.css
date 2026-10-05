@@ -6,11 +6,10 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 20px 24px 100px;
-  max-width: 1000px;
-  width: 100%;
-  margin: 0 auto;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-primary);
+  min-height: 100%;
   color: var(--text-primary);
   animation: fadeIn 0.2s ease;
 }
@@ -24,42 +23,41 @@
   to { transform: rotate(360deg); }
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
 /* ============================================================
-   HEADER
+   HERO
    ============================================================ */
-.header {
+.hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
-.headerLeft {
+.heroLeft {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
 }
 
-.headerIcon {
+.heroIcon {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: 12px;
-  background: rgba(255, 106, 43, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 106, 43, 0.1);
   color: var(--accent);
   flex-shrink: 0;
 }
 
-.title {
+.heroTitle h1 {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
@@ -67,108 +65,115 @@
   line-height: 1.2;
 }
 
-.subtitle {
-  font-size: 12.5px;
+.heroTitle p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
   color: var(--text-muted);
-  margin: 3px 0 0;
+  margin: 2px 0 0;
 }
 
-.headerRight {
+.heroOrg { color: var(--text-secondary); font-weight: 500; }
+.heroSep { color: var(--text-faint); }
+.heroStat { color: var(--text-muted); }
+
+.heroRight {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-/* Buttons */
-.saveBtn,
-.resetBtn {
+.primaryBtn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 16px;
+  gap: 7px;
+  padding: 0 14px;
+  height: 38px;
+  border: none;
   border-radius: 9px;
-  font-size: 12.5px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border: 1px solid transparent;
-}
-
-.saveBtn {
   background: var(--accent);
   color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+  font-family: inherit;
 }
 
-.saveBtn:hover:not(:disabled) {
-  background: var(--accent-glow, var(--accent));
-  box-shadow: 0 4px 16px rgba(255, 106, 43, 0.25);
-}
+.primaryBtn:hover:not(:disabled) { filter: brightness(1.06); }
+.primaryBtn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-.saveBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.resetBtn {
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
   background: var(--bg-panel);
   color: var(--text-muted);
-  border-color: var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
 }
 
-.resetBtn:hover:not(:disabled) {
+.secondaryBtn:hover:not(:disabled) {
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
-.resetBtn:disabled {
-  opacity: 0.5;
+.secondaryBtn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .spinnerSmall {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+  width: 13px;
+  height: 13px;
   border: 2px solid currentColor;
   border-top-color: transparent;
+  border-radius: 50%;
   animation: spin 0.7s linear infinite;
-  flex-shrink: 0;
 }
 
-/* Readonly banner */
+/* ============================================================
+   READONLY BANNER
+   ============================================================ */
 .readonlyBanner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 14px;
-  background: rgba(255, 204, 0, 0.08);
-  border: 1px solid rgba(255, 204, 0, 0.25);
   border-radius: 10px;
-  color: #ffcc00;
+  background: rgba(255, 159, 10, 0.08);
+  border: 1px solid rgba(255, 159, 10, 0.25);
+  color: #ff9f0a;
   font-size: 12.5px;
-  font-weight: 500;
 }
+
+.readonlyBanner svg { flex-shrink: 0; }
 
 /* ============================================================
    TABS
    ============================================================ */
 .tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.tabs::-webkit-scrollbar {
-  display: none;
-}
+.tabs::-webkit-scrollbar { display: none; }
 
 .tab {
   display: inline-flex;
@@ -176,92 +181,142 @@
   gap: 6px;
   padding: 8px 14px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12.5px;
-  font-weight: 500;
-  font-family: inherit;
+  font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  font-family: inherit;
 }
 
 .tab:hover:not(.tabActive) {
-  background: var(--bg-panel);
   color: var(--text-primary);
+  background: var(--bg-panel);
 }
 
 .tabActive {
-  background: rgba(255, 106, 43, 0.12);
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
-.tabActive svg {
-  color: var(--accent);
-}
+.tabActive svg { color: #fff; }
 
 /* ============================================================
    TAB PANEL
    ============================================================ */
 .tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ============================================================
+   SECTION
+   ============================================================ */
+.section {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 20px;
-  animation: slideUp 0.18s ease;
-}
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  overflow: hidden;
 }
 
 .sectionHeader {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.sectionIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(255, 106, 43, 0.1);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sectionHeaderText {
+  flex: 1;
+  min-width: 0;
 }
 
 .sectionTitle {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0;
+  line-height: 1.25;
 }
 
 .sectionDesc {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  margin: 0;
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+
+.sectionBody {
+  padding: 16px;
 }
 
 /* ============================================================
-   FORM GRID
+   FIELD GRID
    ============================================================ */
-.grid2 {
+.fieldGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px 20px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 16px;
 }
 
-.fieldFull {
+.fieldWide {
   grid-column: 1 / -1;
 }
 
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 16px;
+  padding: 16px;
+}
+
+/* ============================================================
+   FIELD
+   ============================================================ */
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .fieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.fieldLabelIcon {
+  color: var(--text-faint);
 }
 
 .fieldHint {
@@ -271,23 +326,19 @@
   line-height: 1.4;
 }
 
-/* Inputs */
 .input,
 .select {
   width: 100%;
-  padding: 10px 12px;
+  height: 38px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--bg-panel);
   color: var(--text-primary);
   font-size: 13px;
-  font-family: inherit;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.input::placeholder {
-  color: var(--text-faint);
+  font-family: inherit;
 }
 
 .input:focus,
@@ -300,17 +351,10 @@
 .select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background: var(--bg-raised);
 }
 
-.select {
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 34px;
-  color-scheme: dark;
+.input::placeholder {
+  color: var(--text-faint);
 }
 
 /* ============================================================
@@ -319,10 +363,7 @@
 .toggleGroup {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-  background: var(--bg-panel);
-  border-radius: 10px;
+  padding: 8px 16px 16px;
 }
 
 .toggleRow {
@@ -330,13 +371,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  transition: background 0.12s ease;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.toggleRow:hover {
-  background: var(--bg-raised);
+.toggleRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .toggleText {
@@ -344,12 +385,11 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1;
 }
 
 .toggleLabel {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -363,13 +403,14 @@
   position: relative;
   width: 38px;
   height: 22px;
-  border-radius: 999px;
-  border: none;
-  background: var(--border-strong);
-  cursor: pointer;
-  transition: background 0.18s ease;
-  flex-shrink: 0;
   padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
 }
 
 .toggle:disabled {
@@ -379,17 +420,18 @@
 
 .toggleOn {
   background: var(--accent);
+  border-color: var(--accent);
 }
 
 .toggleKnob {
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.18s ease;
+  transition: transform 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
@@ -398,28 +440,26 @@
 }
 
 /* ============================================================
-   DIRTY BAR (sticky footer)
+   DIRTY BAR
    ============================================================ */
 .dirtyBar {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: sticky;
+  bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 10px 12px 10px 18px;
-  background: var(--bg-raised-hi, var(--bg-raised));
-  border: 1px solid var(--border-strong);
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 106, 43, 0.35);
   border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-  z-index: 100;
-  animation: slideUp 0.22s ease;
-  max-width: calc(100% - 32px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  animation: fadeIn 0.2s ease;
+  z-index: 5;
 }
 
 .dirtyText {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
@@ -427,12 +467,11 @@
   color: var(--text-primary);
 }
 
-.dirtyText svg {
-  color: #ff9f0a;
-}
+.dirtyText svg { color: var(--accent); }
 
 .dirtyActions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -443,15 +482,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 64px 24px;
+  padding: 80px 20px;
 }
 
 .loader {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  width: 40px;
+  height: 40px;
   border: 3px solid var(--border);
   border-top-color: var(--accent);
+  border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
@@ -461,13 +500,11 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 56px 24px;
+  padding: 60px 20px;
   text-align: center;
 }
 
-.errorIcon {
-  color: var(--danger, #ef5350);
-}
+.errorIcon { color: var(--danger, #ef5350); }
 
 .errorText {
   font-size: 13.5px;
@@ -489,6 +526,7 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+  font-family: inherit;
 }
 
 .retryBtn:hover {
@@ -502,13 +540,11 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 80px 24px;
+  padding: 80px 20px;
   text-align: center;
 }
 
-.noAccessIcon {
-  color: var(--text-faint);
-}
+.noAccessIcon { color: var(--text-faint); }
 
 .noAccess h2 {
   font-size: 18px;
@@ -524,39 +560,51 @@
 }
 
 .noAccessSub {
-  font-size: 12px !important;
-  color: var(--text-faint) !important;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .page {
-    padding: 16px 14px 100px;
-    gap: 14px;
+    padding: 12px;
+    gap: 12px;
   }
 
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .heroRight { width: 100%; }
+  .primaryBtn,
+  .secondaryBtn { flex: 1; justify-content: center; }
+
+  .fieldGrid,
   .grid2 {
     grid-template-columns: 1fr;
-  }
-
-  .tabPanel {
-    padding: 16px;
   }
 
   .dirtyBar {
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    padding: 12px;
+    bottom: 12px;
   }
 
-  .dirtyActions {
-    width: 100%;
+  .dirtyActions { justify-content: stretch; }
+  .dirtyActions > * { flex: 1; justify-content: center; }
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 8px;
+    gap: 8px;
   }
 
-  .dirtyActions button {
-    flex: 1;
+  .tab {
+    padding: 8px 10px;
+    font-size: 12px;
   }
 }

@@ -39,6 +39,17 @@ function purgeSessionCaches() {
   }
 }
 
+// Routes that MUST have an active branch. "All Branches" is a reporting
+// concept, not an operational one — POS-family pages require a branch.
+const BRANCH_REQUIRED_PREFIXES = ['/pos', '/dashboard', '/inventory'];
+
+function pathRequiresBranch(pathname) {
+  if (!pathname) return false;
+  return BRANCH_REQUIRED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + '/')
+  );
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => safeLocalStorageGet('user', null));
   const [accessToken, setAccessToken] = useState(() => safeLocalStorageGet('accessToken', null));
@@ -232,6 +243,25 @@ export function AuthProvider({ children }) {
     setActiveBranchState(branch);
     localStorage.setItem('activeBranch', JSON.stringify(branch));
   }, [branches, clearOfflineData]);
+
+  // ── BRANCH INVARIANT ──────────────────────────────────────
+  // KxTill POS-family routes require an active branch. If the user lands
+  // on /pos, /dashboard, or /inventory without one (e.g. after an org
+  // switch, a fresh login, or a cached "All Branches" state), fall back
+  // to the first available branch automatically. Never fires on other
+  // routes — Settings, Reports, etc. tolerate a null branch.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeBranch) return;
+    if (!branches || branches.length === 0) return;
+    if (!pathRequiresBranch(window.location.pathname)) return;
+
+    const fallback = branches.find(b => b.isActive !== false) || branches[0];
+    if (!fallback) return;
+
+    setActiveBranchState(fallback);
+    localStorage.setItem('activeBranch', JSON.stringify(fallback));
+  }, [activeBranch, branches]);
 
   // Append a newly created organization to the local list + persist.
   // Called from SelectOrg after POST /organizations succeeds so the list

@@ -3,8 +3,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
-  Wallet, AlertCircle, RefreshCw,
-  PlusCircle, Sliders, ListOrdered,
+  Wallet, RefreshCw, AlertCircle, PlusCircle, Sliders, ListOrdered,
+  Pencil, Check, X,
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { usePermissions } from '../../../contexts/PermissionsContext';
@@ -25,9 +25,16 @@ const CreditCard = ({ customer, onCustomerUpdate }) => {
   const canAdjust = can('kxtill.credit.adjust');
 
   const [balance, setBalance] = useState(null);
+  const [limit, setLimit] = useState(
+    customer?.creditLimit != null ? Number(customer.creditLimit) : null
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  const [editingLimit, setEditingLimit] = useState(false);
+  const [limitDraft, setLimitDraft] = useState('');
+  const [savingLimit, setSavingLimit] = useState(false);
 
   const [showPayment, setShowPayment] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
@@ -82,6 +89,12 @@ const CreditCard = ({ customer, onCustomerUpdate }) => {
     if (orgId && customerId) fetchBalance();
   }, [fetchBalance, orgId, customerId]);
 
+  useEffect(() => {
+    setLimit(
+      customer?.creditLimit != null ? Number(customer.creditLimit) : null
+    );
+  }, [customer?.creditLimit]);
+
   const handlePaymentSuccess = (newBalance) => {
     setBalance(newBalance);
     setShowPayment(false);
@@ -96,51 +109,62 @@ const CreditCard = ({ customer, onCustomerUpdate }) => {
     onCustomerUpdate?.();
   };
 
+  const startEditLimit = () => {
+    setLimitDraft(limit != null ? String(limit) : '');
+    setEditingLimit(true);
+  };
+
+  const cancelEditLimit = () => {
+    setEditingLimit(false);
+    setLimitDraft('');
+  };
+
+  const saveLimit = async () => {
+    if (!orgId || !customerId) return;
+    const trimmed = String(limitDraft || '').trim();
+    const parsed = trimmed === '' ? null : Number(trimmed);
+
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+      toast.error('Limit must be a non-negative number or empty for no limit');
+      return;
+    }
+
+    setSavingLimit(true);
+    try {
+      await axios.patch(
+        `/organizations/${orgId}/kxtill/customers/${customerId}/credit/limit`,
+        { creditLimit: parsed }
+      );
+      setLimit(parsed);
+      setEditingLimit(false);
+      setLimitDraft('');
+      toast.success(parsed === null ? 'Credit limit removed' : 'Credit limit updated');
+      onCustomerUpdate?.();
+    } catch (err) {
+      toast.error(
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        'Failed to save credit limit'
+      );
+    } finally {
+      if (isMountedRef.current) setSavingLimit(false);
+    }
+  };
+
+  const handleLimitKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveLimit();
+    } else if (e.key === 'Escape') {
+      cancelEditLimit();
+    }
+  };
+
   if (!orgId || !customerId) return null;
 
-  if (loading) {
-    return (
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <Wallet size={15} />
-          <span>Deni (Credit)</span>
-        </div>
-        <div className={styles.loadingState}>
-          <RefreshCw size={18} className={styles.spinning} />
-          <span>Loading balance...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <Wallet size={15} />
-          <span>Deni (Credit)</span>
-        </div>
-        <div className={styles.errorState}>
-          <AlertCircle size={20} />
-          <span>{error}</span>
-          <button
-            type="button"
-            className={styles.refreshBtn}
-            onClick={() => fetchBalance(true)}
-            disabled={refreshing}
-          >
-            <RefreshCw size={12} className={refreshing ? styles.spinning : ''} />
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const bal = balance ?? 0;
-  const limit = customer?.creditLimit != null ? Number(customer.creditLimit) : null;
-  const available = limit != null ? Math.max(0, limit - bal) : null;
   const hasCredit = bal > 0;
+  const available = limit != null ? Math.max(0, limit - bal) : null;
 
   return (
     <>
@@ -152,7 +176,7 @@ const CreditCard = ({ customer, onCustomerUpdate }) => {
             type="button"
             className={styles.iconBtn}
             onClick={() => fetchBalance(true)}
-            disabled={refreshing}
+            disabled={refreshing || loading}
             title="Refresh"
           >
             <RefreshCw size={12} className={refreshing ? styles.spinning : ''} />
@@ -160,56 +184,128 @@ const CreditCard = ({ customer, onCustomerUpdate }) => {
         </div>
 
         <div className={styles.cardBody}>
-          <div className={styles.balanceRow}>
-            <div className={styles.balanceLabel}>Outstanding balance</div>
-            <div className={`${styles.balanceValue} ${hasCredit ? styles.balancePositive : styles.balanceZero}`}>
-              {formatCurrency(bal)}
+          {loading ? (
+            <div className={styles.loadingRow}>
+              <RefreshCw size={14} className={styles.spinning} />
+              <span>Loading…</span>
             </div>
-          </div>
+          ) : error ? (
+            <div className={styles.errorRow}>
+              <AlertCircle size={14} />
+              <span>{error}</span>
+            </div>
+          ) : (
+            <>
+              <div className={styles.kvRow}>
+                <span className={styles.kvLabel}>Balance</span>
+                <span
+                  className={`${styles.kvValue} ${
+                    hasCredit ? styles.valueOwed : styles.valueZero
+                  }`}
+                >
+                  {formatCurrency(bal)}
+                </span>
+              </div>
 
-          {limit != null && (
-            <div className={styles.limitRow}>
-              <div className={styles.limitItem}>
-                <span className={styles.limitLabel}>Limit</span>
-                <span className={styles.limitValue}>{formatCurrency(limit)}</span>
+              <div className={styles.kvRow}>
+                <span className={styles.kvLabel}>Limit</span>
+                {editingLimit ? (
+                  <div className={styles.limitEditRow}>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={limitDraft}
+                      onChange={(e) => setLimitDraft(e.target.value)}
+                      onKeyDown={handleLimitKeyDown}
+                      className={styles.limitInput}
+                      placeholder="No limit"
+                      disabled={savingLimit}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className={`${styles.limitActionBtn} ${styles.limitSaveBtn}`}
+                      onClick={saveLimit}
+                      disabled={savingLimit}
+                      title="Save"
+                    >
+                      {savingLimit ? (
+                        <RefreshCw size={12} className={styles.spinning} />
+                      ) : (
+                        <Check size={12} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.limitActionBtn}
+                      onClick={cancelEditLimit}
+                      disabled={savingLimit}
+                      title="Cancel"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.limitDisplayRow}>
+                    <span className={styles.kvValue}>
+                      {limit != null ? formatCurrency(limit) : 'No limit'}
+                    </span>
+                    {canAdjust && (
+                      <button
+                        type="button"
+                        className={styles.pencilBtn}
+                        onClick={startEditLimit}
+                        title="Edit limit"
+                      >
+                        <Pencil size={11} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className={styles.limitItem}>
-                <span className={styles.limitLabel}>Available</span>
-                <span className={styles.limitValue}>{formatCurrency(available)}</span>
+
+              {limit != null && (
+                <div className={styles.kvRow}>
+                  <span className={styles.kvLabel}>Available</span>
+                  <span className={styles.kvValue}>
+                    {formatCurrency(available)}
+                  </span>
+                </div>
+              )}
+
+              <div className={styles.actions}>
+                {hasCredit && (
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    onClick={() => setShowPayment(true)}
+                  >
+                    <PlusCircle size={13} />
+                    Record Payment
+                  </button>
+                )}
+                {canAdjust && (
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => setShowAdjust(true)}
+                  >
+                    <Sliders size={13} />
+                    Adjust
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  onClick={() => setShowLedger(true)}
+                >
+                  <ListOrdered size={13} />
+                  Ledger
+                </button>
               </div>
-            </div>
+            </>
           )}
-
-          <div className={styles.actions}>
-            {hasCredit && (
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={() => setShowPayment(true)}
-              >
-                <PlusCircle size={13} />
-                Record Payment
-              </button>
-            )}
-            {canAdjust && (
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => setShowAdjust(true)}
-              >
-                <Sliders size={13} />
-                Adjust
-              </button>
-            )}
-            <button
-              type="button"
-              className={styles.ghostBtn}
-              onClick={() => setShowLedger(true)}
-            >
-              <ListOrdered size={13} />
-              Ledger
-            </button>
-          </div>
         </div>
       </div>
 

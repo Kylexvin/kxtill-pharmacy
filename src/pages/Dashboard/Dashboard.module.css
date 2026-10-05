@@ -813,3 +813,309 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+/* ============================================================
+   ONBOARDING
+   ============================================================ */
+.onboardingShell {
+  display: flex;
+  justify-content: center;
+  padding: 32px 16px;
+  min-height: 100%;
+}
+
+.onboardingCard {
+  width: 100%;
+  max-width: 620px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  animation: fadeIn 0.25s ease;
+}
+
+.onboardingHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 106, 43, 0.12), transparent 55%),
+    var(--bg-raised);
+}
+
+.onboardingHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.onboardingIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 106, 43, 0.14);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.onboardingTitle {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.onboardingSub {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 3px 0 0;
+}
+
+.onboardingCloseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.onboardingCloseBtn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.onboardingCloseBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.onboardingProgress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 20px;
+}
+
+.onboardingProgressTrack {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-panel);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.onboardingProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    rgba(255, 106, 43, 0.7)
+  );
+  transition: width 0.4s ease;
+}
+
+.onboardingProgressLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboardingSteps {
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 12px;
+}
+
+.onboardingStep {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.onboardingStep + .onboardingStep {
+  margin-top: 4px;
+}
+
+.onboardingStep:hover:not(:disabled) {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+
+.onboardingStep:disabled {
+  cursor: default;
+}
+
+.onboardingStepMarker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.onboardingStepBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.onboardingStepLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.onboardingStepHint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.onboardingStepCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: rgba(255, 106, 43, 0.08);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.onboardingStep:hover:not(:disabled) .onboardingStepCta {
+  background: rgba(255, 106, 43, 0.14);
+}
+
+.onboardingStepDone {
+  opacity: 0.65;
+}
+
+.onboardingStepDone .onboardingStepMarker {
+  background: rgba(52, 199, 89, 0.14);
+  border-color: rgba(52, 199, 89, 0.5);
+  color: #34c759;
+}
+
+.onboardingStepDone .onboardingStepLabel {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
+
+.onboardingStepActive {
+  border-color: rgba(255, 106, 43, 0.35);
+  background: rgba(255, 106, 43, 0.03);
+}
+
+.onboardingStepActive .onboardingStepMarker {
+  border-color: var(--accent);
+  background: rgba(255, 106, 43, 0.12);
+  color: var(--accent);
+}
+
+.onboardingFooter {
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: center;
+  background: var(--bg-panel);
+}
+
+/* ============================================================
+   SKELETON
+   ============================================================ */
+.skeleton {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--bg-panel) 25%,
+    var(--bg-raised) 37%,
+    var(--bg-panel) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.skeletonStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.skeletonStatCard {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.skeletonChartCard {
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.skeletonCountersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--bg-panel); }
+}
+
+@media (max-width: 640px) {
+  .onboardingShell { padding: 16px 12px; }
+  .onboardingHeader { padding: 20px 18px 14px; }
+  .onboardingProgress { padding: 0 18px 16px; }
+  .onboardingStepCta span { display: none; }
+}

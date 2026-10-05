@@ -1104,8 +1104,10 @@ const GlobalInventory = () => {
         isOpen={showDetailModal}
         onClose={closeDetailModal}
         product={selectedProduct}
+        currency={activeOrganization?.currency || 'KES'}
         formatCurrency={formatCurrency}
         mode="global"
+        orgId={orgId}
         onEdit={
           canUpdate
             ? () => {
@@ -1114,6 +1116,7 @@ const GlobalInventory = () => {
               }
             : undefined
         }
+        onBarcodeGenerated={fetchProducts}
       />
 
       {/* Stock modal — opened right after a new product is created */}

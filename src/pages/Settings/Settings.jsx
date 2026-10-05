@@ -3,32 +3,36 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import BranchesTab from './tabs/BranchesTab';
 import toast from 'react-hot-toast';
 import {
   Settings as SettingsIcon,
   Store,
   Receipt,
-  Bell,
-  Shield,
+  Sliders,
   Building2,
   Save,
   RefreshCw,
   AlertCircle,
   Check,
   Lock,
+  Phone,
+  Mail,
+  MapPin,
+  FileText,
+  ShoppingBag,
 } from 'lucide-react';
 import styles from './Settings.module.css';
 
 // ============================================================
-// TABS
+// TABS — Notifications & Security removed (all dummy fields)
+// Branch + Branches merged into one
 // ============================================================
 const TABS = [
-  { id: 'store',         label: 'Store Info',    icon: Store },
-  { id: 'receipt',       label: 'Receipt',       icon: Receipt },
-  { id: 'general',       label: 'General',       icon: SettingsIcon },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'security',      label: 'Security',      icon: Shield },
-  { id: 'branch',        label: 'Branch',        icon: Building2 },
+  { id: 'store',    label: 'Store Info', icon: Store },
+  { id: 'receipt',  label: 'Receipt',    icon: Receipt },
+  { id: 'general',  label: 'General',    icon: Sliders },
+  { id: 'branches', label: 'Branches',   icon: Building2 },
 ];
 
 const CURRENCIES = ['KES', 'USD', 'EUR', 'GBP', 'UGX', 'TZS'];
@@ -51,24 +55,24 @@ const RECEIPT_TEMPLATES = [
   { value: 'minimal', label: 'Minimal' },
 ];
 
-// Keys the user can edit — used for dirty detection.
-// Must mirror the backend KxTillStoreSetting model fields.
+// Editable keys — matches backend allow-list exactly.
 const EDITABLE_KEYS = [
   'shopName', 'shopPhone', 'shopEmail', 'shopAddress', 'taxNumber',
   'receiptHeader', 'receiptFooter', 'receiptTemplate',
   'showTax', 'showCustomer', 'showCashier',
   'currency', 'timezone', 'decimalPlaces', 'defaultPaymentMethod',
-  'lowStockAlerts', 'dailySalesReport', 'weeklySummary', 'refundNotifications',
-  'sessionTimeout', 'requirePinForRefund', 
   'allowBranchSwitch',
 ];
 
 // ============================================================
 // REUSABLE FIELDS
 // ============================================================
-const Field = ({ label, hint, children }) => (
+const Field = ({ label, hint, icon: Icon, children }) => (
   <div className={styles.field}>
-    <label className={styles.fieldLabel}>{label}</label>
+    <label className={styles.fieldLabel}>
+      {Icon && <Icon size={12} className={styles.fieldLabelIcon} />}
+      <span>{label}</span>
+    </label>
     {children}
     {hint && <p className={styles.fieldHint}>{hint}</p>}
   </div>
@@ -85,19 +89,7 @@ const TextInput = ({ value, onChange, placeholder, type = 'text', disabled }) =>
   />
 );
 
-const NumberInput = ({ value, onChange, min, max, disabled }) => (
-  <input
-    type="number"
-    className={styles.input}
-    value={value ?? ''}
-    onChange={(e) =>
-      onChange(e.target.value === '' ? '' : Number(e.target.value))
-    }
-    min={min}
-    max={max}
-    disabled={disabled}
-  />
-);
+
 
 const Select = ({ value, onChange, options, disabled }) => (
   <select
@@ -153,38 +145,34 @@ const Settings = () => {
   } = useSettings();
 
   const canView   = isOwner || can('kxtill.settings.view');
-  const canManage = isOwner; // backend restricts updates to owner
+  const canManage = isOwner;
   const readonly  = !canManage;
 
   const [activeTab, setActiveTab] = useState('store');
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState(settings ?? {});
 
-  // Keep draft in sync when context settings change (initial load, reset, switch org)
   useEffect(() => {
     setDraft(settings ?? {});
   }, [settings]);
 
-  // Track dirty state locally — only over editable keys
   const isDraftDirty = useMemo(() => {
     if (!draft || !settings) return false;
     return EDITABLE_KEYS.some((k) => draft[k] !== settings[k]);
   }, [draft, settings]);
 
   // ---------- handlers ----------
-  const setField = (key, value) => {
+  const setField = (key, value) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
-  };
 
   const handleSave = async () => {
     if (saving || !canManage || !isDraftDirty) return;
     setSaving(true);
     try {
-      // Coerce numeric fields — NumberInput can emit '' on clear
       const payload = {
         ...draft,
-        sessionTimeout:    Number(draft.sessionTimeout)    || 30,        
-        decimalPlaces:     Number(draft.decimalPlaces)     || 2,
+        sessionTimeout: Number(draft.sessionTimeout) || 30,
+        decimalPlaces:  Number(draft.decimalPlaces)  || 2,
       };
       await updateSettings(payload);
       toast.success('Settings saved');
@@ -201,23 +189,14 @@ const Settings = () => {
     }
   };
 
-  const handleDiscard = () => {
-    setDraft(settings ?? {});
-  };
-
-  const handleRefresh = async () => {
-    try {
-      const fresh = await fetchSettings(true);
-      // If context returns the data, use it; otherwise the useEffect syncs draft
-      if (fresh) setDraft(fresh);
-      toast.success('Refreshed');
-    } catch {
-      toast.error('Failed to refresh');
-    }
-  };
+  const handleDiscard = () => setDraft(settings ?? {});
 
   const handleResetToDefaults = async () => {
-    if (!window.confirm('Reset all settings to defaults? You will still need to save.')) {
+    if (
+      !window.confirm(
+        'Reset all settings to defaults? You will still need to save.'
+      )
+    ) {
       return;
     }
     const defaults = await resetSettings();
@@ -232,7 +211,7 @@ const Settings = () => {
     return (
       <div className={styles.page}>
         <div className={styles.noAccess}>
-          <Shield size={48} className={styles.noAccessIcon} />
+          <SettingsIcon size={48} className={styles.noAccessIcon} />
           <h2>Access Denied</h2>
           <p>You don't have permission to view KxTill settings.</p>
           <p className={styles.noAccessSub}>
@@ -270,7 +249,10 @@ const Settings = () => {
         <div className={styles.errorState}>
           <AlertCircle size={32} className={styles.errorIcon} />
           <p className={styles.errorText}>{error}</p>
-          <button className={styles.retryBtn} onClick={() => fetchSettings(true)}>
+          <button
+            className={styles.retryBtn}
+            onClick={() => fetchSettings(true)}
+          >
             <RefreshCw size={16} />
             Retry
           </button>
@@ -279,7 +261,6 @@ const Settings = () => {
     );
   }
 
-  // Safety net: still no settings after guards (e.g. empty response)
   if (!settings) {
     return (
       <div className={styles.page}>
@@ -295,47 +276,47 @@ const Settings = () => {
   // ============================================================
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <div className={styles.headerIcon}>
-            <SettingsIcon size={20} />
+      {/* ---------- HERO ---------- */}
+      <div className={styles.hero}>
+        <div className={styles.heroLeft}>
+          <div className={styles.heroIcon}>
+            <SettingsIcon size={22} />
           </div>
-          <div>
-            <h1 className={styles.title}>Settings</h1>
-            <p className={styles.subtitle}>
-              KxTill preferences for {activeOrganization?.name}
+          <div className={styles.heroTitle}>
+            <h1>Settings</h1>
+            <p>
+              <span className={styles.heroOrg}>
+                {activeOrganization?.name}
+              </span>
+              <span className={styles.heroSep}>·</span>
+              <span className={styles.heroStat}>KxTill preferences</span>
             </p>
           </div>
         </div>
-        <div className={styles.headerRight}>
+
+        <div className={styles.heroRight}>
           <button
             type="button"
-            className={styles.resetBtn}
-            onClick={handleRefresh}
-            disabled={saving}
-            title="Re-fetch from server"
-          >
-            <RefreshCw size={14} />
-          </button>
-          <button
-            type="button"
-            className={styles.resetBtn}
+            className={styles.secondaryBtn}
             onClick={handleResetToDefaults}
             disabled={saving || readonly}
-            title="Reset to defaults (must save)"
+            title="Reset all settings to defaults"
           >
             Defaults
           </button>
           <button
             type="button"
-            className={styles.saveBtn}
+            className={styles.primaryBtn}
             onClick={handleSave}
             disabled={saving || !isDraftDirty || readonly}
             title={readonly ? 'Only the owner can save settings' : ''}
           >
-            {saving ? <span className={styles.spinnerSmall} /> : <Save size={14} />}
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? (
+              <span className={styles.spinnerSmall} />
+            ) : (
+              <Save size={14} />
+            )}
+            <span>{saving ? 'Saving…' : 'Save Changes'}</span>
           </button>
         </div>
       </div>
@@ -350,7 +331,7 @@ const Settings = () => {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ---------- TABS ---------- */}
       <div className={styles.tabs}>
         {TABS.map((tab) => {
           const Icon = tab.icon;
@@ -364,71 +345,131 @@ const Settings = () => {
               onClick={() => setActiveTab(tab.id)}
             >
               <Icon size={14} />
-              {tab.label}
+              <span>{tab.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Panels */}
+      {/* ---------- PANELS ---------- */}
       <div className={styles.tabPanel}>
+        {/* ============ STORE INFO (redesigned) ============ */}
         {activeTab === 'store' && (
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Store Information</h2>
-              <p className={styles.sectionDesc}>
-                Appears on receipts, reports, and customer emails.
-              </p>
-            </div>
+          <div className={styles.panels}>
+            {/* Identity section */}
+            <section className={styles.section}>
+              <header className={styles.sectionHeader}>
+                <div className={styles.sectionIcon}>
+                  <ShoppingBag size={16} />
+                </div>
+                <div className={styles.sectionHeaderText}>
+                  <h2 className={styles.sectionTitle}>Identity</h2>
+                  <p className={styles.sectionDesc}>
+                    The name and contact details customers will see.
+                  </p>
+                </div>
+              </header>
 
-            <div className={styles.grid2}>
-              <Field label="Shop Name">
-                <TextInput
-                  value={draft.shopName}
-                  onChange={(v) => setField('shopName', v)}
-                  placeholder="e.g. Vi-Mini-Mart"
-                  disabled={readonly}
-                />
-              </Field>
-              <Field label="Phone">
-                <TextInput
-                  value={draft.shopPhone}
-                  onChange={(v) => setField('shopPhone', v)}
-                  placeholder="e.g. 0712345678"
-                  disabled={readonly}
-                />
-              </Field>
-              <Field label="Email">
-                <TextInput
-                  type="email"
-                  value={draft.shopEmail}
-                  onChange={(v) => setField('shopEmail', v)}
-                  placeholder="e.g. info@shop.co.ke"
-                  disabled={readonly}
-                />
-              </Field>
-              <Field label="Tax Number (KRA PIN)">
-                <TextInput
-                  value={draft.taxNumber}
-                  onChange={(v) => setField('taxNumber', v)}
-                  placeholder="e.g. P0012345678"
-                  disabled={readonly}
-                />
-              </Field>
-              <div className={styles.fieldFull}>
-                <Field label="Address">
-                  <TextInput
-                    value={draft.shopAddress}
-                    onChange={(v) => setField('shopAddress', v)}
-                    placeholder="e.g. Nairobi, Kenya"
-                    disabled={readonly}
-                  />
-                </Field>
+              <div className={styles.sectionBody}>
+                <div className={styles.fieldGrid}>
+                  <div className={styles.fieldWide}>
+                    <Field label="Shop Name" icon={Store}>
+                      <TextInput
+                        value={draft.shopName}
+                        onChange={(v) => setField('shopName', v)}
+                        placeholder="e.g. Vi-Mini-Mart"
+                        disabled={readonly}
+                      />
+                    </Field>
+                  </div>
+                </div>
               </div>
-            </div>
+            </section>
+
+            {/* Contact section */}
+            <section className={styles.section}>
+              <header className={styles.sectionHeader}>
+                <div className={styles.sectionIcon}>
+                  <Phone size={16} />
+                </div>
+                <div className={styles.sectionHeaderText}>
+                  <h2 className={styles.sectionTitle}>Contact</h2>
+                  <p className={styles.sectionDesc}>
+                    How customers reach you. Shown on receipts.
+                  </p>
+                </div>
+              </header>
+
+              <div className={styles.sectionBody}>
+                <div className={styles.fieldGrid}>
+                  <Field label="Phone" icon={Phone}>
+                    <TextInput
+                      value={draft.shopPhone}
+                      onChange={(v) => setField('shopPhone', v)}
+                      placeholder="e.g. 0712345678"
+                      disabled={readonly}
+                    />
+                  </Field>
+                  <Field label="Email" icon={Mail}>
+                    <TextInput
+                      type="email"
+                      value={draft.shopEmail}
+                      onChange={(v) => setField('shopEmail', v)}
+                      placeholder="e.g. info@shop.co.ke"
+                      disabled={readonly}
+                    />
+                  </Field>
+                  <div className={styles.fieldWide}>
+                    <Field label="Address" icon={MapPin}>
+                      <TextInput
+                        value={draft.shopAddress}
+                        onChange={(v) => setField('shopAddress', v)}
+                        placeholder="e.g. Nairobi, Kenya"
+                        disabled={readonly}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Compliance section */}
+            <section className={styles.section}>
+              <header className={styles.sectionHeader}>
+                <div className={styles.sectionIcon}>
+                  <FileText size={16} />
+                </div>
+                <div className={styles.sectionHeaderText}>
+                  <h2 className={styles.sectionTitle}>Compliance</h2>
+                  <p className={styles.sectionDesc}>
+                    Tax and regulatory identifiers.
+                  </p>
+                </div>
+              </header>
+
+              <div className={styles.sectionBody}>
+                <div className={styles.fieldGrid}>
+                  <div className={styles.fieldWide}>
+                    <Field
+                      label="Tax Number (KRA PIN)"
+                      icon={FileText}
+                      hint="Printed on receipts where required by law."
+                    >
+                      <TextInput
+                        value={draft.taxNumber}
+                        onChange={(v) => setField('taxNumber', v)}
+                        placeholder="e.g. P0012345678"
+                        disabled={readonly}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
+        {/* ============ RECEIPT (next turn) ============ */}
         {activeTab === 'receipt' && (
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -455,10 +496,7 @@ const Settings = () => {
                   disabled={readonly}
                 />
               </Field>
-              <Field
-                label="Template"
-                hint="Visual style of the printed receipt"
-              >
+              <Field label="Template" hint="Visual style of the printed receipt">
                 <Select
                   value={draft.receiptTemplate ?? 'classic'}
                   onChange={(v) => setField('receiptTemplate', v)}
@@ -494,6 +532,7 @@ const Settings = () => {
           </div>
         )}
 
+        {/* ============ GENERAL (next turn) ============ */}
         {activeTab === 'general' && (
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -544,104 +583,32 @@ const Settings = () => {
           </div>
         )}
 
-        {activeTab === 'notifications' && (
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Notifications</h2>
-              <p className={styles.sectionDesc}>
-                Choose which alerts you want to receive.
-              </p>
+        {/* ============ BRANCHES (merged, next turn) ============ */}
+        {activeTab === 'branches' && (
+          <>
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>Branch Behavior</h2>
+                <p className={styles.sectionDesc}>
+                  How users interact with branches.
+                </p>
+              </div>
+              <div className={styles.toggleGroup}>
+                <Toggle
+                  label="Allow Branch Switching"
+                  hint="Let users switch the active branch from the top bar"
+                  checked={!!draft.allowBranchSwitch}
+                  onChange={(v) => setField('allowBranchSwitch', v)}
+                  disabled={readonly}
+                />
+              </div>
             </div>
-
-            <div className={styles.toggleGroup}>
-              <Toggle
-                label="Low Stock Alerts"
-                hint="Notify when products fall below minimum stock"
-                checked={!!draft.lowStockAlerts}
-                onChange={(v) => setField('lowStockAlerts', v)}
-                disabled={readonly}
-              />
-              <Toggle
-                label="Daily Sales Report"
-                hint="End-of-day sales summary"
-                checked={!!draft.dailySalesReport}
-                onChange={(v) => setField('dailySalesReport', v)}
-                disabled={readonly}
-              />
-              <Toggle
-                label="Weekly Summary"
-                hint="Weekly performance overview"
-                checked={!!draft.weeklySummary}
-                onChange={(v) => setField('weeklySummary', v)}
-                disabled={readonly}
-              />
-              <Toggle
-                label="Refund Notifications"
-                hint="Alert when a refund is processed"
-                checked={!!draft.refundNotifications}
-                onChange={(v) => setField('refundNotifications', v)}
-                disabled={readonly}
-              />
-            </div>
-          </div>
-        )}
-
-{activeTab === 'security' && (
-  <div className={styles.section}>
-    <div className={styles.sectionHeader}>
-      <h2 className={styles.sectionTitle}>Security</h2>
-      <p className={styles.sectionDesc}>
-        Session and PIN controls for KxTill.
-      </p>
-    </div>
-
-    <div className={styles.grid2}>
-      <Field label="Session Timeout" hint="Auto-logout after inactivity (minutes)">
-        <NumberInput
-          value={draft.sessionTimeout}
-          onChange={(v) => setField('sessionTimeout', v)}
-          min={5}
-          max={480}
-          disabled={readonly}
-        />
-      </Field>
-    </div>
-
-    <div className={styles.toggleGroup}>
-      <Toggle
-        label="Require PIN for Refunds"
-        hint="Cashier must enter PIN before processing a refund"
-        checked={!!draft.requirePinForRefund}
-        onChange={(v) => setField('requirePinForRefund', v)}
-        disabled={readonly}
-      />
-    </div>
-  </div>
-)}
-
-        {activeTab === 'branch' && (
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Branch</h2>
-              <p className={styles.sectionDesc}>
-                How users interact with branches.
-              </p>
-            </div>
-
-            <div className={styles.toggleGroup}>
-              <Toggle
-                label="Allow Branch Switching"
-                hint="Let users switch the active branch from the UI"
-                checked={!!draft.allowBranchSwitch}
-                onChange={(v) => setField('allowBranchSwitch', v)}
-                disabled={readonly}
-              />
-            </div>
-          </div>
+            <BranchesTab />
+          </>
         )}
       </div>
 
-      {/* Sticky dirty bar */}
+      {/* ---------- STICKY DIRTY BAR ---------- */}
       {isDraftDirty && (
         <div className={styles.dirtyBar}>
           <div className={styles.dirtyText}>
@@ -651,7 +618,7 @@ const Settings = () => {
           <div className={styles.dirtyActions}>
             <button
               type="button"
-              className={styles.resetBtn}
+              className={styles.secondaryBtn}
               onClick={handleDiscard}
               disabled={saving}
             >
@@ -659,12 +626,16 @@ const Settings = () => {
             </button>
             <button
               type="button"
-              className={styles.saveBtn}
+              className={styles.primaryBtn}
               onClick={handleSave}
               disabled={saving || readonly}
             >
-              {saving ? <span className={styles.spinnerSmall} /> : <Check size={14} />}
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? (
+                <span className={styles.spinnerSmall} />
+              ) : (
+                <Check size={14} />
+              )}
+              <span>{saving ? 'Saving…' : 'Save Changes'}</span>
             </button>
           </div>
         </div>

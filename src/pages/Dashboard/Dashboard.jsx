@@ -1,6 +1,7 @@
 // src/pages/Dashboard/Dashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -18,6 +19,8 @@ import { readDashboardSnapshotWithDelta } from '../../db/sqlite/dashboardCache.j
 import { sync } from '../../sync/engine';
 import StatsGrid from './components/StatsGrid';
 import CountersGrid from './components/CountersGrid';
+import OnboardingView from './components/OnboardingView';
+import DashboardSkeleton from './components/DashboardSkeleton';
 
 const PERIODS = ['today', 'week', 'month'];
 
@@ -53,9 +56,57 @@ const Dashboard = () => {
   const [pendingCount, setPendingCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Onboarding
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [onboardingState, setOnboardingState] = useState(false); // false = don't show
+
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
   const canViewAllBranches = isOwner;
+
+  // ---------- onboarding check (owner-only, once per org) ----------
+  useEffect(() => {
+    if (!orgId || !isOwner) {
+      setOnboardingChecked(true);
+      setOnboardingState(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get(
+          `/organizations/${orgId}/kxtill/onboarding`
+        );
+        if (cancelled) return;
+        const data = res.data;
+        const shouldShow = !data?.isDismissed && !data?.isComplete;
+        setOnboardingState(shouldShow ? data : false);
+      } catch {
+        if (!cancelled) setOnboardingState(false);
+      } finally {
+        if (!cancelled) setOnboardingChecked(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, isOwner]);
+
+  const handleDismissOnboarding = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      await axios.post(
+        `/organizations/${orgId}/kxtill/onboarding/dismiss`
+      );
+      setOnboardingState(false);
+    } catch (err) {
+      console.error('Failed to dismiss onboarding:', err);
+      // Even on error, hide locally so the user isn't stuck
+      setOnboardingState(false);
+    }
+  }, [orgId]);
 
   // ---------- read from cache ----------
   const readCache = useCallback(() => {
@@ -81,7 +132,6 @@ const Dashboard = () => {
     readCache();
   }, [readCache]);
 
-  // Re-read whenever a sync finishes (engine pulls fresh snapshot)
   useEffect(() => {
     const handler = () => readCache();
     window.addEventListener('kxtill:sync-complete', handler);
@@ -102,8 +152,6 @@ const Dashboard = () => {
   }, [branchId, isRefreshing, readCache]);
 
   const handleBranchViewAll = useCallback(() => {
-    // All-branch aggregate lives in the suite, not on the POS.
-    // Kept as a UX affordance: if you want to wire a link later, do it here.
     navigate('/reports');
   }, [navigate]);
 
@@ -135,7 +183,8 @@ const Dashboard = () => {
 
   const chartData = useMemo(() => {
     if (!snapshot) return [];
-    const trend = period === 'today' ? snapshot.todayTrend : snapshot.salesTrend;
+    const trend =
+      period === 'today' ? snapshot.todayTrend : snapshot.salesTrend;
     if (!trend?.labels || !trend?.values) return [];
     return trend.labels.map((label, i) => ({
       name: label,
@@ -172,6 +221,7 @@ const Dashboard = () => {
 
   const hasAnyData = !!snapshot;
 
+  // ---------- guards / branches ----------
   if (!orgId) {
     return (
       <div className={styles.dashboard}>
@@ -184,22 +234,51 @@ const Dashboard = () => {
     );
   }
 
+  if (!onboardingChecked) {
+    return <DashboardSkeleton />;
+  }
+
+  if (onboardingState) {
+    return (
+      <OnboardingView
+        state={onboardingState}
+        ownerName={null}
+        shopName={activeOrganization?.name}
+        onNavigate={navigate}
+        onDismiss={handleDismissOnboarding}
+      />
+    );
+  }
+
+  // ---------- main dashboard ----------
   return (
     <div className={styles.dashboard}>
       <div className={styles.quickActions}>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/pos')}>
+        <button
+          className={styles.quickActionBtn}
+          onClick={() => navigate('/pos')}
+        >
           <Plus size={18} />
           New Sale
         </button>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/inventory')}>
+        <button
+          className={styles.quickActionBtn}
+          onClick={() => navigate('/inventory')}
+        >
           <PackageIcon size={18} />
           Add Product
         </button>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/inventory')}>
+        <button
+          className={styles.quickActionBtn}
+          onClick={() => navigate('/inventory')}
+        >
           <FileText size={18} />
           Stock Adjustment
         </button>
-        <button className={styles.quickActionBtn} onClick={() => navigate('/reports')}>
+        <button
+          className={styles.quickActionBtn}
+          onClick={() => navigate('/reports')}
+        >
           <BarChart3 size={18} />
           View Reports
         </button>
@@ -219,11 +298,17 @@ const Dashboard = () => {
               type="button"
               className={styles.branchSelector}
               onClick={handleBranchViewAll}
-              title="All-branch reports are available in the suite"
-              style={{ cursor: 'pointer', border: 'none', background: 'transparent' }}
+              title="All-branch reports are available in Reports"
+              style={{
+                cursor: 'pointer',
+                border: 'none',
+                background: 'transparent',
+              }}
             >
               <Building2 size={14} />
-              <span style={{ marginLeft: 6, fontSize: 12 }}>All branches →</span>
+              <span style={{ marginLeft: 6, fontSize: 12 }}>
+                All branches →
+              </span>
             </button>
           )}
 
@@ -238,7 +323,9 @@ const Dashboard = () => {
             {PERIODS.map((p) => (
               <button
                 key={p}
-                className={`${styles.periodBtn} ${period === p ? styles.active : ''}`}
+                className={`${styles.periodBtn} ${
+                  period === p ? styles.active : ''
+                }`}
                 onClick={() => setPeriod(p)}
               >
                 {p === 'today' ? 'Today' : p === 'week' ? 'Week' : 'Month'}
@@ -251,7 +338,10 @@ const Dashboard = () => {
             onClick={handleRefresh}
             disabled={isRefreshing || showOffline}
           >
-            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
             {isRefreshing ? '...' : 'Refresh'}
           </button>
         </div>
@@ -261,7 +351,13 @@ const Dashboard = () => {
         <div className={styles.emptyState} style={{ padding: '60px 24px' }}>
           <BarChart3 size={48} />
           <h3>No dashboard data yet</h3>
-          <p style={{ maxWidth: 380, margin: '8px auto 0', lineHeight: 1.5 }}>
+          <p
+            style={{
+              maxWidth: 380,
+              margin: '8px auto 0',
+              lineHeight: 1.5,
+            }}
+          >
             {showOffline
               ? 'Reconnect to load your branch summary.'
               : 'Hit Refresh to pull the latest numbers for this branch.'}
@@ -303,9 +399,23 @@ const Dashboard = () => {
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={chartData}>
                     <defs>
-                      <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#FF6B2B" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#FF6B2B" stopOpacity={0} />
+                      <linearGradient
+                        id="salesGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor="#FF6B2B"
+                          stopOpacity={0.3}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor="#FF6B2B"
+                          stopOpacity={0}
+                        />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
@@ -313,7 +423,11 @@ const Dashboard = () => {
                       dataKey="name"
                       stroke="#6b7280"
                       fontSize={11}
-                      interval={period === 'today' ? Math.floor(chartData.length / 8) : 0}
+                      interval={
+                        period === 'today'
+                          ? Math.floor(chartData.length / 8)
+                          : 0
+                      }
                     />
                     <YAxis
                       stroke="#6b7280"
@@ -324,7 +438,9 @@ const Dashboard = () => {
                       content={({ active, payload, label }) =>
                         active && payload && payload.length ? (
                           <div className={styles.customTooltip}>
-                            <p className={styles.customTooltipLabel}>{label}</p>
+                            <p className={styles.customTooltipLabel}>
+                              {label}
+                            </p>
                             <p className={styles.customTooltipValue}>
                               {formatCurrency(payload[0].value)}
                             </p>
@@ -345,7 +461,11 @@ const Dashboard = () => {
               ) : (
                 <div className={styles.chartEmpty}>
                   <BarChart3 size={32} />
-                  <p>{showOffline ? 'Chart not available offline' : 'No sales in this period'}</p>
+                  <p>
+                    {showOffline
+                      ? 'Chart not available offline'
+                      : 'No sales in this period'}
+                  </p>
                   <span>
                     {showOffline
                       ? 'Reconnect to load the trend'
@@ -381,7 +501,9 @@ const Dashboard = () => {
                       className={styles.productItem}
                     >
                       <div className={styles.productRank}>{index + 1}</div>
-                      <span className={styles.productName}>{product.name}</span>
+                      <span className={styles.productName}>
+                        {product.name}
+                      </span>
                       <span className={styles.productTotal}>
                         {formatCurrency(product.total)}
                       </span>
@@ -401,7 +523,8 @@ const Dashboard = () => {
                 padding: '8px 4px 0',
               }}
             >
-              + {pendingCount} local sale{pendingCount > 1 ? 's' : ''} not yet synced
+              + {pendingCount} local sale{pendingCount > 1 ? 's' : ''} not yet
+              synced
             </div>
           )}
 

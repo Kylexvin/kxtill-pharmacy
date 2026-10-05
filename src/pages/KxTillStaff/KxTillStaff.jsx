@@ -59,6 +59,132 @@ const StatusBadge = ({ isActive }) => (
 );
 
 // ============================================================
+// SKELETON
+// ============================================================
+
+const SkeletonBar = ({ w = '100%', h = 12, radius = 6, style }) => (
+  <span
+    className={styles.skeleton}
+    style={{ width: w, height: h, borderRadius: radius, ...style }}
+  />
+);
+
+const SkeletonStatCard = () => (
+  <div className={styles.statCard}>
+    <SkeletonBar w="40%" h={22} />
+    <SkeletonBar w="60%" h={10} style={{ marginTop: 6 }} />
+  </div>
+);
+
+const SkeletonRow = () => (
+  <div className={styles.tableRow}>
+    {/* Staff */}
+    <div className={styles.staffCell}>
+      <div className={styles.skeletonAvatar} />
+      <div
+        className={styles.staffMeta}
+        style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+      >
+        <SkeletonBar w="55%" h={12} />
+        <SkeletonBar w="75%" h={10} />
+        <SkeletonBar w="40%" h={9} />
+      </div>
+    </div>
+
+    {/* Role */}
+    <div className={styles.roleCell}>
+      <SkeletonBar w={70} h={20} radius={8} />
+    </div>
+
+    {/* Branches */}
+    <div className={styles.branchesCell}>
+      <SkeletonBar w={54} h={18} radius={6} />
+      <SkeletonBar w={40} h={18} radius={6} style={{ marginLeft: 4 }} />
+    </div>
+
+    {/* Permissions */}
+    <div className={styles.permissionsCell}>
+      <SkeletonBar w={46} h={16} radius={6} />
+      <SkeletonBar w={52} h={16} radius={6} />
+      <SkeletonBar w={44} h={16} radius={6} />
+    </div>
+
+    {/* Status */}
+    <div className={styles.statusCell}>
+      <SkeletonBar w={72} h={20} radius={12} />
+    </div>
+
+    {/* Actions */}
+    <div className={styles.actionsCell}>
+      <SkeletonBar w={28} h={28} radius={6} />
+      <SkeletonBar w={28} h={28} radius={6} />
+      <SkeletonBar w={28} h={28} radius={6} />
+      <SkeletonBar w={28} h={28} radius={6} />
+    </div>
+  </div>
+);
+
+const StaffSkeleton = ({ rows = 6 }) => (
+  <div className={styles.page}>
+    {/* Header */}
+    <div className={styles.header}>
+      <div className={styles.headerLeft}>
+        <div className={styles.skeletonAvatarSquare} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkeletonBar w={140} h={16} />
+          <SkeletonBar w={220} h={11} />
+        </div>
+      </div>
+      <div className={styles.headerRight}>
+        <SkeletonBar w={96} h={34} radius={8} />
+        <SkeletonBar w={130} h={34} radius={8} />
+      </div>
+    </div>
+
+    {/* Stats */}
+    <div className={styles.statsGrid}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <SkeletonStatCard key={i} />
+      ))}
+    </div>
+
+    {/* Search */}
+    <div className={styles.filtersBar}>
+      <div className={styles.searchWrap}>
+        <span
+          className={styles.skeletonCircle}
+          style={{ width: 16, height: 16 }}
+        />
+        <SkeletonBar w="40%" h={12} />
+      </div>
+    </div>
+
+    {/* Table */}
+    <div className={styles.tableCard}>
+      <div className={styles.tableHeaders}>
+        <SkeletonBar w={60} h={10} />
+        <SkeletonBar w={40} h={10} />
+        <SkeletonBar w={60} h={10} />
+        <SkeletonBar w={80} h={10} />
+        <SkeletonBar w={50} h={10} />
+        <span />
+      </div>
+      <div className={styles.tableBody}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <SkeletonRow key={i} />
+        ))}
+      </div>
+    </div>
+
+    {/* Footer */}
+    <div className={styles.footer}>
+      <SkeletonBar w={340} h={11} />
+      <SkeletonBar w={140} h={11} />
+    </div>
+  </div>
+);
+
+// ============================================================
 // MAIN PAGE
 // ============================================================
 
@@ -75,7 +201,12 @@ const KxTillStaff = () => {
 
   const [staff, setStaff] = useState([]);
   const [stats, setStats] = useState({
-    total: 0, active: 0, inactive: 0, owners: 0, managers: 0, staff: 0,
+    total: 0,
+    active: 0,
+    inactive: 0,
+    owners: 0,
+    managers: 0,
+    staff: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -105,17 +236,24 @@ const KxTillStaff = () => {
     setError(null);
 
     try {
-      const res = await axios.get(
-        `/organizations/${orgId}/kxtill/staff`,
-        { signal: controller.signal, timeout: 10000 }
-      );
+      const res = await axios.get(`/organizations/${orgId}/kxtill/staff`, {
+        signal: controller.signal,
+        timeout: 10000,
+      });
 
       if (controller.signal.aborted || !isMountedRef.current) return;
 
       setStaff(res.data?.staff || []);
-      setStats(res.data?.stats || {
-        total: 0, active: 0, inactive: 0, owners: 0, managers: 0, staff: 0,
-      });
+      setStats(
+        res.data?.stats || {
+          total: 0,
+          active: 0,
+          inactive: 0,
+          owners: 0,
+          managers: 0,
+          staff: 0,
+        }
+      );
     } catch (err) {
       if (err.name === 'CanceledError' || err.name === 'AbortError') return;
       console.error('Failed to fetch KxTill staff:', err);
@@ -244,7 +382,8 @@ const KxTillStaff = () => {
   const filteredStaff = staff.filter((member) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    const name = `${member.user?.firstName || ''} ${member.user?.lastName || ''}`.toLowerCase();
+    const name =
+      `${member.user?.firstName || ''} ${member.user?.lastName || ''}`.toLowerCase();
     const email = (member.user?.email || '').toLowerCase();
     return name.includes(q) || email.includes(q);
   });
@@ -258,7 +397,11 @@ const KxTillStaff = () => {
   const getRoleVariant = (member) => {
     const role = getRoleDisplay(member);
     if (role === 'Owner') return styles.roleOwner;
-    if (member.permissions?.some((p) => p.key.includes('manage') || p.key.includes('approve')))
+    if (
+      member.permissions?.some(
+        (p) => p.key.includes('manage') || p.key.includes('approve')
+      )
+    )
       return styles.roleManager;
     return styles.roleStaff;
   };
@@ -287,14 +430,9 @@ const KxTillStaff = () => {
     );
   }
 
-  if (loading) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.loaderWrapper}>
-          <div className={styles.loader} />
-        </div>
-      </div>
-    );
+  // Skeleton only on first load — keeps existing table visible on refresh
+  if (loading && staff.length === 0) {
+    return <StaffSkeleton />;
   }
 
   if (error) {
@@ -323,7 +461,8 @@ const KxTillStaff = () => {
           <div>
             <h1 className={styles.title}>KxTill Staff</h1>
             <p className={styles.subtitle}>
-              Users with access to KxTill · {activeOrganization?.name || 'Organization'}
+              Users with access to KxTill ·{' '}
+              {activeOrganization?.name || 'Organization'}
             </p>
           </div>
         </div>
@@ -333,13 +472,13 @@ const KxTillStaff = () => {
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw size={14} className={isRefreshing ? styles.spinning : ''} />
+            <RefreshCw
+              size={14}
+              className={isRefreshing ? styles.spinning : ''}
+            />
             {isRefreshing ? '...' : 'Refresh'}
           </button>
-          <button
-            className={styles.manageLink}
-            onClick={openSuiteMembers}
-          >
+          <button className={styles.manageLink} onClick={openSuiteMembers}>
             <ExternalLink size={12} />
             Manage Members
           </button>
@@ -413,7 +552,9 @@ const KxTillStaff = () => {
 
             <div className={styles.tableBody}>
               {filteredStaff.map((member) => {
-                const isOwnerStaff = member.permissions?.some((p) => p.key === '*');
+                const isOwnerStaff = member.permissions?.some(
+                  (p) => p.key === '*'
+                );
                 const roleDisplay = getRoleDisplay(member);
                 const roleVariant = getRoleVariant(member);
                 const isToggling = togglingIds.has(member.userId);
@@ -508,7 +649,9 @@ const KxTillStaff = () => {
                           <button
                             type="button"
                             className={`${styles.actionBtn} ${
-                              member.isActive ? styles.actionBtnWarning : styles.actionBtnPositive
+                              member.isActive
+                                ? styles.actionBtnWarning
+                                : styles.actionBtnPositive
                             }`}
                             onClick={() => handleToggleActive(member)}
                             disabled={isToggling}
@@ -561,7 +704,8 @@ const KxTillStaff = () => {
       {/* Footer note */}
       <div className={styles.footer}>
         <span className={styles.footerText}>
-          Only KxTill permissions are shown here. Other platform permissions are managed in Members &amp; Roles.
+          Only KxTill permissions are shown here. Other platform permissions are
+          managed in Members &amp; Roles.
         </span>
         <button className={styles.footerLink} onClick={openSuiteMembers}>
           Go to Members &amp; Roles →
