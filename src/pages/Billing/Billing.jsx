@@ -1,144 +1,231 @@
 // Products/kxtill/src/pages/Billing/Billing.jsx
+import { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
+import { useAuth } from '../../contexts/AuthContext';
+import { showToast } from '../../components/Common/Toast';
+import {
+  CreditCard,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Calendar,
+  Clock,
+  DollarSign,
+  Mail,
+  Phone,
+  Building2,
+  Package as PackageIcon,
+  BarChart3,
+  ShoppingCart,
+  Users,
+  Settings as SettingsIcon,
+  Shield,
+  MessageCircle,
+  ExternalLink,
+} from 'lucide-react';
+import PaymentInstructions from './components/PaymentInstructions';
+import PaymentHistory from './components/PaymentHistory';
+import styles from './Billing.module.css';
 
-import { useEffect, useState } from "react";
-import axios from "axios";
-import { useAuth } from "../../contexts/AuthContext";
-import { showToast } from "../../components/Common/Toast";
-import styles from "./Billing.module.css";
-
-const TONE = {
-  TRIAL: "blue",
-  ACTIVE: "green",
-  GRACE: "yellow",
-  EXPIRED: "red",
-  SUSPENDED: "orange",
-  CANCELLED: "gray",
-};
-
-const BADGE_BG = {
-  blue: "rgba(64, 156, 255, 0.15)",
-  green: "rgba(52, 199, 89, 0.15)",
-  yellow: "rgba(255, 180, 0, 0.15)",
-  red: "rgba(239, 83, 80, 0.15)",
-  orange: "rgba(255, 106, 43, 0.15)",
-  gray: "rgba(140, 140, 140, 0.15)",
-};
-
-const BADGE_FG = {
-  blue: "#409cff",
-  green: "#34c759",
-  yellow: "#d9a300",
-  red: "#ef5350",
-  orange: "#ff6a2b",
-  gray: "#9a9a9a",
-};
-
-function fmt(dateStr, withTime = false) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  const opts = { year: "numeric", month: "short", day: "numeric" };
+// ============================================================
+// HELPERS
+// ============================================================
+const fmtDate = (iso, withTime = false) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const opts = { year: 'numeric', month: 'short', day: 'numeric' };
   if (withTime) {
-    opts.hour = "2-digit";
-    opts.minute = "2-digit";
+    opts.hour = '2-digit';
+    opts.minute = '2-digit';
   }
   return d.toLocaleDateString(undefined, opts);
-}
+};
 
-function fmtMoney(amount, currency) {
-  if (amount === null || amount === undefined) return "—";
-  return `${currency || "KES"} ${Number(amount).toLocaleString()}`;
-}
+const fmtMoney = (amount, currency) => {
+  if (amount === null || amount === undefined) return '—';
+  return `${currency || 'KES'} ${Number(amount).toLocaleString()}`;
+};
 
+const STATUS_TONE = {
+  TRIAL: 'info',
+  ACTIVE: 'success',
+  GRACE: 'warn',
+  EXPIRED: 'danger',
+  SUSPENDED: 'danger',
+  CANCELLED: 'muted',
+};
+
+const accessIcon = (label) => {
+  const l = String(label || '').toLowerCase();
+  if (l.includes('pos') || l.includes('sale')) return ShoppingCart;
+  if (l.includes('inventory') || l.includes('stock')) return PackageIcon;
+  if (l.includes('report')) return BarChart3;
+  if (l.includes('customer')) return Users;
+  if (l.includes('setting')) return SettingsIcon;
+  if (l.includes('staff') || l.includes('member')) return Shield;
+  if (l.includes('branch')) return Building2;
+  return CheckCircle;
+};
+
+const digitsOnly = (phone) => String(phone || '').replace(/\D/g, '');
+
+const buildWhatsAppUrl = (phone, orgName) => {
+  const digits = digitsOnly(phone);
+  if (!digits) return null;
+  const normalized = digits.startsWith('0')
+    ? `254${digits.slice(1)}`
+    : digits;
+  const text = encodeURIComponent(
+    `Hi, this is ${orgName || 'my shop'}. I'd like to talk about our KxTill billing.`
+  );
+  return `https://wa.me/${normalized}?text=${text}`;
+};
+
+// ============================================================
+// SKELETON
+// ============================================================
+const Sk = ({ w, h = 12, r = 6, style }) => (
+  <span
+    className={styles.skeleton}
+    style={{ width: w, height: h, borderRadius: r, ...style }}
+  />
+);
+
+const BillingSkeleton = () => (
+  <div className={styles.page}>
+    <div className={styles.hero}>
+      <div className={styles.heroLeft}>
+        <div className={styles.skeletonIconSquare} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Sk w={200} h={20} />
+          <Sk w={280} h={12} />
+        </div>
+      </div>
+      <div className={styles.heroRight}>
+        <Sk w={180} h={38} r={9} />
+      </div>
+    </div>
+
+    <div className={styles.bento}>
+      <div className={styles.planTile}>
+        <Sk w={120} h={10} />
+        <Sk w={180} h={26} style={{ marginTop: 12 }} />
+        <Sk w={140} h={12} style={{ marginTop: 12 }} />
+        <Sk w="100%" h={8} style={{ marginTop: 20 }} />
+      </div>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className={styles.statTile}>
+          <Sk w={32} h={32} r={9} />
+          <Sk w="60%" h={22} style={{ marginTop: 14 }} />
+          <Sk w="40%" h={10} style={{ marginTop: 8 }} />
+        </div>
+      ))}
+    </div>
+
+    <div className={styles.card}>
+      <Sk w={160} h={14} />
+      <Sk w="80%" h={12} style={{ marginTop: 14 }} />
+      <Sk w="60%" h={12} style={{ marginTop: 8 }} />
+    </div>
+
+    <div className={styles.twoCol}>
+      <div className={styles.card}>
+        <Sk w={140} h={12} />
+        <Sk w="100%" h={80} style={{ marginTop: 16 }} />
+      </div>
+      <div className={styles.card}>
+        <Sk w={140} h={12} />
+        <Sk w="100%" h={80} style={{ marginTop: 16 }} />
+      </div>
+    </div>
+  </div>
+);
+
+// ============================================================
+// PAGE
+// ============================================================
 export default function Billing() {
+
   const { activeOrganization } = useAuth();
+
   const [data, setData] = useState(null);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [copiedField, setCopiedField] = useState(null);
+
+  const orgId = activeOrganization?.id;
+
+  const load = useCallback(async () => {
+    if (!orgId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [billingRes, paymentsRes] = await Promise.all([
+        axios.get(`/organizations/${orgId}/kxtill/billing`),
+        axios.get(`/organizations/${orgId}/kxtill/billing/payments`),
+      ]);
+      setData(billingRes.data?.data || null);
+      setPayments(paymentsRes.data?.data || []);
+    } catch (err) {
+      const s = err.response?.status;
+      setError(
+        s === 403
+          ? "You don't have access to billing."
+          : 'Failed to load billing information.'
+      );
+      showToast.error(
+        err.response?.data?.error || 'Failed to load billing.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
 
   useEffect(() => {
-    if (!activeOrganization?.id) return;
-    let mounted = true;
-
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [billingRes, paymentsRes] = await Promise.all([
-          axios.get(`/organizations/${activeOrganization.id}/kxtill/billing`),
-          axios.get(
-            `/organizations/${activeOrganization.id}/kxtill/billing/payments`
-          ),
-        ]);
-        if (!mounted) return;
-        setData(billingRes.data.data);
-        setPayments(paymentsRes.data.data || []);
-      } catch (err) {
-        if (!mounted) return;
-        const s = err.response?.status;
-        setError(
-          s === 403
-            ? "You don't have access to billing."
-            : "Failed to load billing."
-        );
-        showToast.error(
-          err.response?.data?.error || "Failed to load billing."
-        );
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
     load();
-    return () => {
-      mounted = false;
-    };
-  }, [activeOrganization?.id]);
-
-  const copy = async (value, key) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedField(key);
-      setTimeout(() => setCopiedField(null), 1500);
-    } catch {
-      showToast.error("Copy failed");
-    }
-  };
+  }, [load]);
 
   if (!activeOrganization) {
     return (
-      <div className={styles.centered}>
-        <p>Select an organization first.</p>
+      <div className={styles.page}>
+        <div className={styles.centered}>
+          <Building2 size={44} className={styles.centeredIcon} />
+          <h2>No organization selected</h2>
+          <p>Select an organization to view billing.</p>
+        </div>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div className={styles.centered}>
-        <Spinner />
-      </div>
-    );
+  if (loading && !data) {
+    return <BillingSkeleton />;
   }
 
   if (error) {
     return (
-      <div className={styles.centered}>
-        <p>{error}</p>
+      <div className={styles.page}>
+        <div className={styles.errorState}>
+          <AlertTriangle size={32} className={styles.errorIcon} />
+          <p className={styles.errorText}>{error}</p>
+          <button className={styles.retryBtn} onClick={load}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!data) return null;
 
-  const tone = TONE[data.status] || "gray";
- 
+  const tone = STATUS_TONE[data.status] || 'muted';
   const isWarning =
-    data.status === "TRIAL" || data.status === "GRACE" || data.status === "EXPIRED";
+    data.status === 'TRIAL' ||
+    data.status === 'GRACE' ||
+    data.status === 'EXPIRED';
 
   const showProgress =
-    (data.status === "TRIAL" || data.status === "ACTIVE") &&
+    (data.status === 'TRIAL' || data.status === 'ACTIVE') &&
     data.phaseStartAt &&
     data.phaseEndsAt;
 
@@ -146,79 +233,158 @@ export default function Billing() {
     ? Math.max(
         1,
         Math.round(
-          (new Date(data.phaseEndsAt) - new Date(data.phaseStartAt)) / 86400000
+          (new Date(data.phaseEndsAt) - new Date(data.phaseStartAt)) /
+            86400000
         )
       )
     : 0;
   const elapsed = showProgress
     ? Math.min(
         totalDays,
-        Math.round((Date.now() - new Date(data.phaseStartAt)) / 86400000)
+        Math.round(
+          (Date.now() - new Date(data.phaseStartAt)) / 86400000
+        )
       )
     : 0;
-  const pct = showProgress ? Math.round((elapsed / totalDays) * 100) : 0;
-  const barColor =
-    pct >= 85 ? "#ef5350" : pct >= 60 ? "#d9a300" : "#34c759";
+  const pct = showProgress
+    ? Math.round((elapsed / totalDays) * 100)
+    : 0;
+  const progressTone =
+    pct >= 85 ? 'danger' : pct >= 60 ? 'warn' : 'success';
+
+  const amountDue = data.payment?.displayAmount;
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Billing &amp; Subscription</h1>
-        <p className={styles.subtitle}>
-          {data.productName} for {activeOrganization.name}
-        </p>
+      {/* ============ HERO ============ */}
+      <div className={styles.hero}>
+        <div className={styles.heroLeft}>
+          <div className={styles.heroIcon}>
+            <CreditCard size={22} />
+          </div>
+          <div className={styles.heroTitle}>
+            <h1>Billing &amp; Subscription</h1>
+            <p>
+              <span className={styles.heroOrg}>
+                {activeOrganization.name}
+              </span>
+              <span className={styles.heroSep}>·</span>
+              <span className={styles.heroStat}>
+                {data.productName || 'KxTill'}
+              </span>
+            </p>
+          </div>
+        </div>
+        <div className={styles.heroRight}>
+          {data.payment?.contactPhone ? (
+            <a
+              href={buildWhatsAppUrl(
+                data.payment.contactPhone,
+                activeOrganization.name
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.primaryBtn}
+            >
+              <MessageCircle size={14} />
+              <span>Talk to us on WhatsApp</span>
+            </a>
+          ) : data.payment?.contactEmail ? (
+            <a
+              href={`mailto:${data.payment.contactEmail}?subject=${encodeURIComponent(
+                `Billing — ${activeOrganization.name}`
+              )}`}
+              className={styles.primaryBtn}
+            >
+              <Mail size={14} />
+              <span>Email about billing</span>
+            </a>
+          ) : null}
+        </div>
       </div>
 
-      {/* ============ STATUS CARD ============ */}
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <div>
-            <div className={styles.cardLabel}>Current plan</div>
-            <div className={styles.cardValue}>
-              {data.plan?.name || "Standard"}
-            </div>
-            {data.plan?.price > 0 && (
-              <div className={styles.cardSub}>
-                {fmtMoney(data.plan.price, data.plan.currency)} /{" "}
-                {data.plan.interval === "YEARLY" ? "year" : "month"}
-              </div>
-            )}
+      {/* ============ STATUS BENTO ============ */}
+      <div className={styles.bento}>
+        <div className={styles.planTile}>
+          <div className={styles.planHeader}>
+            <span className={styles.planLabel}>Current plan</span>
+            <span
+              className={`${styles.statusBadge} ${styles[`tone_${tone}`]}`}
+            >
+              {data.status}
+            </span>
           </div>
-          <Badge color={tone}>{data.status}</Badge>
+          <div className={styles.planName}>
+            {data.plan?.name || 'Standard'}
+          </div>
+          {data.plan?.price > 0 && (
+            <div className={styles.planPrice}>
+              {fmtMoney(data.plan.price, data.plan.currency)}
+              <span className={styles.planInterval}>
+                {' / '}
+                {data.plan.interval === 'YEARLY' ? 'year' : 'month'}
+              </span>
+            </div>
+          )}
+
+          {showProgress && (
+            <div className={styles.progressWrap}>
+              <div className={styles.progressTrack}>
+                <div
+                  className={`${styles.progressFill} ${
+                    styles[`fill_${progressTone}`]
+                  }`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className={styles.progressLabels}>
+                <span>
+                  Day {elapsed} of {totalDays}
+                </span>
+                <span>{data.remainingDays} days left</span>
+              </div>
+            </div>
+          )}
         </div>
 
-        {showProgress && (
-          <div className={styles.progressWrap}>
-            <div className={styles.progressTrack}>
-              <div
-                className={styles.progressFill}
-                style={{ width: `${pct}%`, background: barColor }}
-              />
-            </div>
-            <div className={styles.progressLabels}>
-              <span>
-                Day {elapsed} of {totalDays}
-              </span>
-              <span>{data.remainingDays} days left</span>
-            </div>
+        <div className={styles.statTile}>
+          <div className={`${styles.statTileIcon} ${styles.iconAccent}`}>
+            <Calendar size={16} />
           </div>
-        )}
+          <div className={styles.statTileValue}>
+            {fmtDate(data.phaseEndsAt)}
+          </div>
+          <div className={styles.statTileLabel}>
+            {data.isTrial ? 'Trial ends' : 'Period ends'}
+          </div>
+        </div>
 
-        <div className={styles.grid}>
-          <KV
-            label={data.isTrial ? "Trial started" : "Current period started"}
-            value={fmt(data.phaseStartAt)}
-          />
-          <KV
-            label={data.isTrial ? "Trial ends" : "Current period ends"}
-            value={fmt(data.phaseEndsAt)}
-          />
-          {data.graceEnd && (
-            <KV label="Grace ends" value={fmt(data.graceEnd)} />
-          )}
-          {!showProgress && data.remainingDays !== undefined && (
-            <KV label="Days remaining" value={data.remainingDays ?? "—"} />
-          )}
+        <div className={styles.statTile}>
+          <div
+            className={`${styles.statTileIcon} ${
+              data.remainingDays <= 7 ? styles.iconWarn : styles.iconOk
+            }`}
+          >
+            <Clock size={16} />
+          </div>
+          <div
+            className={`${styles.statTileValue} ${
+              data.remainingDays <= 7 ? styles.warnText : ''
+            }`}
+          >
+            {data.remainingDays ?? '—'}
+          </div>
+          <div className={styles.statTileLabel}>Days remaining</div>
+        </div>
+
+        <div className={styles.statTile}>
+          <div className={`${styles.statTileIcon} ${styles.iconAccent}`}>
+            <DollarSign size={16} />
+          </div>
+          <div className={styles.statTileValue} title={amountDue || ''}>
+            {amountDue || '—'}
+          </div>
+          <div className={styles.statTileLabel}>Amount due</div>
         </div>
       </div>
 
@@ -226,256 +392,188 @@ export default function Billing() {
       {data.whatHappensNext?.title && (
         <div
           className={`${styles.card} ${
-            isWarning ? styles.cardWarn : ""
+            isWarning ? styles.cardWarn : ''
           }`}
         >
-          <div className={styles.cardLabel}>What happens next</div>
-          <div className={styles.nextTitle}>
-            {data.whatHappensNext.title}
+          <div className={styles.cardHeader}>
+            <div
+              className={`${styles.cardIcon} ${
+                isWarning ? styles.cardIconWarn : ''
+              }`}
+            >
+              <AlertTriangle size={16} />
+            </div>
+            <div className={styles.cardHeaderText}>
+              <div className={styles.cardLabel}>What happens next</div>
+              <div className={styles.nextTitle}>
+                {data.whatHappensNext.title}
+              </div>
+            </div>
           </div>
           <p className={styles.nextBody}>{data.whatHappensNext.body}</p>
         </div>
       )}
 
-      {/* ============ ACCESS ============ */}
+      {/* ============ YOUR ACCESS ============ */}
       <div className={styles.card}>
-        <div className={styles.cardLabel}>Your access</div>
+        <div className={styles.cardHeader}>
+          <div className={styles.cardIcon}>
+            <Shield size={16} />
+          </div>
+          <div className={styles.cardHeaderText}>
+            <div className={styles.cardLabel}>Your access</div>
+          </div>
+        </div>
+
         <div className={styles.accessGrid}>
-          <div>
+          <div className={styles.accessColumn}>
             <div className={styles.accessHead}>
-              <span className={styles.dotGreen} /> Included now
+              <CheckCircle size={14} className={styles.accessHeadOk} />
+              <span>Included now</span>
             </div>
             <ul className={styles.accessList}>
-              {data.access?.included?.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
+              {(data.access?.included || []).map((item) => {
+                const Icon = accessIcon(item);
+                return (
+                  <li key={item} className={styles.accessItem}>
+                    <Icon size={13} className={styles.accessItemIcon} />
+                    <span>{item}</span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
-          {data.access?.restricted?.length > 0 && (
-            <div>
-              <div className={styles.accessHead}>
-                <span className={styles.dotRed} /> Currently blocked
-              </div>
+
+          <div className={styles.accessColumn}>
+            <div className={styles.accessHead}>
+              <XCircle size={14} className={styles.accessHeadBad} />
+              <span>Not included</span>
+            </div>
+            {data.access?.restricted?.length > 0 ? (
               <ul className={styles.accessList}>
                 {data.access.restricted.map((item) => (
-                  <li key={item}>{item}</li>
+                  <li
+                    key={item}
+                    className={`${styles.accessItem} ${styles.accessItemDim}`}
+                  >
+                    <XCircle
+                      size={13}
+                      className={styles.accessItemIconBad}
+                    />
+                    <span>{item}</span>
+                  </li>
                 ))}
               </ul>
+            ) : (
+              <div className={styles.accessEmpty}>
+                <CheckCircle size={16} className={styles.accessEmptyIcon} />
+                <div>
+                  <div className={styles.accessEmptyTitle}>
+                    Everything is unlocked
+                  </div>
+                  <div className={styles.accessEmptyHint}>
+                    No features are restricted on your current plan.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.accessColumn}>
+            <div className={styles.accessHead}>
+              <DollarSign size={14} className={styles.accessHeadNeutral} />
+              <span>Your plan</span>
             </div>
-          )}
+            <ul className={styles.accessList}>
+              <li className={styles.accessItem}>
+                <CheckCircle size={13} className={styles.accessItemIcon} />
+                <span>
+                  Billed{' '}
+                  {data.plan?.interval === 'YEARLY' ? 'yearly' : 'monthly'}
+                </span>
+              </li>
+              <li className={styles.accessItem}>
+                <CheckCircle size={13} className={styles.accessItemIcon} />
+                <span>
+                  {data.plan?.price
+                    ? `${fmtMoney(data.plan.price, data.plan.currency)} per ${
+                        data.plan.interval === 'YEARLY' ? 'year' : 'month'
+                      }`
+                    : 'Price set with us'}
+                </span>
+              </li>
+              <li className={styles.accessItem}>
+                <CheckCircle size={13} className={styles.accessItemIcon} />
+                <span>
+                  {data.isTrial ? 'On free trial' : 'Paid subscription'}
+                </span>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
 
-      {/* ============ PAYMENT ============ */}
-      <div className={styles.card}>
-        <div className={styles.cardLabel}>How to pay</div>
+      {/* ============ HOW TO PAY + CONTACT ============ */}
+      <div className={styles.twoCol}>
+        <PaymentInstructions
+          payment={data.payment}
+          howToPay={data.howToPay}
+        />
 
-        <div className={styles.amountBlock}>
-          <div className={styles.amountLabel}>Amount due</div>
-          <div className={styles.amountValue}>
-            {data.payment?.displayAmount || "—"}
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <div className={styles.cardIcon}>
+              <MessageCircle size={16} />
+            </div>
+            <div className={styles.cardHeaderText}>
+              <div className={styles.cardLabel}>Talk to us</div>
+            </div>
           </div>
-          {data.payment?.amountIsCustom && (
-            <div className={styles.amountNote}>
-              Pricing is tailored to your usage. Contact us to confirm.
+
+          {data.payment?.contactPhone && (
+            <div className={styles.contactRow}>
+              <Phone size={14} className={styles.contactIcon} />
+              <span className={styles.contactLabel}>Phone</span>
+              <span className={styles.contactValue}>
+                {data.payment.contactPhone}
+              </span>
             </div>
           )}
-        </div>
+          {data.payment?.contactEmail && (
+            <div className={styles.contactRow}>
+              <Mail size={14} className={styles.contactIcon} />
+              <span className={styles.contactLabel}>Email</span>
+              <span className={styles.contactValue}>
+                {data.payment.contactEmail}
+              </span>
+            </div>
+          )}
 
-        <div className={styles.payGrid}>
-          <PayRow
-            label="Paybill"
-            value={data.payment?.paybill}
-            copied={copiedField === "paybill"}
-            onCopy={() => copy(data.payment.paybill, "paybill")}
-          />
-          <PayRow
-            label="Account number"
-            value={data.payment?.accountNumber}
-            copied={copiedField === "account"}
-            onCopy={() => copy(data.payment.accountNumber, "account")}
-          />
-          {data.payment?.tillNumber && (
-            <PayRow
-              label="Buy Goods Till"
-              value={data.payment.tillNumber}
-              copied={copiedField === "till"}
-              onCopy={() => copy(data.payment.tillNumber, "till")}
-            />
-          )}
-          {data.payment?.mpesaPhone && (
-            <PayRow
-              label="M-Pesa number"
-              value={data.payment.mpesaPhone}
-              copied={copiedField === "phone"}
-              onCopy={() => copy(data.payment.mpesaPhone, "phone")}
-            />
-          )}
-          {data.payment?.bankName && (
-            <PayRow
-              label="Bank"
-              value={`${data.payment.bankName} · ${data.payment.bankAccount} · ${data.payment.bankAccountName}`}
-            />
+          <p className={styles.contactNote}>
+            Questions about this plan or the amount due? Reach out to us on
+WhatsApp and we'll confirm the details directly.
+          </p>
+
+          {data.payment?.contactPhone && (
+            <a
+              href={buildWhatsAppUrl(
+                data.payment.contactPhone,
+                activeOrganization.name
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.whatsAppBtn}
+            >
+              <MessageCircle size={14} />
+              <span>Open WhatsApp</span>
+              <ExternalLink size={12} />
+            </a>
           )}
         </div>
-
-        {data.howToPay?.steps?.length > 0 && (
-          <>
-            <div className={styles.stepsLabel}>Steps</div>
-            <ol className={styles.steps}>
-              {data.howToPay.steps.map((step, i) => (
-                <li key={i}>{step}</li>
-              ))}
-            </ol>
-          </>
-        )}
-
-        {data.howToPay?.alternatives?.length > 0 && (
-          <div className={styles.alternatives}>
-            <div className={styles.stepsLabel}>Alternatives</div>
-            <ul className={styles.accessList}>
-              {data.howToPay.alternatives.map((a, i) => (
-                <li key={i}>{a}</li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
 
       {/* ============ PAYMENT HISTORY ============ */}
-      <div className={styles.card}>
-        <div className={styles.cardLabel}>Payment history</div>
-        {payments.length === 0 ? (
-          <div className={styles.empty}>No payments yet.</div>
-        ) : (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Method</th>
-                <th>Reference</th>
-                <th>Period</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.id}>
-                  <td>{fmt(p.paidAt || p.createdAt)}</td>
-                  <td>{fmtMoney(p.amount, p.currency)}</td>
-                  <td>{p.method || "—"}</td>
-                  <td className={styles.mono}>{p.reference || "—"}</td>
-                  <td>
-                    {p.periodStart && p.periodEnd
-                      ? `${fmt(p.periodStart)} → ${fmt(p.periodEnd)}`
-                      : "—"}
-                  </td>
-                  <td>
-                    <Badge
-                      color={
-                        p.status === "COMPLETED"
-                          ? "green"
-                          : p.status === "PENDING"
-                          ? "yellow"
-                          : "gray"
-                      }
-                    >
-                      {p.status}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* ============ CONTACT ============ */}
-      <div className={styles.card}>
-        <div className={styles.cardLabel}>Need help?</div>
-        <div className={styles.contactRow}>
-          <span>Email</span>
-          <strong>{data.payment?.contactEmail}</strong>
-        </div>
-        {data.payment?.contactPhone && (
-          <div className={styles.contactRow}>
-            <span>Phone</span>
-            <strong>{data.payment.contactPhone}</strong>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// INLINE COMPONENTS
-// ============================================================
-
-function KV({ label, value }) {
-  return (
-    <div className={styles.kv}>
-      <div className={styles.kvLabel}>{label}</div>
-      <div className={styles.kvValue}>{value}</div>
-    </div>
-  );
-}
-
-function Badge({ color = "gray", children }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px 8px",
-        borderRadius: 999,
-        fontSize: 11,
-        fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: 0.4,
-        background: BADGE_BG[color] || BADGE_BG.gray,
-        color: BADGE_FG[color] || BADGE_FG.gray,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function PayRow({ label, value, copied, onCopy }) {
-  if (!value) return null;
-  return (
-    <div className={styles.payRow}>
-      <div className={styles.payLabel}>{label}</div>
-      <div className={styles.payValueWrap}>
-        <span className={styles.payValue}>{value}</span>
-        {onCopy && (
-          <button
-            type="button"
-            className={styles.copyBtn}
-            onClick={onCopy}
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <div
-      style={{
-        width: 28,
-        height: 28,
-        border: "3px solid var(--border, #2a2a2e)",
-        borderTopColor: "var(--accent, #ff6b2b)",
-        borderRadius: "50%",
-        animation: "billingSpin 0.8s linear infinite",
-      }}
-    >
-      <style>{`@keyframes billingSpin { to { transform: rotate(360deg); } }`}</style>
+      <PaymentHistory payments={payments} />
     </div>
   );
 }
