@@ -1,12 +1,23 @@
 // src/pages/Inventory/components/ProductModal.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  X, Package, Plus, Trash2, Edit2, Sparkles,
+  X, Package, Pill, ShoppingBag, Plus, Trash2, Edit2, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import styles from './ProductModal.module.css';
 
-const PACK_UNIT_SUGGESTIONS = [
+// ============================================================
+// MODES
+// ============================================================
+const MODE = {
+  MEDICINE: 'medicine',
+  RETAIL: 'retail',
+};
+
+// ============================================================
+// UNIT SUGGESTIONS PER MODE
+// ============================================================
+const RETAIL_UNIT_SUGGESTIONS = [
   { label: 'Carton', abbr: 'ctn' },
   { label: 'Box',    abbr: 'box' },
   { label: 'Tray',   abbr: 'tray' },
@@ -17,11 +28,56 @@ const PACK_UNIT_SUGGESTIONS = [
   { label: 'Bag',    abbr: 'bag' },
 ];
 
-const DEFAULT_MIN_STOCK = 10;
+const MEDICINE_UNIT_SUGGESTIONS = [
+  { label: 'Strip',   abbr: 'strp' },
+  { label: 'Blister', abbr: 'bls' },
+  { label: 'Sachet',  abbr: 'sch' },
+  { label: 'Bottle',  abbr: 'btl' },
+  { label: 'Tube',    abbr: 'tube' },
+  { label: 'Vial',    abbr: 'vial' },
+  { label: 'Ampoule', abbr: 'amp' },
+  { label: 'Pack',    abbr: 'pk' },
+  { label: 'Box',     abbr: 'box' },
+  { label: 'Carton',  abbr: 'ctn' },
+];
 
-// Base unit type is inferred from the unit name/abbreviation.
-// If it matches a known measured unit → MEASURED + allowFractional true.
-// Otherwise → WHOLE + allowFractional false.
+// ============================================================
+// CATEGORY SUGGESTIONS PER MODE
+// ============================================================
+const RETAIL_CATEGORY_SUGGESTIONS = [
+  'Groceries', 'Beverages', 'Snacks', 'Household', 'Bakery',
+  'Textiles', 'Electronics', 'Stationery', 'Other',
+];
+
+const MEDICINE_CATEGORY_SUGGESTIONS = [
+  'Analgesics', 'Antibiotics', 'Antimalarials', 'Antihistamines',
+  'Vitamins & Supplements', 'First Aid', 'Dermatology', 'Cardiovascular',
+  'Respiratory', 'Gastrointestinal', 'Ophthalmic', 'Other',
+];
+
+// ============================================================
+// PLACEHOLDERS PER MODE
+// ============================================================
+const MODE_COPY = {
+  [MODE.MEDICINE]: {
+    namePlaceholder: 'e.g. Paracetamol 500mg',
+    skuPlaceholder: 'e.g. PARA-500',
+    categoryPlaceholder: 'e.g. Analgesics',
+    baseUnitPlaceholder: 'e.g. Tablet',
+    baseUnitAbbrPlaceholder: 'e.g. tab',
+  },
+  [MODE.RETAIL]: {
+    namePlaceholder: 'e.g. Bar Soap 250g',
+    skuPlaceholder: 'e.g. SOP-024',
+    categoryPlaceholder: 'e.g. Household',
+    baseUnitPlaceholder: 'e.g. Piece',
+    baseUnitAbbrPlaceholder: 'e.g. pc',
+  },
+};
+
+// ============================================================
+// BASE UNIT TYPE INFERENCE
+// ============================================================
 const MEASURED_UNIT_TOKENS = new Set([
   'm', 'meter', 'meters', 'metre', 'metres',
   'cm', 'mm', 'km',
@@ -35,21 +91,33 @@ const inferBaseUnitType = (name, abbreviation) => {
   const tokens = [name, abbreviation]
     .filter(Boolean)
     .map(v => v.trim().toLowerCase());
-
   const isMeasured = tokens.some(t => MEASURED_UNIT_TOKENS.has(t));
-
   return {
     unitType: isMeasured ? 'MEASURED' : 'WHOLE',
     allowFractional: isMeasured,
   };
 };
 
+// ============================================================
+// EMPTY FORM SHAPES
+// ============================================================
 const emptyUnitForm = () => ({
   name: '',
   abbreviation: '',
   conversionQty: 1,
   sellingPrice: '',
   cost: '',
+});
+
+const emptyPharmacy = () => ({
+  genericName: '',
+  brandName: '',
+  strength: '',
+  dosageForm: '',
+  route: '',
+  prescriptionCategory: '',
+  packSize: '',
+  storageConditions: '',
 });
 
 const emptyForm = () => ({
@@ -63,6 +131,11 @@ const emptyForm = () => ({
   units: [],
 });
 
+const DEFAULT_MIN_STOCK = 10;
+
+// ============================================================
+// COMPONENT
+// ============================================================
 const ProductModal = ({
   isOpen,
   onClose,
@@ -70,29 +143,47 @@ const ProductModal = ({
   product,
   isSubmitting,
   currency,
+  // Optional: pass true from a pharmacy app to default to Medicine mode
+  defaultMode = MODE.MEDICINE,
+  // Optional: pass false to hide the mode selector entirely (retail-only app)
+  allowModeSwitch = true,
 }) => {
+  const [mode, setMode] = useState(defaultMode);
+
   const [showDescription, setShowDescription] = useState(false);
   const [showUnitForm, setShowUnitForm] = useState(false);
   const [editingUnitIndex, setEditingUnitIndex] = useState(null);
 
   const [formData, setFormData] = useState(emptyForm());
   const [unitForm, setUnitForm] = useState(emptyUnitForm());
+  const [pharmacy, setPharmacy] = useState(emptyPharmacy());
 
   const isEdit = !!product;
-  // eslint-disable-next-line no-unused-vars
-  const unitLabel = formData.baseUnit.name || 'unit';
+  const isMedicine = mode === MODE.MEDICINE;
+
   const unitLabelPlural =
     formData.baseUnit.name && !formData.baseUnit.name.endsWith('s')
       ? `${formData.baseUnit.name}s`
       : formData.baseUnit.name || 'units';
 
-  // ---------- hydrate ----------
+  const unitSuggestions = isMedicine
+    ? MEDICINE_UNIT_SUGGESTIONS
+    : RETAIL_UNIT_SUGGESTIONS;
+
+  const categorySuggestions = isMedicine
+    ? MEDICINE_CATEGORY_SUGGESTIONS
+    : RETAIL_CATEGORY_SUGGESTIONS;
+
+  const copy = MODE_COPY[mode];
+
+  // ---------- hydrate on open ----------
   useEffect(() => {
     if (!isOpen) return;
 
     if (product) {
       const baseUnit = product.baseUnit || {};
       const units = product.units || [];
+      const pp = product.pharmacyProduct;
 
       setShowDescription(!!product.description);
 
@@ -115,15 +206,34 @@ const ProductModal = ({
           cost: u.cost ?? '',
         })),
       });
+
+      // Mode is derived from the existing product
+      setMode(pp ? MODE.MEDICINE : MODE.RETAIL);
+      setPharmacy(
+        pp
+          ? {
+              genericName: pp.genericName || '',
+              brandName: pp.brandName || '',
+              strength: pp.strength || '',
+              dosageForm: pp.dosageForm || '',
+              route: pp.route || '',
+              prescriptionCategory: pp.prescriptionCategory || '',
+              packSize: pp.packSize || '',
+              storageConditions: pp.storageConditions || '',
+            }
+          : emptyPharmacy()
+      );
     } else {
       setShowDescription(false);
       setFormData(emptyForm());
+      setMode(defaultMode);       // New product → default mode
+      setPharmacy(emptyPharmacy());
     }
 
     setUnitForm(emptyUnitForm());
     setEditingUnitIndex(null);
     setShowUnitForm(false);
-  }, [isOpen, product]);
+  }, [isOpen, product, defaultMode]);
 
   // ---------- margin ----------
   const margin = useMemo(() => {
@@ -137,7 +247,6 @@ const ProductModal = ({
   // ---------- handlers ----------
   const handleChange = (e) => {
     const { name, value } = e.target;
-
     if (name === 'baseUnit.name' || name === 'baseUnit.abbreviation') {
       const field = name.split('.')[1];
       setFormData(prev => ({
@@ -154,6 +263,15 @@ const ProductModal = ({
     setUnitForm(prev => ({ ...prev, [name]: value }));
   };
 
+  const handlePharmacyChange = (field, value) => {
+    setPharmacy(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleModeChange = (newMode) => {
+    if (isEdit) return;   // mode is fixed on edit
+    setMode(newMode);
+  };
+
   const resetUnitForm = () => {
     setUnitForm(emptyUnitForm());
     setEditingUnitIndex(null);
@@ -165,7 +283,6 @@ const ProductModal = ({
       toast.error('Please fill in unit name, abbreviation, and selling price');
       return;
     }
-
     if (editingUnitIndex !== null) {
       const updated = [...formData.units];
       updated[editingUnitIndex] = { ...unitForm };
@@ -241,6 +358,25 @@ const ProductModal = ({
       }));
     }
 
+    // ─── Medicine mode → attach pharmacy metadata ───
+    if (isMedicine) {
+      const trim = (v) => (v || '').trim();
+      const pharmacyPayload = {
+        genericName: trim(pharmacy.genericName) || undefined,
+        brandName: trim(pharmacy.brandName) || undefined,
+        strength: trim(pharmacy.strength) || undefined,
+        dosageForm: trim(pharmacy.dosageForm) || undefined,
+        route: trim(pharmacy.route) || undefined,
+        prescriptionCategory: trim(pharmacy.prescriptionCategory) || undefined,
+        packSize: trim(pharmacy.packSize) || undefined,
+        storageConditions: trim(pharmacy.storageConditions) || undefined,
+      };
+      const hasAny = Object.values(pharmacyPayload).some((v) => v !== undefined);
+      if (hasAny) {
+        payload.pharmacy = pharmacyPayload;
+      }
+    }
+
     onSave(payload);
   };
 
@@ -249,7 +385,7 @@ const ProductModal = ({
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
+        {/* ─── HEADER ─── */}
         <div className={styles.header}>
           <div className={styles.headerText}>
             <div className={styles.title}>
@@ -267,7 +403,37 @@ const ProductModal = ({
           </button>
         </div>
 
-        {/* Body */}
+        {/* ─── MODE SELECTOR ─── */}
+        {allowModeSwitch && (
+          <div className={styles.modeSelector}>
+            <button
+              type="button"
+              className={`${styles.modeTab} ${isMedicine ? styles.modeTabActive : ''}`}
+              onClick={() => handleModeChange(MODE.MEDICINE)}
+              disabled={isEdit}
+            >
+              <Pill size={16} />
+              <div className={styles.modeTabText}>
+                <strong>Medicine</strong>
+                <span>Batches, expiry, FEFO</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeTab} ${!isMedicine ? styles.modeTabActive : ''}`}
+              onClick={() => handleModeChange(MODE.RETAIL)}
+              disabled={isEdit}
+            >
+              <ShoppingBag size={16} />
+              <div className={styles.modeTabText}>
+                <strong>Retail item</strong>
+                <span>Direct stock</span>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {/* ─── BODY ─── */}
         <form onSubmit={handleSubmit} className={styles.body}>
           {/* ============ 1. PRODUCT INFORMATION ============ */}
           <section className={styles.card}>
@@ -284,7 +450,7 @@ const ProductModal = ({
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  placeholder="e.g. Blue Band Margarine"
+                  placeholder={copy.namePlaceholder}
                   autoFocus
                   required
                 />
@@ -297,7 +463,7 @@ const ProductModal = ({
                   name="sku"
                   value={formData.sku}
                   onChange={handleChange}
-                  placeholder="Optional — e.g. BB-500"
+                  placeholder={copy.skuPlaceholder}
                 />
               </div>
 
@@ -308,15 +474,13 @@ const ProductModal = ({
                   name="category"
                   value={formData.category}
                   onChange={handleChange}
-                  placeholder="e.g. Groceries"
+                  placeholder={copy.categoryPlaceholder}
                   list="product-category-suggestions"
                 />
                 <datalist id="product-category-suggestions">
-                  <option value="Groceries" />
-                  <option value="Beverages" />
-                  <option value="Textiles" />
-                  <option value="Electronics" />
-                  <option value="Household" />
+                  {categorySuggestions.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
                 </datalist>
               </div>
 
@@ -352,7 +516,7 @@ const ProductModal = ({
                   name="baseUnit.name"
                   value={formData.baseUnit.name}
                   onChange={handleChange}
-                  placeholder="e.g. Piece, Meter"
+                  placeholder={copy.baseUnitPlaceholder}
                   required
                 />
               </div>
@@ -364,7 +528,7 @@ const ProductModal = ({
                   name="baseUnit.abbreviation"
                   value={formData.baseUnit.abbreviation}
                   onChange={handleChange}
-                  placeholder="e.g. pc, m"
+                  placeholder={copy.baseUnitAbbrPlaceholder}
                   required
                 />
               </div>
@@ -411,10 +575,139 @@ const ProductModal = ({
             </div>
           </section>
 
-          {/* ============ 2. SELLING UNITS (OPTIONAL) ============ */}
+          {/* ============ 2. MEDICINE DETAILS (only in Medicine mode) ============ */}
+          {isMedicine && (
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardStep}>2</span>
+                <h4>Medicine details</h4>
+                <span className={styles.cardHeaderHint}>Pharmacy</span>
+              </div>
+
+              <p className={styles.cardHint}>
+                Clinical and regulatory information. Batches and expiry are added later
+                when stock is received at a branch.
+              </p>
+
+              <div className={styles.formGrid}>
+                <div className={styles.formGroup}>
+                  <label>Generic name</label>
+                  <input
+                    type="text"
+                    value={pharmacy.genericName}
+                    onChange={(e) => handlePharmacyChange('genericName', e.target.value)}
+                    placeholder="e.g. Paracetamol"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Brand name</label>
+                  <input
+                    type="text"
+                    value={pharmacy.brandName}
+                    onChange={(e) => handlePharmacyChange('brandName', e.target.value)}
+                    placeholder="e.g. Panadol"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Strength</label>
+                  <input
+                    type="text"
+                    value={pharmacy.strength}
+                    onChange={(e) => handlePharmacyChange('strength', e.target.value)}
+                    placeholder="e.g. 500mg"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Dosage form</label>
+                  <input
+                    type="text"
+                    value={pharmacy.dosageForm}
+                    onChange={(e) => handlePharmacyChange('dosageForm', e.target.value)}
+                    placeholder="e.g. TABLET"
+                    list="dosage-form-suggestions"
+                  />
+                  <datalist id="dosage-form-suggestions">
+                    <option value="TABLET" />
+                    <option value="CAPSULE" />
+                    <option value="SYRUP" />
+                    <option value="SUSPENSION" />
+                    <option value="INJECTION" />
+                    <option value="CREAM" />
+                    <option value="OINTMENT" />
+                    <option value="DROPS" />
+                    <option value="INHALER" />
+                    <option value="SUPPOSITORY" />
+                  </datalist>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Route</label>
+                  <input
+                    type="text"
+                    value={pharmacy.route}
+                    onChange={(e) => handlePharmacyChange('route', e.target.value)}
+                    placeholder="e.g. ORAL"
+                    list="route-suggestions"
+                  />
+                  <datalist id="route-suggestions">
+                    <option value="ORAL" />
+                    <option value="TOPICAL" />
+                    <option value="INTRAVENOUS" />
+                    <option value="INTRAMUSCULAR" />
+                    <option value="SUBCUTANEOUS" />
+                    <option value="RECTAL" />
+                    <option value="OPHTHALMIC" />
+                    <option value="NASAL" />
+                    <option value="INHALATION" />
+                  </datalist>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Prescription category</label>
+                  <input
+                    type="text"
+                    value={pharmacy.prescriptionCategory}
+                    onChange={(e) => handlePharmacyChange('prescriptionCategory', e.target.value)}
+                    placeholder="e.g. OTC"
+                    list="rx-category-suggestions"
+                  />
+                  <datalist id="rx-category-suggestions">
+                    <option value="OTC" />
+                    <option value="POM" />
+                    <option value="CONTROLLED" />
+                  </datalist>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Pack size</label>
+                  <input
+                    type="text"
+                    value={pharmacy.packSize}
+                    onChange={(e) => handlePharmacyChange('packSize', e.target.value)}
+                    placeholder="e.g. 10 tablets per strip"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Storage conditions</label>
+                  <input
+                    type="text"
+                    value={pharmacy.storageConditions}
+                    onChange={(e) => handlePharmacyChange('storageConditions', e.target.value)}
+                    placeholder="e.g. Store below 25°C"
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* ============ 3. SELLING UNITS ============ */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>
-              <span className={styles.cardStep}>2</span>
+              <span className={styles.cardStep}>{isMedicine ? '3' : '2'}</span>
               <h4>Selling units</h4>
               <span className={styles.cardHeaderHint}>Optional</span>
             </div>
@@ -483,7 +776,7 @@ const ProductModal = ({
                     <Sparkles size={12} /> Common units
                   </span>
                   <div className={styles.chips}>
-                    {PACK_UNIT_SUGGESTIONS.map(s => (
+                    {unitSuggestions.map(s => (
                       <button
                         key={s.label}
                         type="button"
@@ -504,7 +797,7 @@ const ProductModal = ({
                       name="name"
                       value={unitForm.name}
                       onChange={handleUnitChange}
-                      placeholder="e.g. Carton, 2 Meters"
+                      placeholder={isMedicine ? 'e.g. Strip' : 'e.g. Carton'}
                     />
                   </div>
 
@@ -515,7 +808,7 @@ const ProductModal = ({
                       name="abbreviation"
                       value={unitForm.abbreviation}
                       onChange={handleUnitChange}
-                      placeholder="e.g. ctn, 2m"
+                      placeholder={isMedicine ? 'e.g. strp' : 'e.g. ctn'}
                     />
                   </div>
 
@@ -585,7 +878,11 @@ const ProductModal = ({
               Cancel
             </button>
             <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : isEdit ? 'Save Changes' : 'Save Product'}
+              {isSubmitting
+                ? 'Saving...'
+                : isEdit
+                ? 'Save Changes'
+                : `Save ${isMedicine ? 'medicine' : 'product'}`}
             </button>
           </div>
         </form>

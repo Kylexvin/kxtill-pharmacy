@@ -20,6 +20,7 @@ import POS from './pages/POS/POS';
 import Dashboard from './pages/Dashboard/Dashboard';
 import Inventory from './pages/Inventory/Inventory';
 import GlobalInventory from './pages/Inventory/GlobalInventory';
+import Expiring from './pages/Expiring/Expiring';
 import Reports from './pages/Reports/Reports';
 import Settings from './pages/Settings/Settings';
 import Sales from './pages/Sales/Sales';
@@ -42,8 +43,8 @@ import './styles/globals.css';
 // ============================================================
 // AXIOS CONFIG
 // ============================================================
-axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1';
-// axios.defaults.baseURL = 'http://localhost:5000/api/v1';
+// axios.defaults.baseURL = 'https://kxbyte.onrender.com/api/v1';
+axios.defaults.baseURL = 'http://localhost:5000/api/v1';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = true;
 
@@ -376,6 +377,14 @@ function App() {
                       element={
                         <RequirePermission permission={KXTILL.INVENTORY.VIEW}>
                           <Inventory />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="inventory/expiring"
+                      element={
+                        <RequirePermission permission={KXTILL.INVENTORY.VIEW}>
+                          <Expiring />
                         </RequirePermission>
                       }
                     />

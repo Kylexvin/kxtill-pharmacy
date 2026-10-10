@@ -275,7 +275,7 @@ export default function SelectBranchPage() {
     setActiveBranch(onlyBranch)
       .then(async () => {
         await initializeKxTill(activeOrganization.id);
-        navigate('/pos');
+        navigate('/dashboard');
       })
       .catch((err) => {
         console.error('Auto-select branch failed:', err);
@@ -338,7 +338,7 @@ export default function SelectBranchPage() {
       await setActiveBranch(branch);
       await initializeKxTill(activeOrganization.id);
       showToast.success(`Selected ${branch.name}`);
-      navigate('/pos');
+      navigate('/dashboard');
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to select branch');
       showToast.error(message);
@@ -385,7 +385,7 @@ export default function SelectBranchPage() {
       setRedirecting(true);
       await setActiveBranch(branch);
       await initializeKxTill(activeOrganization.id);
-      navigate('/pos');
+      navigate('/dashboard');
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to create branch');
       showToast.error(message);

@@ -6,11 +6,11 @@ import styles from './Login.module.css';
 const KXTILL_LOGO = '/assets/logo3.png';
 const KXBYTE_LOGO = 'https://res.cloudinary.com/dkahrnjrn/image/upload/v1788695499/logo.png';
 
-const DEFAULT_CLIENT_ID = 'kxtill';
+const DEFAULT_CLIENT_ID = 'kxtill-pharmacy';
 const DEFAULT_REDIRECT_URI = `${window.location.origin}/kx/kxtill/oauth/callback`;
 
-const AUTH_BASE_URL = 'https://auth.kxbyte.co.ke';
-// const AUTH_BASE_URL = 'http://localhost:5000';
+// const AUTH_BASE_URL = 'https://auth.kxbyte.co.ke';
+const AUTH_BASE_URL = 'http://localhost:5000';
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
@@ -49,6 +49,7 @@ export default function LoginPage() {
           window._kxbytePopup.close();
         }
         
+
         // Navigate based on organizations
         if (data.organizations?.length > 1) {
           navigate('/select-org');
@@ -124,7 +125,7 @@ export default function LoginPage() {
           {/* KXTill Logo - the product */}
           <div className={styles.productBrand}>
             <img src={KXTILL_LOGO} alt="KXTill" className={styles.kxtillLogo} />
-            <span className={styles.productSub}>KxTill</span>
+            <span className={styles.productSub}>KxTill Pharmacy</span>
           </div>
 
           <h2>Sign in to continue</h2>

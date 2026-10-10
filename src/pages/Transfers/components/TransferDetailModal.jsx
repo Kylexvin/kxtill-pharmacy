@@ -10,12 +10,10 @@ import {
   Package,
   User,
   Info,
-
 } from 'lucide-react';
 import styles from './TransferDetailModal.module.css';
 import TransferStatusBadge from './TransferStatusBadge';
 
-// Simple inner confirm overlay for the modal — keeps everything self-contained
 const InlineConfirm = ({
   isOpen,
   variant = 'info',
@@ -69,7 +67,7 @@ const TransferDetailModal = ({
   onReject,
   onComplete,
 }) => {
-  const [confirm, setConfirm] = useState(null); // null | 'approve' | 'reject' | 'complete' | 'completeAfterApprove'
+  const [confirm, setConfirm] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
   useEffect(() => {
@@ -88,6 +86,8 @@ const TransferDetailModal = ({
     transfer.sourceBranchProduct?.product?.name ||
     transfer.destBranchProduct?.displayName ||
     'Unknown';
+  const pharmacyMeta = transfer.sourceBranchProduct?.product?.pharmacyProduct;
+  const isPharmacyProduct = !!pharmacyMeta;
   const qty = parseInt(transfer.quantitySent, 10) || 0;
 
   const statusAllows = {
@@ -113,25 +113,20 @@ const TransferDetailModal = ({
   const displayName = (u) =>
     u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || '—' : '—';
 
-  // ---- Approve → optionally offer Complete ----
   const doApprove = async () => {
-    const res = await onApprove(transfer.id);
+    const res = await onApprove(transfer.id, { transfer });
     setConfirm(null);
     if (res?.ok && showComplete) {
-      // Offer complete
       setConfirm('completeAfterApprove');
     }
   };
 
   const doReject = async () => {
     const reason = rejectionReason.trim();
-    if (reason.length < 3) return; // guarded by UI
-    const res = await onReject(transfer.id, reason);
+    if (reason.length < 3) return;
+    
     setConfirm(null);
     setRejectionReason('');
-    if (res?.ok) {
-      // Parent already closed the modal
-    }
   };
 
   const doComplete = async () => {
@@ -142,7 +137,6 @@ const TransferDetailModal = ({
   return (
     <div className={styles.overlay} onClick={() => !actionLoading && onClose()}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <div className={styles.header}>
           <div className={styles.headerText}>
             <div className={styles.title}>
@@ -161,9 +155,7 @@ const TransferDetailModal = ({
           </button>
         </div>
 
-        {/* Body */}
         <div className={styles.body}>
-          {/* Route */}
           <div className={styles.route}>
             <div className={styles.routeBranch}>
               <Building2 size={14} />
@@ -182,13 +174,28 @@ const TransferDetailModal = ({
             </div>
           </div>
 
-          {/* Details */}
           <div className={styles.detailGrid}>
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>
                 <Package size={12} /> Product
               </span>
-              <span className={styles.detailValue}>{product}</span>
+              <span className={styles.detailValue}>
+                {product}
+                {isPharmacyProduct && pharmacyMeta?.genericName && (
+                  <span
+                    style={{
+                      display: 'block',
+                      fontSize: '11px',
+                      color: '#8b8d99',
+                      marginTop: '2px',
+                    }}
+                  >
+                    {pharmacyMeta.genericName}
+                    {pharmacyMeta.strength ? ` · ${pharmacyMeta.strength}` : ''}
+                    {pharmacyMeta.dosageForm ? ` · ${pharmacyMeta.dosageForm}` : ''}
+                  </span>
+                )}
+              </span>
             </div>
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>Quantity</span>
@@ -212,22 +219,20 @@ const TransferDetailModal = ({
             </div>
           </div>
 
-          {/* Rejection reason display */}
           {transfer.status === 'REJECTED' && transfer.rejectionReason && (
             <div className={styles.rejectionBox}>
               <strong>Rejection reason:</strong> {transfer.rejectionReason}
             </div>
           )}
 
-          {/* Read-only info for cashiers */}
           {isReadOnly && (
             <div className={styles.infoBox}>
               <Info size={14} />
               <span>
                 {transfer.status === 'PENDING' &&
-                  'This transfer is awaiting approval by a manager or owner.'}
+                  'This transfer is awaiting approval by a pharmacist, manager, or owner.'}
                 {transfer.status === 'APPROVED' &&
-                  'Stock has already moved. Waiting for receiving branch confirmation.'}
+                  'Stock and batches have moved. Waiting for receiving branch confirmation.'}
                 {transfer.status === 'COMPLETED' &&
                   'This transfer has been completed.'}
                 {transfer.status === 'REJECTED' &&
@@ -239,7 +244,6 @@ const TransferDetailModal = ({
           )}
         </div>
 
-        {/* Footer */}
         <div className={styles.footer}>
           <button
             type="button"
@@ -281,12 +285,14 @@ const TransferDetailModal = ({
           )}
         </div>
 
-        {/* ---- Confirm dialogs (inline overlays) ---- */}
-
         <InlineConfirm
           isOpen={confirm === 'approve'}
           variant="warning"
-          title="Approve and move stock?"
+          title={
+            isPharmacyProduct
+              ? 'Approve and move stock + batches?'
+              : 'Approve and move stock?'
+          }
           confirmLabel="Approve & Move Stock"
           onCancel={() => setConfirm(null)}
           onConfirm={doApprove}
@@ -303,6 +309,12 @@ const TransferDetailModal = ({
               <strong>{to?.code || 'destination'}</strong>
             </li>
           </ul>
+          {isPharmacyProduct && (
+            <p className={styles.confirmNote}>
+              Batches will be selected using FEFO (First-Expiry-First-Out) and
+              moved atomically across branches.
+            </p>
+          )}
           <p className={styles.confirmNote}>
             Physical handoff is confirmed separately with "Mark Completed".
           </p>
@@ -318,7 +330,10 @@ const TransferDetailModal = ({
           isSubmitting={actionLoading}
           confirmDisabled={rejectionReason.trim().length < 3}
         >
-          <p>No stock will move. Provide a reason so the initiator understands why.</p>
+          <p>
+            No stock or batches will move. Provide a reason so the initiator
+            understands why.
+          </p>
           <input
             type="text"
             className={styles.reasonInput}
@@ -345,7 +360,9 @@ const TransferDetailModal = ({
             <strong>{from?.code || 'source'}</strong>.
           </p>
           <p className={styles.confirmNote}>
-            Stock was already moved when the transfer was approved.
+            {isPharmacyProduct
+              ? 'Stock and batches were already moved when the transfer was approved.'
+              : 'Stock was already moved when the transfer was approved.'}
           </p>
         </InlineConfirm>
 

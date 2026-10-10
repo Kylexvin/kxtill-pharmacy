@@ -1337,3 +1337,114 @@
 .restore:hover {
   background: rgba(255, 106, 43, 0.1) !important;
 }
+/* ============================================================
+   PHARMACY — Header
+   ============================================================ */
+.receiveBatchBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(255, 106, 43, 0.08);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.receiveBatchBtn:hover {
+  background: rgba(255, 106, 43, 0.14);
+  box-shadow: 0 4px 12px rgba(255, 106, 43, 0.15);
+}
+
+/* ============================================================
+   PHARMACY — Stats
+   ============================================================ */
+.statIconExpiring {
+  background: rgba(255, 167, 38, 0.12);
+  color: #ffa726;
+}
+
+/* ============================================================
+   PHARMACY — Icons / Row markers
+   ============================================================ */
+.medicineIcon {
+  background: rgba(255, 106, 43, 0.1) !important;
+  color: var(--accent) !important;
+}
+
+.medicineCard {
+  border-left: 3px solid var(--accent);
+}
+
+/* ============================================================
+   PHARMACY — Batch cell
+   ============================================================ */
+.batchCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.batchCount {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.batchExpiry {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.batchExpiry.expiringSoon {
+  color: #ffa726;
+  font-weight: 600;
+}
+
+.batchExpiry.expired {
+  color: #ef5350;
+  font-weight: 700;
+}
+
+.productCardBatches {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.mutedCell {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ============================================================
+   PHARMACY — Row actions
+   ============================================================ */
+.actionReceive {
+  color: var(--accent);
+}
+
+.actionReceive:hover {
+  background: rgba(255, 106, 43, 0.1);
+  color: var(--accent);
+}
+
+.actionBatches {
+  color: #5b9fd9;
+}
+
+.actionBatches:hover {
+  background: rgba(91, 159, 217, 0.1);
+  color: #5b9fd9;
+}

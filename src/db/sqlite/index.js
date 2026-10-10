@@ -1,5 +1,5 @@
-// src/db/sqlite/index.js
 export * from './helpers.js';
+export * from './bulk.js';
 export * from './products.js';
 export * from './branchProducts.js';
 export * from './cart.js';
@@ -9,3 +9,4 @@ export * from './syncQueue.js';
 export * from './syncMetadata.js';
 export * from './subscriptionCache.js';
 export * from './dashboardCache.js';
+export * from './pharmacy.js';

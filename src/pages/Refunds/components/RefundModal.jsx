@@ -4,7 +4,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
   X, AlertCircle, RotateCcw, RefreshCw, Check, Wallet, Smartphone,
-  CreditCard, Landmark, Info, Plus, Minus,
+  CreditCard, Landmark, Info, Plus, Minus, Pill, Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useShift } from '../../../contexts/ShiftContext';
@@ -19,6 +19,27 @@ const REFUND_METHODS = [
   { key: 'credit', label: 'Credit reversal (Deni)', icon: RotateCcw, capped: true },
 ];
 
+// Walk allocations LIFO (last-allocated first) to satisfy a base quantity.
+// Returns [{ batchId, quantity }] summing to baseQuantity.
+const planAllocations = (allocations, baseQuantity) => {
+  if (!Array.isArray(allocations) || allocations.length === 0) return [];
+  const sorted = [...allocations].sort((a, b) => {
+    // LIFO: reverse creation order. allocationId is UUID; fall back to order.
+    return b._index - a._index;
+  });
+  let need = Number(baseQuantity) || 0;
+  const plan = [];
+  for (const a of sorted) {
+    if (need <= 0) break;
+    const available = Number(a.remainingRefundable) || 0;
+    if (available <= 0) continue;
+    const take = Math.min(available, need);
+    plan.push({ batchId: a.batchId, quantity: take });
+    need -= take;
+  }
+  return plan;
+};
+
 const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
   const { activeOrganization } = useAuth();
   const { currentShift } = useShift();
@@ -26,6 +47,7 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
   const orgId = activeOrganization?.id;
 
   const [state, setState] = useState(null);
+  const [allocationState, setAllocationState] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -48,15 +70,51 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
     if (!orgId || !saleId) return;
     setLoading(true);
     setError(null);
+
     try {
-      const res = await axios.get(
-        `/organizations/${orgId}/kxtill/sales/${saleId}/refundable`,
-        { timeout: 10000 }
-      );
+      // Both calls in parallel
+      const [refundableRes, allocationsRes] = await Promise.allSettled([
+        axios.get(
+          `/organizations/${orgId}/kxtill/sales/${saleId}/refundable`,
+          { timeout: 10000 }
+        ),
+        axios.get(
+          `/organizations/${orgId}/kxtill/pharmacy/sales/${saleId}/allocations`,
+          { timeout: 10000 }
+        ),
+      ]);
+
       if (!isMountedRef.current) return;
-      setState(res.data);
+
+      // Refundable state is required — fail if it errored
+      if (refundableRes.status !== 'fulfilled') {
+        throw refundableRes.reason;
+      }
+      const refundableData = refundableRes.value.data;
+      setState(refundableData);
+
+      // Allocations are optional — retail sales have none
+      const allocData =
+        allocationsRes.status === 'fulfilled'
+          ? allocationsRes.value.data
+          : null;
+
+      // Index allocations by saleItemId, keep original order for LIFO
+      const allocByItem = {};
+      if (allocData?.items) {
+        for (const item of allocData.items) {
+          if (Array.isArray(item.allocations) && item.allocations.length > 0) {
+            allocByItem[item.saleItemId] = item.allocations.map((a, i) => ({
+              ...a,
+              _index: i,
+            }));
+          }
+        }
+      }
+      setAllocationState(allocByItem);
+
       const q = {};
-      for (const it of res.data.items || []) q[it.saleItemId] = 0;
+      for (const it of refundableData.items || []) q[it.saleItemId] = 0;
       setQuantities(q);
       setMethods({ cash: '', mpesa: '', card: '', bank: '', credit: '' });
       setReason('');
@@ -76,6 +134,38 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
   useEffect(() => {
     if (isOpen) load();
   }, [isOpen, load]);
+
+  // Sum of allocations' remaining refundable per item
+  const itemRefundableBatchQty = useCallback(
+    (saleItemId) => {
+      const allocs = allocationState?.[saleItemId];
+      if (!allocs) return 0;
+      return allocs.reduce(
+        (sum, a) => sum + Number(a.remainingRefundable || 0),
+        0
+      );
+    },
+    [allocationState]
+  );
+
+  const isPharmacyItem = useCallback(
+    (saleItemId) => !!allocationState?.[saleItemId],
+    [allocationState]
+  );
+
+  // For each item, compute LIFO plan client-side (for preview + submit)
+  const allocationPlans = useMemo(() => {
+    if (!state) return {};
+    const plans = {};
+    for (const item of state.items) {
+      const allocs = allocationState?.[item.saleItemId];
+      if (!allocs) continue;
+      const requested = Number(quantities[item.saleItemId] || 0);
+      const baseQty = requested * Number(item.conversionQty || 1);
+      plans[item.saleItemId] = planAllocations(allocs, baseQty);
+    }
+    return plans;
+  }, [state, allocationState, quantities]);
 
   const refundTotal = useMemo(() => {
     if (!state) return 0;
@@ -101,6 +191,11 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
   const allocationOk = !overAllocated && !underAllocated && refundTotal > 0;
 
   const creditCap = state?.creditRefundable ?? 0;
+
+  const isPharmacySale = useMemo(
+    () => Object.keys(allocationState || {}).length > 0,
+    [allocationState]
+  );
 
   const handleQuantityChange = (saleItemId, value) => {
     const item = state.items.find((i) => i.saleItemId === saleItemId);
@@ -157,9 +252,31 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
       return;
     }
 
-    const items = Object.entries(quantities)
-      .filter(([, q]) => Number(q) > 0)
-      .map(([saleItemId, quantity]) => ({ saleItemId, quantity: Number(quantity) }));
+    // Build items — with allocations for pharmacy items
+    const items = [];
+    for (const item of state.items) {
+      const q = Number(quantities[item.saleItemId] || 0);
+      if (q <= 0) continue;
+
+      const entry = { saleItemId: item.saleItemId, quantity: q };
+
+      if (isPharmacyItem(item.saleItemId)) {
+        const plan = allocationPlans[item.saleItemId] || [];
+        const planSum = plan.reduce((s, p) => s + Number(p.quantity || 0), 0);
+        const requiredBase = q * Number(item.conversionQty || 1);
+
+        if (planSum !== requiredBase) {
+          setSubmitError(
+            `Cannot refund ${q} of ${item.productName}: only ${itemRefundableBatchQty(item.saleItemId)} unit(s) available in refundable batches`
+          );
+          return;
+        }
+
+        entry.allocations = plan;
+      }
+
+      items.push(entry);
+    }
 
     const payload = {
       items,
@@ -172,14 +289,16 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
       shiftId: currentShift?.id || null,
     };
 
+    const endpoint = isPharmacySale
+      ? `/organizations/${orgId}/kxtill/pharmacy/sales/${saleId}/refund`
+      : `/organizations/${orgId}/kxtill/sales/${saleId}/refund`;
+
     setSubmitting(true);
     setSubmitError('');
     try {
-      const res = await axios.post(
-        `/organizations/${orgId}/kxtill/sales/${saleId}/refund`,
-        payload
-      );
-      toast.success(`Refund ${res.data?.refund?.reference || ''} processed`);
+      const res = await axios.post(endpoint, payload);
+      const ref = res.data?.refund?.reference || res.data?.reference || '';
+      toast.success(`Refund ${ref} processed`);
       onSuccess?.(res.data);
     } catch (err) {
       const msg =
@@ -207,6 +326,25 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
           <div className={styles.title}>
             <RotateCcw size={18} className={styles.titleIcon} />
             <span>Process Refund</span>
+            {isPharmacySale && (
+              <span
+                style={{
+                  marginLeft: 8,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  background: 'rgba(255,106,43,0.12)',
+                  color: '#ff6a2b',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Pill size={11} />
+                Pharmacy
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -291,6 +429,11 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
                     const maxReached = q >= item.remainingQuantity;
                     const minReached = q <= 0;
                     const lineTotal = q * item.unitPrice;
+                    const isPharm = isPharmacyItem(item.saleItemId);
+                    const batchAvail = isPharm
+                      ? itemRefundableBatchQty(item.saleItemId)
+                      : null;
+                    const plan = allocationPlans[item.saleItemId] || [];
 
                     return (
                       <div
@@ -298,7 +441,15 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
                         className={`${styles.itemCard} ${!canRefund ? styles.itemCardDisabled : ''} ${q > 0 ? styles.itemCardActive : ''}`}
                       >
                         <div className={styles.itemCardHeader}>
-                          <div className={styles.itemCardName}>{item.productName}</div>
+                          <div className={styles.itemCardName}>
+                            {isPharm && (
+                              <Pill
+                                size={12}
+                                style={{ marginRight: 6, color: '#ff6a2b' }}
+                              />
+                            )}
+                            {item.productName}
+                          </div>
                           {item.sku && (
                             <div className={styles.itemCardSku}>{item.sku}</div>
                           )}
@@ -313,6 +464,65 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
                             ? `${item.remainingQuantity} available to return`
                             : 'Already fully returned'}
                         </div>
+
+                        {isPharm && batchAvail !== null && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 11,
+                              color: batchAvail > 0 ? '#8b8d99' : '#ef5350',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Calendar size={11} />
+                            {batchAvail > 0
+                              ? `${batchAvail} unit(s) refundable from batches (LIFO)`
+                              : 'No refundable batch quantity remaining'}
+                          </div>
+                        )}
+
+                        {isPharm && plan.length > 0 && q > 0 && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 11,
+                              color: '#8b8d99',
+                              padding: '6px 8px',
+                              borderRadius: 6,
+                              background: 'rgba(255,106,43,0.06)',
+                              border: '1px solid rgba(255,106,43,0.15)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: '#ff6a2b',
+                                marginBottom: 2,
+                              }}
+                            >
+                              Will reverse from:
+                            </div>
+                            {plan.map((p, i) => {
+                              const alloc = allocationState[
+                                item.saleItemId
+                              ]?.find((a) => a.batchId === p.batchId);
+                              return (
+                                <div key={i}>
+                                  {p.quantity} × {alloc?.batchNumber || p.batchId.slice(0, 8)}
+                                  {alloc?.expiryDate
+                                    ? ` (exp ${new Date(
+                                        alloc.expiryDate
+                                      )
+                                        .toISOString()
+                                        .slice(0, 10)})`
+                                    : ''}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
 
                         {canRefund && (
                           <div className={styles.itemCardControls}>
@@ -443,7 +653,7 @@ const RefundModal = ({ isOpen, onClose, saleId, onSuccess }) => {
                 </div>
               </div>
 
-              {/* Credit warning — only when the customer ends up owed */}
+              {/* Credit warning */}
               {willGoNegative && state.customer && (
                 <div className={styles.noticeWarning}>
                   <Info size={16} />

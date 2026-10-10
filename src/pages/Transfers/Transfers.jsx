@@ -10,7 +10,7 @@ import {
   ArrowRight,
   Plus,
   Search,
-  Eye, 
+  Eye,
   AlertCircle,
   Building2,
   Loader2,
@@ -31,26 +31,21 @@ const Transfers = () => {
   const orgId = activeOrganization?.id;
   const branchId = activeBranch?.id;
 
-  // Permissions — owner implied via wildcard.
   const canCreate = canAny([
     'kxtill.inventory.transfers.create',
     'branches.manage',
   ]);
-
   const canApprove = canAny([
     'kxtill.inventory.transfers.approve',
     'branches.manage',
   ]);
-
   const canReject = canApprove;
-
   const canComplete = canAny([
     'kxtill.inventory.transfers.complete',
     'kxtill.inventory.transfers.approve',
     'branches.manage',
   ]);
 
-  // State
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,13 +62,11 @@ const Transfers = () => {
   const fetchControllerRef = useRef(null);
   const hasLoadedOnceRef = useRef(false);
 
-  // ---------- fetch ----------
   const fetchTransfers = useCallback(async () => {
     if (!orgId) {
       setLoading(false);
       return { ok: false };
     }
-
     if (!hasLoadedOnceRef.current) setLoading(true);
 
     fetchControllerRef.current?.abort();
@@ -101,13 +94,12 @@ const Transfers = () => {
       if (error.name === 'CanceledError' || error.name === 'AbortError') {
         return { ok: false };
       }
-
       console.error('Failed to fetch transfers:', error);
       if (isMountedRef.current) {
         toast.error(
           error.response?.data?.error ||
             error.response?.data?.message ||
-            'Failed to load transfers'
+            'Failed to load stock movements'
         );
         setTransfers([]);
       }
@@ -119,7 +111,6 @@ const Transfers = () => {
     }
   }, [orgId, branchId, statusFilter]);
 
-  // ---------- lifecycle ----------
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -138,7 +129,6 @@ const Transfers = () => {
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // ---------- background polling ----------
   usePolling(
     () => {
       if (!orgId) return;
@@ -159,7 +149,6 @@ const Transfers = () => {
     }
   };
 
-  // ---------- derived stats ----------
   const stats = useMemo(() => {
     const s = {
       total: transfers.length,
@@ -188,6 +177,8 @@ const Transfers = () => {
         t.sourceBranchProduct?.product?.name ||
         ''
       ).toLowerCase();
+      const generic =
+        t.sourceBranchProduct?.product?.pharmacyProduct?.genericName?.toLowerCase() || '';
       const by = `${t.initiatedBy?.firstName || ''} ${
         t.initiatedBy?.lastName || ''
       }`.toLowerCase();
@@ -196,12 +187,12 @@ const Transfers = () => {
         from.includes(q) ||
         to.includes(q) ||
         product.includes(q) ||
+        generic.includes(q) ||
         by.includes(q)
       );
     });
   }, [transfers, searchTerm]);
 
-  // ---------- actions ----------
   const openDetail = (transfer) => {
     setSelectedTransfer(transfer);
     setShowDetailModal(true);
@@ -233,13 +224,27 @@ const Transfers = () => {
     }
   };
 
-  const handleApprove = async (id, { offerComplete = true } = {}) => {
+  const handleApprove = async (id, { offerComplete = true, transfer } = {}) => {
     setActionLoading(true);
     try {
-      await axios.patch(
-        `/organizations/${orgId}/kxtill/transfers/${id}/approve`
+      const product = transfer?.sourceBranchProduct?.product;
+      const isPharmacyProduct = !!product?.pharmacyProduct;
+
+      if (isPharmacyProduct) {
+        await axios.post(
+          `/organizations/${orgId}/kxtill/pharmacy/transfers/${id}/approve`
+        );
+      } else {
+        await axios.patch(
+          `/organizations/${orgId}/kxtill/transfers/${id}/approve`
+        );
+      }
+
+      toast.success(
+        isPharmacyProduct
+          ? 'Transfer approved — batches moved with FEFO'
+          : 'Transfer approved — stock has moved'
       );
-      toast.success('Transfer approved — stock has moved');
       await fetchTransfers();
       closeDetail();
       return { ok: true, offerComplete };
@@ -300,12 +305,14 @@ const Transfers = () => {
     }
   };
 
-  // ---------- render helpers ----------
   const getDisplayName = (user) => {
     if (!user) return 'Unknown';
     const n = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     return n || 'Unknown';
   };
+
+  const isPharmacyProduct = (t) =>
+    !!t.sourceBranchProduct?.product?.pharmacyProduct;
 
   if (!orgId) {
     return (
@@ -322,14 +329,13 @@ const Transfers = () => {
 
   return (
     <div className={styles.page}>
-      {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.headerIcon}>
             <RefreshCw size={20} />
           </div>
           <div>
-            <h1 className={styles.title}>Stock Transfers</h1>
+            <h1 className={styles.title}>Pharmacy Stock Transfers</h1>
             <p className={styles.subtitle}>
               <Building2 size={12} /> {activeBranch?.name || 'All Branches'}
             </p>
@@ -360,7 +366,6 @@ const Transfers = () => {
         </div>
       </div>
 
-      {/* Stats */}
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
           <span className={styles.statValue}>{stats.total}</span>
@@ -388,7 +393,6 @@ const Transfers = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className={styles.filtersBar}>
         <div className={styles.searchWrapper}>
           <Search size={16} className={styles.searchIcon} />
@@ -414,7 +418,6 @@ const Transfers = () => {
         </select>
       </div>
 
-      {/* List */}
       {showSkeleton ? (
         <div className={styles.loadingState}>
           <Loader2 size={28} className={styles.spinning} />
@@ -428,7 +431,7 @@ const Transfers = () => {
             {searchTerm || statusFilter !== 'all'
               ? 'Try adjusting your filters.'
               : canCreate
-              ? 'Create the first transfer to move stock between branches.'
+              ? 'Create the first transfer to move medicine between branches.'
               : 'No transfers involving this branch yet.'}
           </p>
         </div>
@@ -455,7 +458,12 @@ const Transfers = () => {
                   t.sourceBranchProduct?.displayName ||
                   t.sourceBranchProduct?.product?.name ||
                   '—';
+                const generic =
+                  t.sourceBranchProduct?.product?.pharmacyProduct?.genericName;
+                const strength =
+                  t.sourceBranchProduct?.product?.pharmacyProduct?.strength;
                 const qty = parseInt(t.quantitySent, 10) || 0;
+                const isPharmacy = isPharmacyProduct(t);
 
                 return (
                   <tr key={t.id} className={styles.tableRow}>
@@ -463,14 +471,25 @@ const Transfers = () => {
                     <td>
                       <div className={styles.pathCell}>
                         <span className={styles.branchCode}>{from}</span>
-                        <ArrowRight
-                          size={12}
-                          className={styles.pathArrow}
-                        />
+                        <ArrowRight size={12} className={styles.pathArrow} />
                         <span className={styles.branchCode}>{to}</span>
                       </div>
                     </td>
-                    <td className={styles.productCell}>{product}</td>
+                    <td className={styles.productCell}>
+                      <div>{product}</div>
+                      {isPharmacy && generic && (
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#8b8d99',
+                            marginTop: '2px',
+                          }}
+                        >
+                          {generic}
+                          {strength ? ` · ${strength}` : ''}
+                        </div>
+                      )}
+                    </td>
                     <td className={styles.qtyCell}>{qty}</td>
                     <td>{formatDate(t.createdAt)}</td>
                     <td className={styles.userCell}>
@@ -497,7 +516,6 @@ const Transfers = () => {
         </div>
       )}
 
-      {/* Modals */}
       <NewTransferModal
         isOpen={showNewModal}
         onClose={() => setShowNewModal(false)}

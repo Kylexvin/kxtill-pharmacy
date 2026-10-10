@@ -20,18 +20,30 @@ export const upsertProduct = async (product) => {
   ]);
 };
 
-
 export const getProduct = async (id) => {
   const results = query('SELECT * FROM products WHERE id = ?', [id]);
   return results.length ? results[0] : null;
 };
 
 export const getAllProducts = async () => {
+  // Single query for products
   const products = query('SELECT * FROM products ORDER BY name ASC');
-  for (const product of products) {
-    const units = query('SELECT * FROM product_units WHERE productId = ?', [product.id]);
-    product.units = units;
+  if (products.length === 0) return products;
+
+  // One query for ALL units — no N+1
+  const allUnits = query('SELECT * FROM product_units');
+
+  // Group units by productId
+  const unitsByProduct = {};
+  for (const u of allUnits) {
+    (unitsByProduct[u.productId] ||= []).push(u);
   }
+
+  // Attach
+  for (const product of products) {
+    product.units = unitsByProduct[product.id] || [];
+  }
+
   return products;
 };
 

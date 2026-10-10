@@ -23,6 +23,7 @@ import {
   List,
   Grid,
   Package,
+  Pill,
   Building2,
   Activity,
   Archive,
@@ -32,27 +33,62 @@ import {
 import styles from './GlobalInventory.module.css';
 import ProductModal from './components/ProductModal';
 import ProductDetailModal from './components/ProductDetailModal';
-import BranchStockModal from './components/BranchStockModal';
 import usePolling from '../../hooks/usePolling';
 
-const GlobalInventory = () => {
-  const {
-    activeOrganization,
-    activeBranch,
-    branches,
-    isOffline: contextIsOffline,
-  } = useAuth();
+// ============================================================
+// CONSTANTS
+// ============================================================
+const TYPE_FILTER = {
+  ALL: 'all',
+  MEDICINE: 'medicine',
+  RETAIL: 'retail',
+};
 
+const GlobalInventory = () => {
+  const { activeOrganization, isOffline: contextIsOffline } = useAuth();
   const { can, isOwner } = usePermissions();
   const { formatCurrency } = useSettings();
 
-  // Permissions
   const canCreate = can(KXTILL.INVENTORY.CREATE);
   const canUpdate = can(KXTILL.INVENTORY.UPDATE);
   const canDelete = can(KXTILL.INVENTORY.DELETE);
-  const canUpdateStock = can(KXTILL.INVENTORY.UPDATE);
 
-  // State
+  const orgId = activeOrganization?.id;
+
+  // ============================================================
+  // PHARMACY MODE
+  // ============================================================
+  const [isPharmacyOrg, setIsPharmacyOrg] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!orgId) return;
+
+    (async () => {
+      try {
+        const res = await axios.get(
+          `/products/organizations/${orgId}/products`
+        );
+        const products = res.data?.products || [];
+        const kxtill = products.find((p) => p.productKey === 'kxtill');
+        const hasPharmacy = (kxtill?.instances || []).some(
+          (i) => i.vertical === 'pharmacy' && i.isActive !== false
+        );
+        if (!cancelled) setIsPharmacyOrg(hasPharmacy);
+      } catch (err) {
+        console.error('Failed to check pharmacy instance:', err);
+        if (!cancelled) setIsPharmacyOrg(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  // ============================================================
+  // STATE
+  // ============================================================
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
@@ -60,6 +96,7 @@ const GlobalInventory = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [categories, setCategories] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState(TYPE_FILTER.ALL);
   const [showArchived, setShowArchived] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -72,17 +109,14 @@ const GlobalInventory = () => {
   // Aggregates
   const [health, setHealth] = useState(null);
 
-  // Modal states
+  // Modals
   const [showProductModal, setShowProductModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [showStockModal, setShowStockModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [productToArchive, setProductToArchive] = useState(null);
-  const [newlyCreatedProduct, setNewlyCreatedProduct] = useState(null);
-  const [stockModalBranchId, setStockModalBranchId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const isMountedRef = useRef(true);
@@ -90,13 +124,11 @@ const GlobalInventory = () => {
   const hasLoadedOnceRef = useRef(false);
   const filterMenuRef = useRef(null);
 
-  const orgId = activeOrganization?.id;
   const limit = 20;
 
-  // Branch list for the stock modal dropdown — restrict to what the user can access
-  const availableBranches = useMemo(() => branches || [], [branches]);
-
-  // ---------- helpers ----------
+  // ============================================================
+  // HELPERS — stock status (from branch aggregates)
+  // ============================================================
   const getStockStatus = (product) => {
     const bps = product.branchProducts || [];
 
@@ -114,24 +146,23 @@ const GlobalInventory = () => {
     if (outCount === total) {
       return { label: 'Out of Stock', variant: 'danger', icon: AlertCircle };
     }
-
     if (lowCount + outCount === total) {
       return { label: 'Low Stock', variant: 'warning', icon: AlertTriangle };
     }
-
     if (outCount > 0 || lowCount > 0) {
       const needAttention = lowCount + outCount;
       return {
-        label: `${needAttention} of ${total} branches need attention`,
+        label: `${needAttention} of ${total} need attention`,
         variant: 'warning',
         icon: AlertTriangle,
       };
     }
-
     return { label: 'In Stock', variant: 'success', icon: Check };
   };
 
-  // ---------- fetching ----------
+  // ============================================================
+  // FETCH
+  // ============================================================
   const fetchHealth = useCallback(async () => {
     if (!orgId) return;
     try {
@@ -147,9 +178,7 @@ const GlobalInventory = () => {
   const fetchSummary = useCallback(async () => {
     if (!orgId) return;
     try {
-      await axios.get(
-        `/organizations/${orgId}/kxtill/inventory/summary`
-      );
+      await axios.get(`/organizations/${orgId}/kxtill/inventory/summary`);
     } catch (error) {
       console.error('Failed to fetch summary:', error);
     }
@@ -228,6 +257,7 @@ const GlobalInventory = () => {
           taxRate: parseFloat(p.taxRate) || 0,
           isActive: p.isActive !== false,
           trackInventory: p.trackInventory !== false,
+          pharmacyProduct: p.pharmacyProduct || null,
 
           baseUnit,
           baseUnitId: p.baseUnitId,
@@ -254,6 +284,7 @@ const GlobalInventory = () => {
       });
 
       let filtered = transformed;
+
       if (statusFilter === 'in-stock') {
         filtered = filtered.filter((p) => p.outCount === 0 && p.lowCount === 0);
       } else if (statusFilter === 'low-stock') {
@@ -262,6 +293,13 @@ const GlobalInventory = () => {
         filtered = filtered.filter(
           (p) => p.branchCount > 0 && p.outCount === p.branchCount
         );
+      }
+
+      // Type filter — catalog-level distinction only
+      if (typeFilter === TYPE_FILTER.MEDICINE) {
+        filtered = filtered.filter((p) => !!p.pharmacyProduct);
+      } else if (typeFilter === TYPE_FILTER.RETAIL) {
+        filtered = filtered.filter((p) => !p.pharmacyProduct);
       }
 
       setProducts(filtered);
@@ -279,9 +317,19 @@ const GlobalInventory = () => {
     } finally {
       if (isMountedRef.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [orgId, searchTerm, categoryFilter, statusFilter, showArchived, contextIsOffline]);
+  }, [
+    orgId,
+    searchTerm,
+    categoryFilter,
+    statusFilter,
+    typeFilter,
+    showArchived,
+    contextIsOffline,
+  ]);
 
-  // ---------- effects ----------
+  // ============================================================
+  // EFFECTS
+  // ============================================================
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -302,13 +350,11 @@ const GlobalInventory = () => {
     localStorage.setItem('globalInventoryShowArchived', String(showArchived));
   }, [showArchived]);
 
-  // Restore persisted filter on mount
   useEffect(() => {
     const stored = localStorage.getItem('globalInventoryShowArchived');
     if (stored === 'true') setShowArchived(true);
   }, []);
 
-  // Close filter popover on outside click
   useEffect(() => {
     if (!showFilterMenu) return;
     const handler = (e) => {
@@ -322,7 +368,7 @@ const GlobalInventory = () => {
 
   useEffect(() => {
     hasLoadedOnceRef.current = false;
-  }, [categoryFilter, statusFilter, showArchived]);
+  }, [categoryFilter, statusFilter, typeFilter, showArchived]);
 
   useEffect(() => {
     if (orgId) {
@@ -330,11 +376,12 @@ const GlobalInventory = () => {
       fetchHealth();
       fetchSummary();
     }
-  }, [fetchProducts, fetchHealth, fetchSummary, orgId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, searchTerm, categoryFilter, statusFilter, typeFilter, showArchived]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, statusFilter, showArchived]);
+  }, [searchTerm, categoryFilter, statusFilter, typeFilter, showArchived]);
 
   useEffect(() => {
     const handler = setTimeout(() => setSearchTerm(searchInput), 400);
@@ -353,7 +400,9 @@ const GlobalInventory = () => {
     [orgId]
   );
 
-  // ---------- handlers ----------
+  // ============================================================
+  // HANDLERS
+  // ============================================================
   const handleRefresh = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -372,6 +421,7 @@ const GlobalInventory = () => {
     setSearchTerm('');
     setCategoryFilter('all');
     setStatusFilter('all');
+    setTypeFilter(TYPE_FILTER.ALL);
     setShowArchived(false);
     setCurrentPage(1);
   };
@@ -406,7 +456,9 @@ const GlobalInventory = () => {
     setProductToArchive(null);
   };
 
-  // ---------- create / update ----------
+  // ============================================================
+  // CREATE / UPDATE
+  // ============================================================
   const handleProductSave = async (productData) => {
     if (!orgId) return;
     setSubmitting(true);
@@ -419,49 +471,27 @@ const GlobalInventory = () => {
           productData
         );
         toast.success('Product updated successfully');
-        closeProductModal();
-        fetchProducts();
-        fetchHealth();
-        fetchSummary();
       } else {
         const response = await axios.post(
           `/organizations/${orgId}/kxtill/products`,
           productData
         );
         const created = response.data?.product || response.data;
+        const isMedicine = !!created?.pharmacyProduct;
 
-        closeProductModal();
-        fetchProducts();
-        fetchHealth();
-        fetchSummary();
-
-        // Hand off to the stock modal so the user can set stock in-flow.
-        // Only if: user has permission, has access to at least one branch.
-        if (created && canUpdateStock && availableBranches.length > 0) {
-          const initialBranchId =
-            activeBranch?.id || availableBranches[0]?.id || null;
-
-          setNewlyCreatedProduct({
-            productId: created.id,
-            id: created.id,
-            name: created.name,
-            displayName: created.name,
-            unit:
-              created.baseUnit?.abbreviation ||
-              created.baseUnit?.name ||
-              'units',
-            stock: 0,
-            minStock: 0,
-          });
-          setStockModalBranchId(initialBranchId);
-          setShowStockModal(true);
-          toast.success('Product created — set stock');
-        } else if (created) {
+        if (isMedicine) {
           toast.success(
-            'Product created. Set stock per branch in Inventory.'
+            'Medicine created. Go to branch inventory to receive a batch.'
           );
+        } else {
+          toast.success('Product created.');
         }
       }
+
+      closeProductModal();
+      fetchProducts();
+      fetchHealth();
+      fetchSummary();
     } catch (error) {
       console.error('Save failed:', error);
       toast.error(error.response?.data?.message || 'Failed to save product');
@@ -470,50 +500,9 @@ const GlobalInventory = () => {
     }
   };
 
-  // ---------- stock save (from newly-created flow) ----------
-  const handleNewProductStockSave = async ({ stock, minStock }) => {
-    if (!newlyCreatedProduct || !orgId || !stockModalBranchId) return;
-
-    setSubmitting(true);
-    try {
-      await axios.patch(
-        `/organizations/${orgId}/kxtill/branches/${stockModalBranchId}/products/${newlyCreatedProduct.productId}/stock`,
-        {
-          stock,
-          minStock: minStock ?? 0,
-        }
-      );
-
-      const branchName =
-        availableBranches.find((b) => b.id === stockModalBranchId)?.name ||
-        'branch';
-
-      toast.success(
-        `Stock set: ${stock} ${newlyCreatedProduct.unit} at ${branchName}`
-      );
-
-      setShowStockModal(false);
-      setNewlyCreatedProduct(null);
-      setStockModalBranchId(null);
-
-      fetchProducts();
-      fetchHealth();
-      fetchSummary();
-    } catch (error) {
-      console.error('Stock update failed:', error);
-      toast.error(error.response?.data?.message || 'Failed to set stock');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const closeStockModal = () => {
-    setShowStockModal(false);
-    setNewlyCreatedProduct(null);
-    setStockModalBranchId(null);
-  };
-
-  // ---------- archive / restore ----------
+  // ============================================================
+  // ARCHIVE / RESTORE
+  // ============================================================
   const confirmArchive = async () => {
     if (!productToArchive || !orgId) return;
     setSubmitting(true);
@@ -548,8 +537,6 @@ const GlobalInventory = () => {
         { isActive: true }
       );
 
-      // Count how many branches still have this product enabled. Restore
-      // does not touch branch_products, so their availability is preserved.
       const availableCount = (product.branchProducts || []).filter(
         (bp) => bp.isAvailable !== false
       ).length;
@@ -580,6 +567,7 @@ const GlobalInventory = () => {
     if (statusFilter !== 'all') count++;
     if (searchTerm?.trim()) count++;
     if (showArchived) count++;
+    if (typeFilter !== TYPE_FILTER.ALL) count++;
     return count;
   };
 
@@ -602,12 +590,13 @@ const GlobalInventory = () => {
   }
 
   const showSkeleton = loading && !hasLoadedOnceRef.current;
-  const healthScore = health?.health ?? 0;
-  const showBranchPicker = availableBranches.length > 1;
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className={styles.page}>
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.headerTitle}>
@@ -637,7 +626,7 @@ const GlobalInventory = () => {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* ─── Stats ─── */}
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.statIconHealth}`}>
@@ -645,7 +634,9 @@ const GlobalInventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Inventory Health</span>
-            <span className={styles.statValue}>{healthScore}%</span>
+            <span className={styles.statValue}>
+              {health?.health ?? 0}%
+            </span>
           </div>
         </div>
 
@@ -655,7 +646,9 @@ const GlobalInventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>In Stock</span>
-            <span className={styles.statValue}>{health?.inStock ?? 0}</span>
+            <span className={styles.statValue}>
+              {health?.inStock ?? 0}
+            </span>
           </div>
         </div>
 
@@ -665,7 +658,9 @@ const GlobalInventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Low Stock</span>
-            <span className={styles.statValue}>{health?.lowStock ?? 0}</span>
+            <span className={styles.statValue}>
+              {health?.lowStock ?? 0}
+            </span>
           </div>
         </div>
 
@@ -675,18 +670,24 @@ const GlobalInventory = () => {
           </div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Out of Stock</span>
-            <span className={styles.statValue}>{health?.outOfStock ?? 0}</span>
+            <span className={styles.statValue}>
+              {health?.outOfStock ?? 0}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* ─── Filters ─── */}
       <div className={styles.filtersBar}>
         <div className={styles.searchWrapper}>
           <Search size={16} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Search products..."
+            placeholder={
+              isPharmacyOrg
+                ? 'Search name, generic, or SKU...'
+                : 'Search products...'
+            }
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className={styles.searchInput}
@@ -707,6 +708,18 @@ const GlobalInventory = () => {
             ))}
           </select>
 
+          {isPharmacyOrg && (
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className={styles.filterSelect}
+            >
+              <option value={TYPE_FILTER.ALL}>All Types</option>
+              <option value={TYPE_FILTER.MEDICINE}>Medicine</option>
+              <option value={TYPE_FILTER.RETAIL}>Retail item</option>
+            </select>
+          )}
+
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -718,7 +731,6 @@ const GlobalInventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
-          {/* Secondary filters popover */}
           <div className={styles.filterMenu} ref={filterMenuRef}>
             <button
               type="button"
@@ -791,7 +803,7 @@ const GlobalInventory = () => {
         </div>
       </div>
 
-      {/* Products Display */}
+      {/* ─── Products Display ─── */}
       {showSkeleton ? (
         <div className={styles.loadingState}>
           <RefreshCw size={32} className={styles.spinning} />
@@ -805,7 +817,7 @@ const GlobalInventory = () => {
             {getActiveFilterCount() > 0
               ? 'Try adjusting your filters to see more results'
               : canCreate
-              ? 'Start by adding your first global product'
+              ? 'Start by adding your first product'
               : 'No products in the catalog yet'}
           </p>
           {getActiveFilterCount() > 0 && (
@@ -834,17 +846,22 @@ const GlobalInventory = () => {
             const StatusIcon = status.icon;
             const totalStock = Number(product.totalStock || 0);
             const archived = !product.isActive;
+            const isMedicine = !!product.pharmacyProduct;
 
             return (
               <div
                 key={product.id}
                 className={`${styles.productCard} ${
                   archived ? styles.archivedCard : ''
-                }`}
+                } ${isMedicine ? styles.medicineCard : ''}`}
               >
                 <div className={styles.productCardHeader}>
-                  <div className={styles.productCardIcon}>
-                    <Package size={20} />
+                  <div
+                    className={`${styles.productCardIcon} ${
+                      isMedicine ? styles.medicineIcon : ''
+                    }`}
+                  >
+                    {isMedicine ? <Pill size={20} /> : <Package size={20} />}
                   </div>
                   <div
                     className={`${styles.productCardStatus} ${
@@ -856,6 +873,18 @@ const GlobalInventory = () => {
                 </div>
                 <div className={styles.productCardBody}>
                   <h3 className={styles.productCardName}>{product.name}</h3>
+                  {isMedicine && (
+                    <span className={styles.productCardGeneric}>
+                      {[
+                        product.pharmacyProduct?.genericName,
+                        product.pharmacyProduct?.strength,
+                        product.pharmacyProduct?.dosageForm,
+                        product.pharmacyProduct?.prescriptionCategory,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  )}
                   {archived && (
                     <span className={styles.archivedTag}>Archived</span>
                   )}
@@ -950,6 +979,7 @@ const GlobalInventory = () => {
                 <th>Product</th>
                 <th>SKU</th>
                 <th>Category</th>
+                {isPharmacyOrg && <th>Type</th>}
                 <th>Branches</th>
                 <th>Total Stock</th>
                 <th>Base Price</th>
@@ -963,6 +993,7 @@ const GlobalInventory = () => {
                 const StatusIcon = status.icon;
                 const totalStock = Number(product.totalStock || 0);
                 const archived = !product.isActive;
+                const isMedicine = !!product.pharmacyProduct;
 
                 return (
                   <tr
@@ -973,13 +1004,32 @@ const GlobalInventory = () => {
                   >
                     <td>
                       <div className={styles.productCell}>
-                        <div className={styles.productCellIcon}>
-                          <Package size={16} />
+                        <div
+                          className={`${styles.productCellIcon} ${
+                            isMedicine ? styles.medicineIcon : ''
+                          }`}
+                        >
+                          {isMedicine ? (
+                            <Pill size={16} />
+                          ) : (
+                            <Package size={16} />
+                          )}
                         </div>
                         <div className={styles.productCellInfo}>
                           <span className={styles.productCellName}>
                             {product.name}
                           </span>
+                          {isMedicine && (
+                            <span className={styles.productCellGeneric}>
+                              {[
+                                product.pharmacyProduct?.genericName,
+                                product.pharmacyProduct?.strength,
+                                product.pharmacyProduct?.dosageForm,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || 'Medicine'}
+                            </span>
+                          )}
                           {archived && (
                             <span className={styles.archivedTag}>
                               Archived
@@ -989,14 +1039,37 @@ const GlobalInventory = () => {
                       </div>
                     </td>
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
-                    <td>{product.category !== '-' ? product.category : '-'}</td>
+                    <td>
+                      {product.category !== '-' ? product.category : '-'}
+                    </td>
+
+                    {isPharmacyOrg && (
+                      <td>
+                        {isMedicine ? (
+                          <span
+                            className={`${styles.typeBadge} ${styles.typeBadgeMedicine}`}
+                          >
+                            <Pill size={10} /> Medicine
+                          </span>
+                        ) : (
+                          <span
+                            className={`${styles.typeBadge} ${styles.typeBadgeRetail}`}
+                          >
+                            <Package size={10} /> Retail
+                          </span>
+                        )}
+                      </td>
+                    )}
+
                     <td>
                       {product.branchCount > 0
                         ? `${product.branchCount - product.lowCount - product.outCount}/${product.branchCount} ok`
                         : '—'}
                     </td>
                     <td>
-                      <span className={totalStock <= 0 ? styles.stockLow : ''}>
+                      <span
+                        className={totalStock <= 0 ? styles.stockLow : ''}
+                      >
                         {totalStock} {product.unit}
                       </span>
                     </td>
@@ -1064,7 +1137,7 @@ const GlobalInventory = () => {
         </div>
       )}
 
-      {/* Pagination */}
+      {/* ─── Pagination ─── */}
       {totalPages > 1 && (
         <div className={styles.pagination}>
           <button
@@ -1091,13 +1164,16 @@ const GlobalInventory = () => {
         </div>
       )}
 
-      {/* Modals */}
+      {/* ─── Modals ─── */}
       <ProductModal
         isOpen={showProductModal}
         onClose={closeProductModal}
         onSave={handleProductSave}
         product={editingProduct}
         isSubmitting={submitting}
+        currency={activeOrganization?.currency || 'KES'}
+        defaultMode={isPharmacyOrg ? 'medicine' : 'retail'}
+        allowModeSwitch={isPharmacyOrg}
       />
 
       <ProductDetailModal
@@ -1108,6 +1184,7 @@ const GlobalInventory = () => {
         formatCurrency={formatCurrency}
         mode="global"
         orgId={orgId}
+        isPharmacyOrg={isPharmacyOrg}
         onEdit={
           canUpdate
             ? () => {
@@ -1119,19 +1196,7 @@ const GlobalInventory = () => {
         onBarcodeGenerated={fetchProducts}
       />
 
-      {/* Stock modal — opened right after a new product is created */}
-      <BranchStockModal
-        isOpen={showStockModal}
-        onClose={closeStockModal}
-        onSave={handleNewProductStockSave}
-        product={newlyCreatedProduct}
-        isSubmitting={submitting}
-        branches={showBranchPicker ? availableBranches : undefined}
-        selectedBranchId={stockModalBranchId}
-        onBranchChange={setStockModalBranchId}
-      />
-
-      {/* Archive Confirmation Modal */}
+      {/* ─── Archive Confirmation ─── */}
       {showArchiveModal && productToArchive && (
         <div className={styles.modalOverlay}>
           <div className={styles.confirmModal}>

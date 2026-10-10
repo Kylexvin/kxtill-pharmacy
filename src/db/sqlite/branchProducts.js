@@ -37,10 +37,24 @@ export const getBranchProducts = async (branchId) => {
     WHERE bp.branchId = ?
   `, [branchId]);
 
+  if (results.length === 0) return results;
+
+  // One query for ALL units for the products in this branch — no N+1
+  const unitRows = query(
+    `SELECT u.* FROM product_units u
+     JOIN branch_products bp ON bp.productId = u.productId
+     WHERE bp.branchId = ?`,
+    [branchId]
+  );
+
+  const byProduct = {};
+  for (const u of unitRows) {
+    (byProduct[u.productId] ||= []).push(u);
+  }
+
   for (const bp of results) {
     bp.isAvailable = Number(bp.isAvailable);
-    const units = query('SELECT * FROM product_units WHERE productId = ?', [bp.productId]);
-    bp.units = units;
+    bp.units = byProduct[bp.productId] || [];
   }
 
   return results;

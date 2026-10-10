@@ -1,5 +1,5 @@
 // src/db/sqlite/sales.js
-import { query, run } from './helpers.js';
+import { query, run, flushSave } from './helpers.js';
 import { enqueueSync } from './syncQueue.js';
 
 export const createLocalSale = async (sale) => {
@@ -32,6 +32,10 @@ export const createLocalSale = async (sale) => {
     sale.serverSaleId || null,
     sale.receiptText || null,
   ]);
+
+  // A sale shouldn't wait on the debounced save — commit immediately.
+  // The sync engine pushes right after this.
+  await flushSave();
 };
 
 export const getLocalSale = async (id) => {

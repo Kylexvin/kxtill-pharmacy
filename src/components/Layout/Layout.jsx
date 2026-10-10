@@ -6,11 +6,15 @@ import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import SubscriptionBanner from '../Common/SubscriptionBanner';
 import ShiftBanner from '../Common/ShiftBanner';
+
+import { usePermissions } from '../../contexts/PermissionsContext';
 import styles from './Layout.module.css';
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  const { loading: permissionsLoading, permissions } = usePermissions();
 
   useEffect(() => {
     const handleResize = () => {
@@ -27,6 +31,15 @@ const Layout = () => {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const closeSidebar = () => setSidebarOpen(false);
+
+  // Don't render the shell until permissions have resolved at least once.
+  // Prevents the sidebar from painting with only ungated items on first load.
+  const hasResolvedPermissions =
+    !permissionsLoading || (permissions && permissions.length > 0);
+
+  if (!hasResolvedPermissions) {
+    return null;
+  }
 
   return (
     <div className={styles.layout}>

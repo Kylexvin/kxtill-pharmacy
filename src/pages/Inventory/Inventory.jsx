@@ -11,7 +11,6 @@ import {
   Package,
   Search,
   Edit,
-
   Eye,
   ChevronLeft,
   ChevronRight,
@@ -23,32 +22,81 @@ import {
   Clock,
   List,
   Grid,
+  Pill,
   Building2,
   SlidersHorizontal,
   RotateCcw,
   Filter,
+  Plus,
+  Layers,
+  CalendarClock,
 } from 'lucide-react';
 import styles from './Inventory.module.css';
 import BranchProductModal from './components/BranchProductModal';
 import ProductDetailModal from './components/ProductDetailModal';
 import BranchStockModal from './components/BranchStockModal';
+import ReceiveBatchModal from './components/ReceiveBatchModal';
+import ProductBatchesModal from './components/ProductBatchesModal';
 import usePolling from '../../hooks/usePolling';
 
-const Inventory = () => {
-  const {
-    activeOrganization,
-    activeBranch,
-    isOffline: contextIsOffline,
-  } = useAuth();
+const DAYS_MS = 24 * 60 * 60 * 1000;
 
+const daysUntil = (dateStr) => {
+  if (!dateStr) return null;
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / DAYS_MS);
+};
+
+const formatExpiry = (dateStr) => {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const Inventory = () => {
+  const { activeOrganization, activeBranch, isOffline: contextIsOffline } = useAuth();
   const { can } = usePermissions();
   const { formatCurrency } = useSettings();
 
-  // Permissions
   const canUpdate = can(KXTILL.INVENTORY.UPDATE);
 
+  const orgId = activeOrganization?.id;
+  const branchId = activeBranch?.id;
 
-  // State
+  // ============================================================
+  // PHARMACY MODE
+  // ============================================================
+  const [isPharmacyOrg, setIsPharmacyOrg] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!orgId) return;
+
+    (async () => {
+      try {
+        const res = await axios.get(`/products/organizations/${orgId}/products`);
+        const products = res.data?.products || [];
+        const kxtill = products.find((p) => p.productKey === 'kxtill');
+        const hasPharmacy = (kxtill?.instances || []).some(
+          (i) => i.vertical === 'pharmacy' && i.isActive !== false
+        );
+        if (!cancelled) setIsPharmacyOrg(hasPharmacy);
+      } catch (err) {
+        console.error('Failed to check pharmacy instance:', err);
+        if (!cancelled) setIsPharmacyOrg(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  // ============================================================
+  // STATE
+  // ============================================================
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
@@ -65,13 +113,17 @@ const Inventory = () => {
     () => localStorage.getItem('inventoryViewMode') || 'list'
   );
 
-  // Modal states
+  // Modals
   const [showBranchProductModal, setShowBranchProductModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
+  const [showReceiveBatchModal, setShowReceiveBatchModal] = useState(false);
+  const [showBatchesModal, setShowBatchesModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [receiveBatchForProduct, setReceiveBatchForProduct] = useState(null);
+  const [batchesModalProduct, setBatchesModalProduct] = useState(null);
   const [branchProductData, setBranchProductData] = useState({
     displayName: '',
     description: '',
@@ -83,37 +135,135 @@ const Inventory = () => {
   const hasLoadedOnceRef = useRef(false);
   const filterMenuRef = useRef(null);
 
-  const orgId = activeOrganization?.id;
-  const branchId = activeBranch?.id;
   const limit = 20;
 
-  // ---------- helpers ----------
+  // ============================================================
+  // HELPERS
+  // ============================================================
   const getStockStatus = (product) => {
+    // Medicines with loaded batch info → expiry-aware
+    if (product.pharmacyProduct && product.nearestExpiry) {
+      const days = daysUntil(product.nearestExpiry);
+      if (days !== null && days < 0) {
+        return { label: 'Expired', variant: 'danger', icon: AlertTriangle };
+      }
+      if (days !== null && days <= 90) {
+        return {
+          label: `Expires in ${days}d`,
+          variant: 'warning',
+          icon: CalendarClock,
+        };
+      }
+    }
+
     const stock = Number(product.stock || 0);
     const minStock = Number(product.minStock || 0);
-    if (stock <= 0)
+    if (stock <= 0) {
       return { label: 'Out of Stock', variant: 'danger', icon: AlertCircle };
-    if (stock <= minStock)
+    }
+    if (stock <= minStock) {
       return { label: 'Low Stock', variant: 'warning', icon: AlertTriangle };
+    }
     return { label: 'In Stock', variant: 'success', icon: Check };
   };
 
   const stats = useMemo(() => {
     const total = products.length;
-    let inStock = 0,
-      low = 0,
-      out = 0;
+    let inStock = 0;
+    let low = 0;
+    let out = 0;
+    let expiringSoon = 0;
+
     for (const p of products) {
       const stock = Number(p.stock || 0);
       const minStock = Number(p.minStock || 0);
       if (stock <= 0) out++;
       else if (stock <= minStock) low++;
       else inStock++;
+
+      if (p.pharmacyProduct) {
+        const days = daysUntil(p.nearestExpiry);
+        if (days !== null && days >= 0 && days <= 90 && stock > 0) {
+          expiringSoon++;
+        }
+      }
     }
-    return { total, inStock, low, out };
+
+    return { total, inStock, low, out, expiringSoon };
   }, [products]);
 
-  // ---------- fetching ----------
+  // ============================================================
+  // ENRICH MEDICINES WITH BATCH INFO (async, non-blocking)
+  // ============================================================
+  const enrichWithBatchInfo = useCallback(
+    async (productList, signal) => {
+      if (!orgId || !branchId) return;
+
+      const medicines = productList.filter(
+        (p) => p.pharmacyProduct && p.productId
+      );
+      if (medicines.length === 0) return;
+
+      const results = await Promise.all(
+        medicines.map(async (p) => {
+          try {
+            const res = await axios.get(
+              `/organizations/${orgId}/kxtill/pharmacy/products/${p.productId}/batches`,
+              { params: { branchId }, signal }
+            );
+            const batches = res.data?.batches || [];
+
+            const inBranch = batches
+              .map((b) => {
+                const stockRow = (b.stocks || []).find(
+                  (s) => s.branchId === branchId
+                );
+                return stockRow ? { batch: b, stock: stockRow } : null;
+              })
+              .filter(Boolean)
+              .filter((x) => Number(x.stock.quantityOnHand) > 0);
+
+            if (inBranch.length === 0) {
+              return { id: p.id, batchCount: 0, nearestExpiry: null };
+            }
+
+            const sorted = [...inBranch].sort(
+              (a, b) =>
+                new Date(a.batch.expiryDate) - new Date(b.batch.expiryDate)
+            );
+            return {
+              id: p.id,
+              batchCount: inBranch.length,
+              nearestExpiry: sorted[0].batch.expiryDate,
+            };
+          } catch (err) {
+            return { id: p.id, batchCount: null, nearestExpiry: null };
+          }
+        })
+      );
+
+      if (signal?.aborted || !isMountedRef.current) return;
+
+      const byId = Object.fromEntries(results.map((r) => [r.id, r]));
+
+      setProducts((prev) =>
+        prev.map((p) => {
+          const info = byId[p.id];
+          if (!info) return p;
+          return {
+            ...p,
+            batchCount: info.batchCount,
+            nearestExpiry: info.nearestExpiry,
+          };
+        })
+      );
+    },
+    [orgId, branchId]
+  );
+
+  // ============================================================
+  // FETCH PRODUCTS
+  // ============================================================
   const fetchProducts = useCallback(async () => {
     if (!orgId || !branchId) {
       setLoading(false);
@@ -130,7 +280,6 @@ const Inventory = () => {
       const params = { limit: 100, offset: 0 };
       if (searchTerm) params.search = searchTerm;
       if (categoryFilter !== 'all') params.category = categoryFilter;
-      if (statusFilter === 'low-stock') params.lowStock = true;
       if (showUnavailable) params.includeUnavailable = 'true';
 
       const endpoint = `/organizations/${orgId}/kxtill/branches/${branchId}/products`;
@@ -161,8 +310,8 @@ const Inventory = () => {
           id: p.id,
           branchProductId: p.id,
           productId: p.productId,
-          productName: p.productName,
-          name: p.displayName || p.productName,
+          productName: p.productName || p.name,
+          name: p.displayName || p.productName || p.name,
           displayName: p.displayName,
           description: p.description,
           sku: p.sku || '-',
@@ -175,6 +324,11 @@ const Inventory = () => {
           price: parseFloat(baseUnit.price) || 0,
           baseUnit,
           units: p.units || [],
+          // ← source of truth for medicine detection
+          pharmacyProduct: p.pharmacyProduct || null,
+          // ← filled async, does NOT drive isMedicine
+          batchCount: undefined,
+          nearestExpiry: undefined,
         };
       });
 
@@ -189,6 +343,11 @@ const Inventory = () => {
 
       setProducts(filtered);
       hasLoadedOnceRef.current = true;
+
+      // Async batch enrichment — never blocks render, never changes isMedicine
+      if (isPharmacyOrg) {
+        enrichWithBatchInfo(filtered, controller.signal);
+      }
 
       const uniqueCategories = [
         ...new Set(productData.map((p) => p.category).filter(Boolean)),
@@ -210,9 +369,13 @@ const Inventory = () => {
     statusFilter,
     showUnavailable,
     contextIsOffline,
+    isPharmacyOrg,
+    enrichWithBatchInfo,
   ]);
 
-  // ---------- lifecycle ----------
+  // ============================================================
+  // EFFECTS
+  // ============================================================
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -233,35 +396,38 @@ const Inventory = () => {
     localStorage.setItem('inventoryShowUnavailable', String(showUnavailable));
   }, [showUnavailable]);
 
-  // Restore persisted filter on mount
   useEffect(() => {
     const stored = localStorage.getItem('inventoryShowUnavailable');
     if (stored === 'true') setShowUnavailable(true);
   }, []);
 
-  // Reset paging + skeleton when branch/filters change (not search)
   useEffect(() => {
     hasLoadedOnceRef.current = false;
     setCurrentPage(1);
   }, [branchId, categoryFilter, statusFilter, showUnavailable]);
 
-  // Fetch when filters/branch change
   useEffect(() => {
     if (!orgId || !branchId) return;
     fetchProducts();
-  }, [orgId, branchId, searchTerm, categoryFilter, statusFilter, showUnavailable, fetchProducts]);
+  }, [
+    orgId,
+    branchId,
+    searchTerm,
+    categoryFilter,
+    statusFilter,
+    showUnavailable,
+    fetchProducts,
+  ]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
 
-  // Debounce search input
   useEffect(() => {
     const handler = setTimeout(() => setSearchTerm(searchInput), 400);
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // Close filter popover on outside click
   useEffect(() => {
     if (!showFilterMenu) return;
     const handler = (e) => {
@@ -283,7 +449,9 @@ const Inventory = () => {
     [orgId, branchId]
   );
 
-  // ---------- handlers ----------
+  // ============================================================
+  // HANDLERS
+  // ============================================================
   const handleRefresh = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -306,7 +474,6 @@ const Inventory = () => {
     setCurrentPage(1);
   };
 
-  // Modal handlers
   const openBranchProductModal = (product) => {
     setSelectedProduct(product);
     setBranchProductData({
@@ -333,6 +500,11 @@ const Inventory = () => {
   };
 
   const openStockModal = (product) => {
+    // Guard — medicines never go through direct stock edit
+    if (product.pharmacyProduct) {
+      toast.error('Medicines use batch receiving, not direct stock edit.');
+      return;
+    }
     setSelectedProduct(product);
     setShowStockModal(true);
   };
@@ -342,12 +514,30 @@ const Inventory = () => {
     setSelectedProduct(null);
   };
 
+  const openReceiveBatchModal = (product = null) => {
+    setReceiveBatchForProduct(product);
+    setShowReceiveBatchModal(true);
+  };
+
+  const closeReceiveBatchModal = () => {
+    setShowReceiveBatchModal(false);
+    setReceiveBatchForProduct(null);
+  };
+
+  const openBatchesModal = (product) => {
+    setBatchesModalProduct(product);
+    setShowBatchesModal(true);
+  };
+
+  const closeBatchesModal = () => {
+    setShowBatchesModal(false);
+    setBatchesModalProduct(null);
+  };
+
   const handleViewProduct = (product) => openDetailModal(product);
   const handleEditBranchProduct = (product) => openBranchProductModal(product);
   const handleUpdateStock = (product) => openStockModal(product);
 
-  // Restore a hidden product to this branch (one-click shortcut that
-  // bypasses the full edit modal). Only shown on unavailable rows.
   const handleRestoreAvailability = async (product) => {
     if (!orgId || !branchId || submitting) return;
     setSubmitting(true);
@@ -367,7 +557,6 @@ const Inventory = () => {
     }
   };
 
-  // Branch product update — PATCH, no price
   const handleBranchProductUpdate = async () => {
     if (!selectedProduct || !orgId || !branchId) return;
     const productId = selectedProduct.productId;
@@ -396,7 +585,6 @@ const Inventory = () => {
     }
   };
 
-  // Stock update — PATCH /stock with absolute values
   const handleStockUpdate = async (payload) => {
     if (!selectedProduct || !orgId || !branchId) return;
     const productId = selectedProduct.productId;
@@ -405,23 +593,42 @@ const Inventory = () => {
     try {
       await axios.patch(
         `/organizations/${orgId}/kxtill/branches/${branchId}/products/${productId}/stock`,
-        {
-          stock: payload.stock,
-          minStock: payload.minStock,
-        }
+        { stock: payload.stock, minStock: payload.minStock }
       );
 
       toast.success(`Stock updated: ${payload.stock} ${selectedProduct.unit}`);
       closeStockModal();
       fetchProducts();
 
-      // Push the new stock down to the POS's local SQLite immediately,
-      // rather than waiting for the next 60s poll. Fire-and-forget —
-      // the TopBar reflects engine state via kxtill:sync-* events.
       sync(branchId).catch(() => {});
     } catch (error) {
       console.error('Stock update failed:', error);
       toast.error(error.response?.data?.message || 'Failed to update stock');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReceiveBatchSave = async (payload) => {
+    if (!orgId) return;
+    setSubmitting(true);
+    try {
+      await axios.post(
+        `/organizations/${orgId}/kxtill/pharmacy/batches/receive`,
+        payload
+      );
+      toast.success('Batch received');
+      closeReceiveBatchModal();
+      fetchProducts();
+
+      if (branchId) sync(branchId).catch(() => {});
+    } catch (error) {
+      console.error('Receive batch failed:', error);
+      toast.error(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          'Failed to receive batch'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -456,9 +663,12 @@ const Inventory = () => {
 
   const showSkeleton = loading && !hasLoadedOnceRef.current;
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className={styles.page}>
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.headerTitle}>
@@ -475,50 +685,105 @@ const Inventory = () => {
               <Clock size={14} /> Offline
             </span>
           )}
+          {isPharmacyOrg && canUpdate && (
+            <button
+              className={styles.receiveBatchBtn}
+              onClick={() => openReceiveBatchModal()}
+              type="button"
+            >
+              <Plus size={16} /> Receive Batch
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Stats */}
+      {/* ─── Stats ─── */}
       <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconTotal}`}>
-            <Package size={18} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Total Products</span>
-            <span className={styles.statValue}>{stats.total}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconValue}`}>
-            <Check size={18} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>In Stock</span>
-            <span className={styles.statValue}>{stats.inStock}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconLow}`}>
-            <AlertTriangle size={18} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Low Stock</span>
-            <span className={styles.statValue}>{stats.low}</span>
-          </div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.statIconOut}`}>
-            <AlertCircle size={18} />
-          </div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>Out of Stock</span>
-            <span className={styles.statValue}>{stats.out}</span>
-          </div>
-        </div>
+        {isPharmacyOrg ? (
+          <>
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconTotal}`}>
+                <Package size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Total Products</span>
+                <span className={styles.statValue}>{stats.total}</span>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconExpiring}`}>
+                <CalendarClock size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Expiring (90d)</span>
+                <span className={styles.statValue}>{stats.expiringSoon}</span>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconLow}`}>
+                <AlertTriangle size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Low Stock</span>
+                <span className={styles.statValue}>{stats.low}</span>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconOut}`}>
+                <AlertCircle size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Out of Stock</span>
+                <span className={styles.statValue}>{stats.out}</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconTotal}`}>
+                <Package size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Total Products</span>
+                <span className={styles.statValue}>{stats.total}</span>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconValue}`}>
+                <Check size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>In Stock</span>
+                <span className={styles.statValue}>{stats.inStock}</span>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconLow}`}>
+                <AlertTriangle size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Low Stock</span>
+                <span className={styles.statValue}>{stats.low}</span>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <div className={`${styles.statIcon} ${styles.statIconOut}`}>
+                <AlertCircle size={18} />
+              </div>
+              <div className={styles.statInfo}>
+                <span className={styles.statLabel}>Out of Stock</span>
+                <span className={styles.statValue}>{stats.out}</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Filters */}
+      {/* ─── Filters ─── */}
       <div className={styles.filtersBar}>
         <div className={styles.searchWrapper}>
           <Search size={16} className={styles.searchIcon} />
@@ -556,7 +821,6 @@ const Inventory = () => {
             <option value="out-of-stock">Out of Stock</option>
           </select>
 
-          {/* Secondary filters popover */}
           <div className={styles.filterMenu} ref={filterMenuRef}>
             <button
               type="button"
@@ -629,7 +893,7 @@ const Inventory = () => {
         </div>
       </div>
 
-      {/* Products Display */}
+      {/* ─── Products Display ─── */}
       {showSkeleton ? (
         <div className={styles.loadingState}>
           <RefreshCw size={32} className={styles.spinning} />
@@ -662,17 +926,26 @@ const Inventory = () => {
             const stock = Number(product.stock || 0);
             const minStock = Number(product.minStock || 0);
             const unavailable = !product.isAvailable;
+            const isMedicine = !!product.pharmacyProduct;
+            const nearestDays =
+              product.nearestExpiry !== null && product.nearestExpiry !== undefined
+                ? daysUntil(product.nearestExpiry)
+                : null;
 
             return (
               <div
                 key={product.id}
                 className={`${styles.productCard} ${
                   unavailable ? styles.unavailableCard : ''
-                }`}
+                } ${isMedicine ? styles.medicineCard : ''}`}
               >
                 <div className={styles.productCardHeader}>
-                  <div className={styles.productCardIcon}>
-                    <Package size={20} />
+                  <div
+                    className={`${styles.productCardIcon} ${
+                      isMedicine ? styles.medicineIcon : ''
+                    }`}
+                  >
+                    {isMedicine ? <Pill size={20} /> : <Package size={20} />}
                   </div>
                   <div
                     className={`${styles.productCardStatus} ${
@@ -697,6 +970,41 @@ const Inventory = () => {
                       {product.category}
                     </span>
                   )}
+
+                  {isPharmacyOrg && isMedicine && (
+                    <div className={styles.productCardBatches}>
+                      {product.batchCount === undefined ? (
+                        <span className={styles.mutedCell}>…</span>
+                      ) : product.batchCount === null ? (
+                        <span className={styles.mutedCell}>—</span>
+                      ) : product.batchCount === 0 ? (
+                        <span className={styles.mutedCell}>No batches</span>
+                      ) : (
+                        <>
+                          <span className={styles.batchCount}>
+                            {product.batchCount} batch
+                            {product.batchCount === 1 ? '' : 'es'}
+                          </span>
+                          {nearestDays !== null && (
+                            <span
+                              className={`${styles.batchExpiry} ${
+                                nearestDays < 0
+                                  ? styles.expired
+                                  : nearestDays <= 90
+                                  ? styles.expiringSoon
+                                  : ''
+                              }`}
+                            >
+                              {nearestDays < 0
+                                ? `Expired ${formatExpiry(product.nearestExpiry)}`
+                                : `Expires ${formatExpiry(product.nearestExpiry)} (${nearestDays}d)`}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   <div className={styles.productCardStock}>
                     <span className={styles.productCardStockLabel}>Stock:</span>
                     <span
@@ -731,14 +1039,35 @@ const Inventory = () => {
 
                   {canUpdate && (
                     <>
-                      <button
-                        type="button"
-                        className={styles.productCardActionBtn}
-                        onClick={() => handleUpdateStock(product)}
-                        title="Update Stock"
-                      >
-                        <SlidersHorizontal size={14} />
-                      </button>
+                      {isPharmacyOrg && isMedicine ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`${styles.productCardActionBtn} ${styles.actionReceive}`}
+                            onClick={() => openReceiveBatchModal(product)}
+                            title="Receive batch"
+                          >
+                            <Plus size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.productCardActionBtn} ${styles.actionBatches}`}
+                            onClick={() => openBatchesModal(product)}
+                            title="View batches"
+                          >
+                            <Layers size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.productCardActionBtn}
+                          onClick={() => handleUpdateStock(product)}
+                          title="Update Stock"
+                        >
+                          <SlidersHorizontal size={14} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={styles.productCardActionBtn}
@@ -773,6 +1102,7 @@ const Inventory = () => {
                 <th>Product</th>
                 <th>SKU</th>
                 <th>Category</th>
+                {isPharmacyOrg && <th>Batches</th>}
                 <th>Stock</th>
                 <th>Price</th>
                 <th>Status</th>
@@ -786,6 +1116,11 @@ const Inventory = () => {
                 const stock = Number(product.stock || 0);
                 const minStock = Number(product.minStock || 0);
                 const unavailable = !product.isAvailable;
+                const isMedicine = !!product.pharmacyProduct;
+                const nearestDays =
+                  product.nearestExpiry !== null && product.nearestExpiry !== undefined
+                    ? daysUntil(product.nearestExpiry)
+                    : null;
 
                 return (
                   <tr
@@ -796,8 +1131,16 @@ const Inventory = () => {
                   >
                     <td>
                       <div className={styles.productCell}>
-                        <div className={styles.productCellIcon}>
-                          <Package size={16} />
+                        <div
+                          className={`${styles.productCellIcon} ${
+                            isMedicine ? styles.medicineIcon : ''
+                          }`}
+                        >
+                          {isMedicine ? (
+                            <Pill size={16} />
+                          ) : (
+                            <Package size={16} />
+                          )}
                         </div>
                         <div className={styles.productCellInfo}>
                           <span className={styles.productCellName}>
@@ -813,6 +1156,45 @@ const Inventory = () => {
                     </td>
                     <td>{product.sku !== '-' ? product.sku : '-'}</td>
                     <td>{product.category !== '-' ? product.category : '-'}</td>
+
+                    {isPharmacyOrg && (
+                      <td>
+                        {isMedicine ? (
+                          product.batchCount === undefined ? (
+                            <span className={styles.mutedCell}>…</span>
+                          ) : product.batchCount === null ? (
+                            <span className={styles.mutedCell}>—</span>
+                          ) : product.batchCount === 0 ? (
+                            <span className={styles.mutedCell}>No batches</span>
+                          ) : (
+                            <div className={styles.batchCell}>
+                              <span className={styles.batchCount}>
+                                {product.batchCount} batch
+                                {product.batchCount === 1 ? '' : 'es'}
+                              </span>
+                              {nearestDays !== null && (
+                                <span
+                                  className={`${styles.batchExpiry} ${
+                                    nearestDays < 0
+                                      ? styles.expired
+                                      : nearestDays <= 90
+                                      ? styles.expiringSoon
+                                      : ''
+                                  }`}
+                                >
+                                  {nearestDays < 0
+                                    ? `Expired ${formatExpiry(product.nearestExpiry)}`
+                                    : `${formatExpiry(product.nearestExpiry)} (${nearestDays}d)`}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        ) : (
+                          <span className={styles.mutedCell}>—</span>
+                        )}
+                      </td>
+                    )}
+
                     <td>
                       <span
                         className={stock <= minStock ? styles.stockLow : ''}
@@ -848,14 +1230,35 @@ const Inventory = () => {
 
                         {canUpdate && (
                           <>
-                            <button
-                              type="button"
-                              className={styles.actionBtn}
-                              onClick={() => handleUpdateStock(product)}
-                              title="Update Stock"
-                            >
-                              <SlidersHorizontal size={14} />
-                            </button>
+                            {isPharmacyOrg && isMedicine ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={`${styles.actionBtn} ${styles.actionReceive}`}
+                                  onClick={() => openReceiveBatchModal(product)}
+                                  title="Receive batch"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`${styles.actionBtn} ${styles.actionBatches}`}
+                                  onClick={() => openBatchesModal(product)}
+                                  title="View batches"
+                                >
+                                  <Layers size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className={styles.actionBtn}
+                                onClick={() => handleUpdateStock(product)}
+                                title="Update Stock"
+                              >
+                                <SlidersHorizontal size={14} />
+                              </button>
+                            )}
                             <button
                               type="button"
                               className={styles.actionBtn}
@@ -868,7 +1271,9 @@ const Inventory = () => {
                               <button
                                 type="button"
                                 className={`${styles.actionBtn} ${styles.restore}`}
-                                onClick={() => handleRestoreAvailability(product)}
+                                onClick={() =>
+                                  handleRestoreAvailability(product)
+                                }
                                 disabled={submitting}
                                 title="Restore to branch"
                               >
@@ -887,7 +1292,7 @@ const Inventory = () => {
         </div>
       )}
 
-      {/* Pagination */}
+      {/* ─── Pagination ─── */}
       {totalPages > 1 && (
         <div className={styles.pagination}>
           <button
@@ -914,7 +1319,7 @@ const Inventory = () => {
         </div>
       )}
 
-      {/* Modals */}
+      {/* ─── Modals ─── */}
       <BranchProductModal
         isOpen={showBranchProductModal}
         onClose={closeBranchProductModal}
@@ -933,11 +1338,30 @@ const Inventory = () => {
         formatCurrency={formatCurrency}
         mode="branch"
         activeBranch={activeBranch}
+        isPharmacyOrg={isPharmacyOrg}
         onUpdateStock={
-          canUpdate
+          canUpdate && selectedProduct && !selectedProduct.pharmacyProduct
             ? () => {
                 closeDetailModal();
                 if (selectedProduct) handleUpdateStock(selectedProduct);
+              }
+            : undefined
+        }
+        onReceiveBatch={
+          canUpdate && isPharmacyOrg && selectedProduct?.pharmacyProduct
+            ? () => {
+                const p = selectedProduct;
+                closeDetailModal();
+                openReceiveBatchModal(p);
+              }
+            : undefined
+        }
+        onViewBatches={
+          isPharmacyOrg && selectedProduct?.pharmacyProduct
+            ? () => {
+                const p = selectedProduct;
+                closeDetailModal();
+                openBatchesModal(p);
               }
             : undefined
         }
@@ -958,6 +1382,31 @@ const Inventory = () => {
         product={selectedProduct}
         isSubmitting={submitting}
       />
+
+      {isPharmacyOrg && (
+        <ReceiveBatchModal
+          isOpen={showReceiveBatchModal}
+          onClose={closeReceiveBatchModal}
+          onSave={handleReceiveBatchSave}
+          product={receiveBatchForProduct}
+          isSubmitting={submitting}
+          branches={activeBranch ? [activeBranch] : []}
+          defaultBranchId={activeBranch?.id}
+          currency={activeOrganization?.currency || 'KES'}
+        />
+      )}
+
+      {isPharmacyOrg && (
+        <ProductBatchesModal
+          isOpen={showBatchesModal}
+          onClose={closeBatchesModal}
+          product={batchesModalProduct}
+          orgId={orgId}
+          currency={activeOrganization?.currency || 'KES'}
+          formatCurrency={formatCurrency}
+          fixedBranchId={branchId}
+        />
+      )}
     </div>
   );
 };

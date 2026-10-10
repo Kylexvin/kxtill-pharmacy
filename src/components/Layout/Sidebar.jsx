@@ -160,37 +160,46 @@ const Sidebar = ({ collapsed, isMobile, onClose }) => {
                 data-open={inventoryOpen}
               />
             </button>
-            {inventoryOpen && !collapsed && (
-              <div className={styles.subNav}>
-                {showProducts && (
-                  <NavLink
-                    to="/inventory"
-                    className={subLinkClass}
-                    onClick={handleNavClick}
-                  >
-                    Products
-                  </NavLink>
-                )}
-                {showGlobalInv && (
-                  <NavLink
-                    to="/global-inventory"
-                    className={subLinkClass}
-                    onClick={handleNavClick}
-                  >
-                    Global Inventory
-                  </NavLink>
-                )}
-                {showTransfers && (
-                  <NavLink
-                    to="/transfers"
-                    className={subLinkClass}
-                    onClick={handleNavClick}
-                  >
-                    Stock Transfers
-                  </NavLink>
-                )}
-              </div>
-            )}
+{inventoryOpen && !collapsed && (
+  <div className={styles.subNav}>
+    {showProducts && (
+      <NavLink
+        to="/inventory"
+        className={subLinkClass}
+        onClick={handleNavClick}
+      >
+        Products
+      </NavLink>
+    )}
+    {showGlobalInv && (
+      <NavLink
+        to="/global-inventory"
+        className={subLinkClass}
+        onClick={handleNavClick}
+      >
+        Global Inventory
+      </NavLink>
+    )}
+    {showProducts && (
+      <NavLink
+        to="/inventory/expiring"
+        className={subLinkClass}
+        onClick={handleNavClick}
+      >
+        Expiring Stock
+      </NavLink>
+    )}
+    {showTransfers && (
+      <NavLink
+        to="/transfers"
+        className={subLinkClass}
+        onClick={handleNavClick}
+      >
+        Stock Transfers
+      </NavLink>
+    )}
+  </div>
+)}
           </div>
         )}
 

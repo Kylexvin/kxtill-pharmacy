@@ -23,7 +23,7 @@ import {
   decrementBranchProductStock,
   flushBranchProducts,
 } from '../../db/sqlite';
-import { initialSync, sync } from '../../sync/engine';
+import { initialSync, sync, syncSoon } from '../../sync/engine';
 
 // ============================================================
 // HELPERS
@@ -687,7 +687,8 @@ const handlePaymentComplete = guarded(async ({ method, reference, payments }) =>
       payments: normalizedPayments,
     });
 
-    sync(branchId).catch(() => {});
+    // Push this sale immediately — not on the 120s cycle.
+    syncSoon(branchId);
 
     const receipt = {
       sale: {

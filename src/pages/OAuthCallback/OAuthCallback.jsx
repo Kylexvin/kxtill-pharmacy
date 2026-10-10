@@ -56,8 +56,8 @@ export default function OAuthCallback() {
     axios
       .post(
         '/auth/oauth/token',
-        { code, client_id: 'kxtill' },
-        { skipAuth: true } // <-- don't attach a stale bearer token
+        { code, client_id: 'kxtill-pharmacy' },
+        { skipAuth: true } 
       )
       .then((response) => {
         const { access_token, refresh_token, user, organizations } =
