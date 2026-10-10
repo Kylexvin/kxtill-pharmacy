@@ -477,7 +477,7 @@ const TopBar = ({ isMobile, onToggleSidebar }) => {
             alt="KxTill Logo"
             className={styles.logoImage}
           />
-          <span className={styles.logoText}>KXTILL</span>
+          <span className={styles.logoText}>KXTILL PHARMACY</span>
         </div>
 
         {(orgName || branchName) && (

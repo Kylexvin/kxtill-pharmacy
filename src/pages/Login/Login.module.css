@@ -290,3 +290,398 @@
     height: 20px;
   }
 }
+/* ============================================================
+   login — hero + CTA + modal
+   ============================================================ */
+
+.page {
+  --bg: #0e0f13;
+  --panel: #16171d;
+  --raised: #1b1c23;
+  --raised-hi: #24252e;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #eceef2;
+  --text-muted: #a3a5b0;
+  --text-faint: #62636e;
+  --accent: #ff6a2b;
+  --accent-glow: #ff8c42;
+  --danger: #ef5350;
+  --gold: #d9a84e;
+
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(14, 15, 19, 0.82), rgba(14, 15, 19, 0.92));
+  background-color: var(--bg);
+  padding: 64px 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.page::before,
+.page::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.page::before {
+  width: 460px;
+  height: 460px;
+  top: -140px;
+  right: 8%;
+  background: radial-gradient(circle, rgba(217, 168, 78, 0.18) 0%, rgba(255, 106, 43, 0.06) 55%, transparent 75%);
+}
+
+.page::after {
+  width: 420px;
+  height: 420px;
+  bottom: -160px;
+  left: 8%;
+  background: radial-gradient(circle, rgba(76, 122, 94, 0.14) 0%, rgba(76, 122, 94, 0.04) 55%, transparent 75%);
+}
+
+/* ---------- HERO ---------- */
+
+.hero {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 720px;
+  text-align: center;
+  color: var(--text);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.kxtillLogo {
+  height: 34px;
+  width: auto;
+  object-fit: contain;
+}
+
+.brandSub {
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  font-size: clamp(30px, 5vw, 52px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 0 0 20px;
+  color: var(--text);
+}
+
+.heroLead {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin: 0 auto 32px;
+  max-width: 56ch;
+}
+
+/* ---------- CTA ---------- */
+
+.ctaRow {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 48px;
+}
+
+.primaryCta {
+  padding: 14px 28px;
+  border-radius: 14px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  color: #17181e;
+  background: linear-gradient(150deg, var(--gold), var(--accent));
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(255, 106, 43, 0.36);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.primaryCta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(255, 106, 43, 0.45);
+}
+
+.secondaryCta {
+  padding: 14px 28px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.secondaryCta:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* ---------- FEATURES ---------- */
+
+.features {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.features li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.features li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--gold), var(--accent));
+  box-shadow: 0 0 12px rgba(255, 106, 43, 0.5);
+}
+
+.features strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 7, 10, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: fadeIn 0.18s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modalCard {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  border-radius: 24px;
+  padding: 32px 28px;
+  background: linear-gradient(180deg, rgba(27, 28, 35, 0.95), rgba(22, 23, 29, 0.92));
+  border: 1px solid var(--border-strong);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    0 2px 0 rgba(255, 255, 255, 0.03) inset;
+  animation: slideUp 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+.modalClose {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.modalClose:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.modalTitle {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  margin: 0 0 6px;
+  text-align: center;
+}
+
+.modalSubtitle {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin: 0 0 22px;
+  text-align: center;
+  line-height: 1.45;
+}
+
+/* ---------- reused button styles ---------- */
+
+.error {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border-radius: 11px;
+  background: rgba(239, 83, 80, 0.1);
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  color: #ff8b87;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.kxbyteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 0;
+  border-radius: 12px;
+  border: none;
+  color: #17181e;
+  font-size: 14px;
+  font-weight: 700;
+  background: linear-gradient(150deg, var(--gold), var(--accent));
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(255, 106, 43, 0.32);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kxbyteBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(255, 106, 43, 0.4);
+}
+
+.kxbyteBtn:disabled {
+  opacity: 0.65;
+  cursor: default;
+  transform: none;
+}
+
+.btnLogo {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 18px 0 14px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.socialButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.socialButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(150deg, var(--raised-hi), var(--raised));
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.socialButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+
+.socialButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+
+.legal {
+  margin: 16px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 520px) {
+  .page { padding: 40px 18px; }
+  .heroTitle { font-size: 28px; }
+  .heroLead { font-size: 15px; }
+  .primaryCta,
+  .secondaryCta { padding: 12px 22px; font-size: 14px; }
+  .modalCard { padding: 26px 20px; border-radius: 20px; }
+}
