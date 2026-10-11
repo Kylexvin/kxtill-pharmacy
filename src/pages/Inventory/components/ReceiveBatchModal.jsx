@@ -465,18 +465,7 @@ const ReceiveBatchModal = ({
                       gap: 4,
                     }}
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        fontWeight: 600,
-                        marginBottom: 2,
-                      }}
-                    >
-                      <Info size={11} />
-                      Global pricing (read-only)
-                    </div>
+
                     {globalCost != null && (
                       <div
                         style={{
@@ -497,7 +486,7 @@ const ReceiveBatchModal = ({
                           justifyContent: 'space-between',
                         }}
                       >
-                        <span>Selling price</span>
+                        <span>Current selling price</span>
                         <strong style={{ color: '#eceef2' }}>
                           {formatMoney(globalSellingPrice)}
                         </strong>
