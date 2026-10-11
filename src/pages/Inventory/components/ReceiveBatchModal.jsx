@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Building2,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 
 import axios from 'axios';
@@ -57,13 +58,21 @@ const ReceiveBatchModal = ({
     if (!isOpen) return;
 
     const branch = defaultBranchId || branches[0]?.id || '';
+    const fallbackProduct = product || null;
+
+    // Prefill unitCost from the product's global cost when we already have it.
+    const prefillCost =
+      fallbackProduct?.cost != null && Number(fallbackProduct.cost) > 0
+        ? String(Number(fallbackProduct.cost))
+        : '';
 
     setForm({
       ...emptyForm(),
       branchId: branch,
+      unitCost: prefillCost,
     });
     setErrors({});
-    setSelectedProduct(product || null);
+    setSelectedProduct(fallbackProduct);
     setMedicineSearch('');
     setMedicineResults([]);
   }, [isOpen, product, defaultBranchId, branches]);
@@ -99,6 +108,30 @@ const ReceiveBatchModal = ({
     return () => clearTimeout(timeout);
   }, [isOpen, product, medicineSearch, orgId]);
 
+  // ---------- global pricing reference ----------
+  // Prefer the product's own cost / baseUnit.price. If missing, fall back
+  // to the product cost we already have on the selected branch row.
+  const globalCost = useMemo(() => {
+    if (!selectedProduct) return null;
+    const raw = selectedProduct.cost;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, [selectedProduct]);
+
+  const globalSellingPrice = useMemo(() => {
+    if (!selectedProduct) return null;
+    const bu = selectedProduct.baseUnit;
+    if (!bu) return null;
+    const raw = bu.price;
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, [selectedProduct]);
+
+  const hasGlobalPricing =
+    globalCost != null || globalSellingPrice != null;
+
   // ---------- form ----------
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -127,16 +160,16 @@ const ReceiveBatchModal = ({
     e.preventDefault();
     if (!validate()) return;
 
-const payload = {
-  productId: selectedProduct.productId || selectedProduct.id,
-  branchId: form.branchId,
-  batchNumber: form.batchNumber.trim(),
-  expiryDate: form.expiryDate,
-  quantityBase: parseInt(form.quantityBase, 10),
-  unitCost: parseFloat(form.unitCost),
-  manufacturer: form.manufacturer.trim() || undefined,
-  reason: form.reason.trim() || undefined,
-};
+    const payload = {
+      productId: selectedProduct.productId || selectedProduct.id,
+      branchId: form.branchId,
+      batchNumber: form.batchNumber.trim(),
+      expiryDate: form.expiryDate,
+      quantityBase: parseInt(form.quantityBase, 10),
+      unitCost: parseFloat(form.unitCost),
+      manufacturer: form.manufacturer.trim() || undefined,
+      reason: form.reason.trim() || undefined,
+    };
 
     onSave(payload);
   };
@@ -172,6 +205,9 @@ const payload = {
   }, [expiryDaysFromNow]);
 
   if (!isOpen) return null;
+
+  const formatMoney = (n) =>
+    `${currency} ${Number(n).toFixed(2)}`;
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -411,6 +447,63 @@ const payload = {
                 />
                 {errors.unitCost && (
                   <span className={styles.errorText}>{errors.unitCost}</span>
+                )}
+
+                {/* Global pricing reference — read only */}
+                {hasGlobalPricing && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      background: 'rgba(139, 141, 153, 0.08)',
+                      border: '1px solid rgba(139, 141, 153, 0.15)',
+                      fontSize: 11,
+                      color: '#8b8d99',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontWeight: 600,
+                        marginBottom: 2,
+                      }}
+                    >
+                      <Info size={11} />
+                      Global pricing (read-only)
+                    </div>
+                    {globalCost != null && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <span>Product cost</span>
+                        <strong style={{ color: '#eceef2' }}>
+                          {formatMoney(globalCost)}
+                        </strong>
+                      </div>
+                    )}
+                    {globalSellingPrice != null && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <span>Selling price</span>
+                        <strong style={{ color: '#eceef2' }}>
+                          {formatMoney(globalSellingPrice)}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
