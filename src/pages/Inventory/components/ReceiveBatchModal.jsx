@@ -6,7 +6,7 @@ import {
   CalendarClock,
   Building2,
   AlertCircle,
-  Info,
+  
 } from 'lucide-react';
 
 import axios from 'axios';
