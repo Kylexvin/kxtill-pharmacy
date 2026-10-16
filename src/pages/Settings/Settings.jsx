@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import BranchesTab from './tabs/BranchesTab';
+import MpesaTab from './tabs/MpesaTab';
 import toast from 'react-hot-toast';
 import {
   Settings as SettingsIcon,
@@ -21,18 +22,19 @@ import {
   MapPin,
   FileText,
   ShoppingBag,
+  CreditCard,
 } from 'lucide-react';
 import styles from './Settings.module.css';
 
 // ============================================================
-// TABS — Notifications & Security removed (all dummy fields)
-// Branch + Branches merged into one
+// TABS
 // ============================================================
 const TABS = [
   { id: 'store',    label: 'Store Info', icon: Store },
   { id: 'receipt',  label: 'Receipt',    icon: Receipt },
   { id: 'general',  label: 'General',    icon: Sliders },
   { id: 'branches', label: 'Branches',   icon: Building2 },
+  { id: 'payments', label: 'Payments',   icon: CreditCard },
 ];
 
 const CURRENCIES = ['KES', 'USD', 'EUR', 'GBP', 'UGX', 'TZS'];
@@ -55,7 +57,6 @@ const RECEIPT_TEMPLATES = [
   { value: 'minimal', label: 'Minimal' },
 ];
 
-// Editable keys — matches backend allow-list exactly.
 const EDITABLE_KEYS = [
   'shopName', 'shopPhone', 'shopEmail', 'shopAddress', 'taxNumber',
   'receiptHeader', 'receiptFooter', 'receiptTemplate',
@@ -88,8 +89,6 @@ const TextInput = ({ value, onChange, placeholder, type = 'text', disabled }) =>
     disabled={disabled}
   />
 );
-
-
 
 const Select = ({ value, onChange, options, disabled }) => (
   <select
@@ -161,37 +160,34 @@ const Settings = () => {
     return EDITABLE_KEYS.some((k) => draft[k] !== settings[k]);
   }, [draft, settings]);
 
-  // ---------- handlers ----------
   const setField = (key, value) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
-const handleSave = async () => {
-  if (saving || !canManage || !isDraftDirty) return;
-  setSaving(true);
-  try {
-    // Coerce numeric fields — NumberInput can emit '' on clear
-    const payload = {
-      ...draft,
-      sessionTimeout:    Number(draft.sessionTimeout)    || 30,
-      decimalPlaces:     Number(draft.decimalPlaces)     || 2,
-    };
-    await updateSettings(payload);
-    toast.success('Settings saved');
+  const handleSave = async () => {
+    if (saving || !canManage || !isDraftDirty) return;
+    setSaving(true);
+    try {
+      const payload = {
+        ...draft,
+        sessionTimeout:    Number(draft.sessionTimeout)    || 30,
+        decimalPlaces:     Number(draft.decimalPlaces)     || 2,
+      };
+      await updateSettings(payload);
+      toast.success('Settings saved');
+      window.dispatchEvent(new CustomEvent('kxtill:settings-saved'));
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      toast.error(
+        err.response?.data?.error ||
+          err.response?.data?.message ||
+          err.message ||
+          'Failed to save settings'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
-    // Notify listeners (Dashboard onboarding checklist, etc.)
-    window.dispatchEvent(new CustomEvent('kxtill:settings-saved'));
-  } catch (err) {
-    console.error('Failed to save settings:', err);
-    toast.error(
-      err.response?.data?.error ||
-        err.response?.data?.message ||
-        err.message ||
-        'Failed to save settings'
-    );
-  } finally {
-    setSaving(false);
-  }
-};
   const handleDiscard = () => setDraft(settings ?? {});
 
   const handleResetToDefaults = async () => {
@@ -274,6 +270,8 @@ const handleSave = async () => {
     );
   }
 
+  const isPaymentsTab = activeTab === 'payments';
+
   // ============================================================
   // RENDER
   // ============================================================
@@ -298,33 +296,37 @@ const handleSave = async () => {
         </div>
 
         <div className={styles.heroRight}>
-          <button
-            type="button"
-            className={styles.secondaryBtn}
-            onClick={handleResetToDefaults}
-            disabled={saving || readonly}
-            title="Reset all settings to defaults"
-          >
-            Defaults
-          </button>
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={handleSave}
-            disabled={saving || !isDraftDirty || readonly}
-            title={readonly ? 'Only the owner can save settings' : ''}
-          >
-            {saving ? (
-              <span className={styles.spinnerSmall} />
-            ) : (
-              <Save size={14} />
-            )}
-            <span>{saving ? 'Saving…' : 'Save Changes'}</span>
-          </button>
+          {!isPaymentsTab && (
+            <>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleResetToDefaults}
+                disabled={saving || readonly}
+                title="Reset all settings to defaults"
+              >
+                Defaults
+              </button>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={handleSave}
+                disabled={saving || !isDraftDirty || readonly}
+                title={readonly ? 'Only the owner can save settings' : ''}
+              >
+                {saving ? (
+                  <span className={styles.spinnerSmall} />
+                ) : (
+                  <Save size={14} />
+                )}
+                <span>{saving ? 'Saving…' : 'Save Changes'}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {readonly && (
+      {readonly && !isPaymentsTab && (
         <div className={styles.readonlyBanner}>
           <Lock size={14} />
           <span>
@@ -356,10 +358,9 @@ const handleSave = async () => {
 
       {/* ---------- PANELS ---------- */}
       <div className={styles.tabPanel}>
-        {/* ============ STORE INFO (redesigned) ============ */}
+        {/* ============ STORE INFO ============ */}
         {activeTab === 'store' && (
           <div className={styles.panels}>
-            {/* Identity section */}
             <section className={styles.section}>
               <header className={styles.sectionHeader}>
                 <div className={styles.sectionIcon}>
@@ -389,7 +390,6 @@ const handleSave = async () => {
               </div>
             </section>
 
-            {/* Contact section */}
             <section className={styles.section}>
               <header className={styles.sectionHeader}>
                 <div className={styles.sectionIcon}>
@@ -436,7 +436,6 @@ const handleSave = async () => {
               </div>
             </section>
 
-            {/* Compliance section */}
             <section className={styles.section}>
               <header className={styles.sectionHeader}>
                 <div className={styles.sectionIcon}>
@@ -472,7 +471,7 @@ const handleSave = async () => {
           </div>
         )}
 
-        {/* ============ RECEIPT (next turn) ============ */}
+        {/* ============ RECEIPT ============ */}
         {activeTab === 'receipt' && (
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -535,7 +534,7 @@ const handleSave = async () => {
           </div>
         )}
 
-        {/* ============ GENERAL (next turn) ============ */}
+        {/* ============ GENERAL ============ */}
         {activeTab === 'general' && (
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -586,7 +585,7 @@ const handleSave = async () => {
           </div>
         )}
 
-        {/* ============ BRANCHES (merged, next turn) ============ */}
+        {/* ============ BRANCHES ============ */}
         {activeTab === 'branches' && (
           <>
             <div className={styles.section}>
@@ -609,10 +608,13 @@ const handleSave = async () => {
             <BranchesTab />
           </>
         )}
+
+        {/* ============ PAYMENTS ============ */}
+        {activeTab === 'payments' && <MpesaTab />}
       </div>
 
       {/* ---------- STICKY DIRTY BAR ---------- */}
-      {isDraftDirty && (
+      {!isPaymentsTab && isDraftDirty && (
         <div className={styles.dirtyBar}>
           <div className={styles.dirtyText}>
             <AlertCircle size={14} />
